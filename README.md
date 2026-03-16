@@ -2,19 +2,52 @@
 <img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
 </div>
 
-# Run and deploy your AI Studio app
+# COO/CFO in a Box
 
-This contains everything you need to run your app locally.
+Tu asistente personal de IA para gestionar una agencia unipersonal. Coordina proyectos, gestiona clientes y controla finanzas automáticamente.
 
-View your app in AI Studio: https://ai.studio/apps/drive/1l2rOo-dFymkKc0ARSIehWJct1scRm27g
+## ✨ Características
 
-## Run Locally
+- **🤖 Director AI**: Asistente IA que entiende lenguaje natural y ejecuta acciones
+- **📊 Dashboard**: Vista ejecutiva con métricas clave
+- **📅 Gantt**: Visualización de proyectos en timeline
+- **💰 Finanzas**: Control de flujo de caja, clientes y cuotas
+- **🏢 Spaces**: Workspaces múltiples para diferentes negocios
+- **⚙️ Configuración**: Personaliza tarifas, capacidad y reglas de negocio
 
-**Prerequisites:**  Node.js
+## 🚀 Ejecutar Localmente
 
+**Prerequisites:** Node.js
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+```bash
+# 1. Instalar dependencias
+npm install
+
+# 2. Configurar API Key de Groq en .env.local
+# Obtén tu key gratis en: https://console.groq.com
+VITE_GROQ_API_KEY=tu_api_key_aqui
+
+# 3. Ejecutar
+npm run dev
+```
+
+## 🛠️ Stack
+
+- **Frontend**: React 19 + Vite + TypeScript
+- **IA**: Groq (GPT-OSS 120B) con function calling
+- **Estilos**: Tailwind CSS
+- **Gráficos**: Recharts
+- **Persistencia**: LocalStorage (temporal) / Supabase (opcional)
+
+## 📡 APIs Utilizadas
+
+- **Groq API**: Motor de IA (modelo: `openai/gpt-oss-120b`)
+- **Supabase** (opcional): Persistencia de datos
+
+## 🌐 Despliegue
+
+El proyecto está desplegado en: https://superagencia.eduhootie.com
+
+## 📝 Licencia
+
+MIT
