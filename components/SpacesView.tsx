@@ -1,0 +1,1867 @@
+
+import React, { useState, useMemo, useEffect } from 'react';
+import { useSpaces } from '../contexts/SpacesContext';
+import { Space, SpaceFolder, SpaceList, SpaceTask, SpaceEvent, TaskPriority, TaskStatus, DeadlineType } from '../spacesTypes';
+import { getPriorityBadgeStyle } from '../utils/schedulingUtils';
+import { getFormattedSlack } from '../utils/schedulingLogic';
+import GanttChartView from './GanttChartView';
+import SettingsView from './SettingsView';
+
+type ViewMode = 'lista' | 'kanban' | 'gantt' | 'calendar' | 'settings';
+type GroupBy = 'estado' | 'prioridad' | 'fecha';
+
+// Translation maps for UI labels
+const STATUS_LABELS: Record<TaskStatus, string> = {
+    'TODO': 'Pendiente',
+    'ACTIVE': 'En curso',
+    'DONE': 'Hecho'
+};
+
+const PRIORITY_LABELS: Record<TaskPriority, string> = {
+    'ASAP': 'Urgente',
+    'High': 'Alta',
+    'Medium': 'Normal',
+    'Low': 'Baja'
+};
+
+const STATUS_ORDER: TaskStatus[] = ['TODO', 'ACTIVE', 'DONE'];
+const PRIORITY_ORDER: TaskPriority[] = ['ASAP', 'High', 'Medium', 'Low'];
+
+// Due date grouping helpers
+const getDueDateGroup = (dueDate: string): string => {
+    if (!dueDate) return 'Sin fecha límite';
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const due = new Date(dueDate);
+    due.setHours(0, 0, 0, 0);
+    const diffDays = Math.floor((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) return 'Con atraso';
+    if (diffDays === 0) return 'Hoy';
+    if (diffDays === 1) return 'Mañana';
+    if (diffDays <= 7) return 'Esta semana';
+    return 'Futuro';
+};
+
+const DUE_DATE_ORDER = ['Con atraso', 'Hoy', 'Mañana', 'Esta semana', 'Futuro', 'Sin fecha límite'];
+
+// Helper functions
+const formatDuration = (minutes: number) => {
+    if (minutes >= 60) {
+        const h = minutes / 60;
+        return `${Number.isInteger(h) ? h : h.toFixed(1)}h`;
+    }
+    return `${minutes}m`;
+};
+
+const getPriorityStyle = (p: TaskPriority) => {
+    switch (p) {
+        case 'ASAP': return 'bg-purple-100 text-purple-700 border-purple-300';
+        case 'High': return 'bg-red-100 text-red-700 border-red-300';
+        case 'Medium': return 'bg-orange-100 text-orange-700 border-orange-300';
+        case 'Low': return 'bg-emerald-100 text-emerald-700 border-emerald-300';
+        default: return 'bg-slate-100 text-slate-700 border-slate-300';
+    }
+};
+
+const getStatusFromProgress = (progress: number): TaskStatus => {
+    if (progress <= 0) return 'TODO';
+    if (progress >= 100) return 'DONE';
+    return 'ACTIVE';
+};
+
+// Default task template
+const getDefaultTask = (): Omit<SpaceTask, 'id' | 'orden'> => ({
+    nombre: '',
+    estado: 'TODO',
+    progress: 0,
+    autoSchedule: true,
+    startDate: '',
+    endDate: '', // Empty by default
+    dueDate: '', // Empty by default (Optional)
+    deadlineType: 'Soft Deadline',
+    duration: 60,
+    elasticity: 1,
+    priority: 'Medium',
+    totalValue: 0,
+});
+
+// Input component
+const Input = ({ label, value, onChange, type = "text", list, className = "" }: any) => (
+    <div className={`space-y-1.5 flex-1 ${className}`}>
+        <label className="text-[9px] font-black uppercase text-slate-400 ml-1 tracking-widest">{label}</label>
+        <input
+            list={list}
+            type={type}
+            value={value}
+            onChange={e => onChange(e.target.value)}
+            className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all"
+        />
+    </div>
+);
+
+// Helper for user-friendly date formatting
+const formatFriendlyDate = (dateStr: string) => {
+    if (!dateStr) return '-';
+    // Handle both YYYY-MM-DD and ISO string
+    const date = new Date(dateStr);
+    if (isNaN(date.getTime())) return '-';
+
+    // If it has time component (T) and not T00:00:00ish, show time
+    // Basic check: if original string length > 10, assume time matters
+    const hasTime = dateStr.includes('T') && dateStr.length > 10;
+
+    const day = date.getDate();
+    const month = date.toLocaleDateString('es-ES', { month: 'short' });
+
+    if (hasTime) {
+        const time = date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+        return `${day} ${month}, ${time}`;
+    }
+    return `${day} ${month}`;
+};
+
+// ==================== LISTA VIEW (TABLE-BASED) ====================
+// Column definitions
+type ColumnId = 'nombre' | 'startDate' | 'dueDate' | 'priority' | 'estado' | 'duration' | 'progress' | 'slack';
+const ALL_COLUMNS: { id: ColumnId; label: string; width: string }[] = [
+    { id: 'nombre', label: 'Nombre', width: 'flex-1 min-w-[200px]' },
+    { id: 'startDate', label: 'Fecha inicio', width: 'w-28' },
+    { id: 'dueDate', label: 'Fecha límite', width: 'w-28' },
+    { id: 'priority', label: 'Prioridad', width: 'w-24' },
+    { id: 'slack', label: 'Margen', width: 'w-24' },
+    { id: 'estado', label: 'Estado', width: 'w-28' },
+    { id: 'duration', label: 'Esfuerzo', width: 'w-20' },
+    { id: 'progress', label: 'Progreso', width: 'w-20' },
+];
+
+const ListaView: React.FC<{
+    tasks: SpaceTask[];
+    rules: any; // BusinessRules from state
+    groupBy: GroupBy;
+    onEditTask: (t: SpaceTask) => void;
+    onToggleTask: (taskId: string) => void;
+    onDeleteTask: (task: SpaceTask) => void;
+    onAddSubtask: (parentTask: SpaceTask) => void;
+    onAddTask: (defaults: Partial<SpaceTask>) => void;
+}> = ({ tasks, rules, groupBy, onEditTask, onToggleTask, onDeleteTask, onAddSubtask, onAddTask }) => {
+    const [columnOrder, setColumnOrder] = useState<ColumnId[]>(() => {
+        try {
+            const saved = localStorage.getItem('lista_column_order');
+            const defaultOrder: ColumnId[] = ['nombre', 'startDate', 'dueDate', 'priority', 'slack', 'estado', 'duration', 'progress'];
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                // Merge missing columns into saved order (append at end or specific position)
+                const missing = defaultOrder.filter(id => !parsed.includes(id));
+                return [...parsed, ...missing];
+            }
+            return defaultOrder;
+        } catch { return ['nombre', 'startDate', 'dueDate', 'priority', 'slack', 'estado', 'duration', 'progress']; }
+    });
+    const [visibleColumns, setVisibleColumns] = useState<ColumnId[]>(() => {
+        try {
+            const saved = localStorage.getItem('lista_columns');
+            return saved ? JSON.parse(saved) : ['nombre', 'startDate', 'dueDate', 'priority', 'slack', 'estado'];
+        } catch { return ['nombre', 'startDate', 'dueDate', 'priority', 'slack', 'estado']; }
+    });
+    const [showColumnSelector, setShowColumnSelector] = useState(false);
+    const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
+    const [expandedTasks, setExpandedTasks] = useState<Record<string, boolean>>({});
+    const [draggedColumn, setDraggedColumn] = useState<ColumnId | null>(null);
+
+    useEffect(() => {
+        localStorage.setItem('lista_column_order', JSON.stringify(columnOrder));
+    }, [columnOrder]);
+    useEffect(() => {
+        localStorage.setItem('lista_columns', JSON.stringify(visibleColumns));
+    }, [visibleColumns]);
+
+    const toggleColumn = (colId: ColumnId) => {
+        if (colId === 'nombre') return;
+        setVisibleColumns(prev => prev.includes(colId) ? prev.filter(c => c !== colId) : [...prev, colId]);
+    };
+
+    const toggleGroupCollapse = (key: string) => {
+        setCollapsedGroups(prev => ({ ...prev, [key]: !prev[key] }));
+    };
+
+    const toggleTaskExpand = (taskId: string) => {
+        setExpandedTasks(prev => ({ ...prev, [taskId]: !prev[taskId] }));
+    };
+
+    const handleDragStart = (colId: ColumnId) => {
+        if (colId === 'nombre') return;
+        setDraggedColumn(colId);
+    };
+    const handleDragOver = (e: React.DragEvent, targetColId: ColumnId) => {
+        e.preventDefault();
+        if (!draggedColumn || draggedColumn === targetColId || targetColId === 'nombre') return;
+    };
+    const handleDrop = (targetColId: ColumnId) => {
+        if (!draggedColumn || draggedColumn === targetColId || targetColId === 'nombre') {
+            setDraggedColumn(null);
+            return;
+        }
+        const newOrder = [...columnOrder];
+        const dragIdx = newOrder.indexOf(draggedColumn);
+        const targetIdx = newOrder.indexOf(targetColId);
+        newOrder.splice(dragIdx, 1);
+        newOrder.splice(targetIdx, 0, draggedColumn);
+        setColumnOrder(newOrder);
+        setDraggedColumn(null);
+    };
+
+    const getGroups = (): { key: string; label: string; tasks: SpaceTask[]; color: string; icon: string }[] => {
+        if (groupBy === 'estado') {
+            return STATUS_ORDER.map(status => ({
+                key: status, label: STATUS_LABELS[status], tasks: tasks.filter(t => t.estado === status),
+                color: status === 'TODO' ? 'bg-orange-500' : status === 'ACTIVE' ? 'bg-blue-500' : 'bg-green-500',
+                icon: status === 'TODO' ? 'fa-circle-dot' : status === 'ACTIVE' ? 'fa-spinner' : 'fa-check-circle'
+            }));
+        } else if (groupBy === 'prioridad') {
+            return PRIORITY_ORDER.map(priority => ({
+                key: priority, label: PRIORITY_LABELS[priority], tasks: tasks.filter(t => t.priority === priority),
+                color: priority === 'ASAP' ? 'bg-purple-500' : priority === 'High' ? 'bg-red-500' : priority === 'Medium' ? 'bg-orange-500' : 'bg-emerald-500',
+                icon: priority === 'ASAP' ? 'fa-bolt' : 'fa-flag'
+            }));
+        } else {
+            return DUE_DATE_ORDER.map(group => ({
+                key: group, label: group, tasks: tasks.filter(t => getDueDateGroup(t.dueDate) === group),
+                color: group === 'Con atraso' ? 'bg-red-500' : group === 'Hoy' ? 'bg-orange-500' : 'bg-slate-400',
+                icon: group === 'Con atraso' ? 'fa-exclamation-triangle' : 'fa-calendar'
+            }));
+        }
+    };
+
+    const groups = getGroups();
+    const orderedColumns = columnOrder.filter(id => visibleColumns.includes(id)).map(id => ALL_COLUMNS.find(c => c.id === id)!);
+
+    const renderCell = (task: SpaceTask, colId: ColumnId, level: number = 0) => {
+        const hasSubtasks = task.subtasks && task.subtasks.length > 0;
+        const isExpanded = expandedTasks[task.id];
+        switch (colId) {
+            case 'nombre':
+                return (
+                    <div className="flex items-center gap-2" style={{ paddingLeft: level * 20 }}>
+                        {hasSubtasks ? (
+                            <button onClick={(e) => { e.stopPropagation(); toggleTaskExpand(task.id); }}
+                                className="w-5 h-5 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100">
+                                <i className={`fa-solid fa-chevron-${isExpanded ? 'down' : 'right'} text-[9px]`}></i>
+                            </button>
+                        ) : <div className="w-5"></div>}
+                        <button onClick={(e) => { e.stopPropagation(); onToggleTask(task.id); }}
+                            className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${task.estado === 'DONE' ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-blue-500'}`}>
+                            {task.estado === 'DONE' && <i className="fa-solid fa-check text-[8px]"></i>}
+                        </button>
+                        <span className={`text-sm font-medium truncate ${task.estado === 'DONE' ? 'line-through text-slate-400' : 'text-slate-700'}`}>{task.nombre}</span>
+                        {task.hasConflict && (
+                            <span className="text-[10px] text-red-500 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 flex items-center gap-1">
+                                <i className="fa-solid fa-triangle-exclamation"></i>
+                                Conflicto
+                            </span>
+                        )}
+                        {hasSubtasks && (
+                            <span className="text-[9px] text-slate-400 bg-slate-100 px-1.5 rounded"><i className="fa-solid fa-diagram-project mr-1"></i>{task.subtasks!.filter(s => s.estado === 'DONE').length}/{task.subtasks!.length}</span>
+                        )}
+                    </div>
+                );
+            case 'startDate': return <span className="text-xs text-slate-500 whitespace-nowrap">{formatFriendlyDate(task.startDate)}</span>;
+            case 'dueDate': return <span className="text-xs text-slate-500 whitespace-nowrap">{formatFriendlyDate(task.dueDate)}</span>;
+            case 'priority': return <span className={`text-[9px] font-black uppercase px-2 py-1 rounded ${getPriorityStyle(task.priority)}`}>{PRIORITY_LABELS[task.priority]}</span>;
+            case 'slack': {
+                const slack = getFormattedSlack(task as any, rules);
+                return <span className={`text-[9px] font-bold ${slack.isOverdue ? 'text-red-500 bg-red-50' : 'text-emerald-600 bg-emerald-50'} px-2 py-1 rounded border border-current opacity-80`}>{slack.text}</span>;
+            }
+            case 'estado': return <span className={`text-[9px] font-black uppercase px-2 py-1 rounded ${task.estado === 'TODO' ? 'bg-orange-100 text-orange-700' : task.estado === 'ACTIVE' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>{STATUS_LABELS[task.estado]}</span>;
+            case 'duration': return <span className="text-xs text-slate-500">{formatDuration(task.duration)}</span>;
+            case 'progress': return <span className="text-xs text-slate-500">{task.progress}%</span>;
+            default: return null;
+        }
+    };
+
+    if (tasks.length === 0) {
+        return (<div className="text-center py-12"><i className="fa-solid fa-inbox text-4xl text-slate-300 mb-3"></i><p className="text-sm text-slate-500">No hay tareas en esta lista</p></div>);
+    }
+
+    return (
+        <div className="space-y-4 pb-20">
+            <div className="flex justify-end relative">
+                <button onClick={() => setShowColumnSelector(!showColumnSelector)} className="text-[10px] font-bold text-slate-400 hover:text-slate-600 flex items-center gap-1 px-3 py-1.5 rounded-lg hover:bg-slate-100 relative z-50">
+                    <i className="fa-solid fa-table-columns"></i> Columnas
+                </button>
+                {showColumnSelector && (
+                    <>
+                        <div className="fixed inset-0 z-40" onClick={() => setShowColumnSelector(false)}></div>
+                        <div className="absolute top-8 right-0 bg-white border border-slate-200 rounded-xl shadow-xl p-3 z-50 min-w-[180px] animate-in slide-in-from-top-2">
+                            {ALL_COLUMNS.map(col => (
+                                <label key={col.id} className="flex items-center gap-2 py-1.5 px-2 hover:bg-slate-50 rounded-lg cursor-pointer">
+                                    <input type="checkbox" checked={visibleColumns.includes(col.id)} onChange={() => toggleColumn(col.id)} disabled={col.id === 'nombre'} className="w-4 h-4 rounded border-slate-300" />
+                                    <span className="text-xs text-slate-600">{col.label}</span>
+                                </label>
+                            ))}
+                        </div>
+                    </>
+                )}
+            </div>
+            {groups.map(group => {
+                if (group.tasks.length === 0) return null;
+                const isCollapsed = collapsedGroups[group.key];
+                return (
+                    <div key={group.key} className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+                        <div className="flex items-center gap-3 px-4 py-3 bg-slate-50 border-b border-slate-100 cursor-pointer hover:bg-slate-100" onClick={() => toggleGroupCollapse(group.key)}>
+                            <i className={`fa-solid fa-chevron-${isCollapsed ? 'right' : 'down'} text-[10px] text-slate-400`}></i>
+                            <span className={`w-2 h-2 rounded-full ${group.color}`}></span>
+                            <i className={`fa-solid ${group.icon} text-[10px] text-slate-400`}></i>
+                            <span className="text-xs font-black uppercase text-slate-600">{group.label}</span>
+                            <span className="text-[10px] text-slate-400 font-bold">{group.tasks.length}</span>
+                        </div>
+                        {!isCollapsed && (
+                            <div className="overflow-x-auto">
+                                <div className="flex items-center gap-2 px-4 py-2 border-b border-slate-100 bg-slate-50/50 min-w-max">
+                                    {orderedColumns.map(col => (
+                                        <div
+                                            key={col.id}
+                                            className={`${col.width} text-[9px] font-black uppercase px-2 ${col.id === 'nombre' ? 'text-slate-400' : 'text-slate-400 cursor-grab hover:text-slate-600 hover:bg-slate-100 rounded'} ${draggedColumn === col.id ? 'opacity-50' : ''}`}
+                                            draggable={col.id !== 'nombre'}
+                                            onDragStart={() => handleDragStart(col.id)}
+                                            onDragOver={(e) => handleDragOver(e, col.id)}
+                                            onDrop={() => handleDrop(col.id)}
+                                            onDragEnd={() => setDraggedColumn(null)}
+                                        >
+                                            {col.id !== 'nombre' && <i className="fa-solid fa-grip-vertical mr-1 text-[8px] text-slate-300"></i>}
+                                            {col.label}
+                                        </div>
+                                    ))}
+                                    <div className="w-16"></div>
+                                </div>
+                                {/* Recursive TaskRow Component */}
+                                {(() => {
+                                    const renderTaskRow = (task: SpaceTask, level: number = 0): React.ReactNode => {
+                                        const hasSubtasks = task.subtasks && task.subtasks.length > 0;
+                                        const isExpanded = expandedTasks[task.id];
+                                        return (
+                                            <React.Fragment key={task.id}>
+                                                <div onClick={() => onEditTask(task)} className={`flex items-center gap-2 px-4 py-2.5 border-b border-slate-50 hover:bg-blue-50/50 cursor-pointer group min-w-max ${level > 0 ? 'bg-slate-50/30' : ''}`}>
+                                                    {orderedColumns.map(col => (<div key={col.id} className={`${col.width} px-2`}>{renderCell(task, col.id, level)}</div>))}
+                                                    <div className="w-16 flex items-center gap-1 opacity-0 group-hover:opacity-100">
+                                                        <button onClick={(e) => { e.stopPropagation(); onAddSubtask(task); }} className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-blue-600 rounded"><i className="fa-solid fa-plus text-[10px]"></i></button>
+                                                        <button onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }} className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-red-500 rounded"><i className="fa-solid fa-trash text-[10px]"></i></button>
+                                                    </div>
+                                                </div>
+                                                {/* Render subtasks if expanded */}
+                                                {isExpanded && hasSubtasks && task.subtasks!.map(sub => renderTaskRow(sub, level + 1))}
+                                            </React.Fragment>
+                                        );
+                                    };
+                                    return group.tasks.map(task => renderTaskRow(task, 0));
+                                })()}
+                                {/* Add Task Button - Now functional */}
+                                <div
+                                    className="flex items-center gap-2 px-4 py-2 text-slate-400 hover:bg-slate-50 cursor-pointer"
+                                    onClick={() => {
+                                        const defaultData: Partial<SpaceTask> = {
+                                            ...getDefaultTask(),
+                                            nombre: '',
+                                            // Set group-specific defaults
+                                            ...(groupBy === 'estado' ? { estado: group.key as TaskStatus } : {}),
+                                            ...(groupBy === 'prioridad' ? { priority: group.key as TaskPriority } : {}),
+                                        };
+                                        onAddTask(defaultData);
+                                    }}
+                                >
+                                    <i className="fa-solid fa-plus text-[10px]"></i>
+                                    <span className="text-xs">Añadir Tarea</span>
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
+// ==================== KANBAN VIEW ====================
+const KanbanView: React.FC<{
+    tasks: SpaceTask[];
+    groupBy: GroupBy;
+    onEditTask: (t: SpaceTask) => void;
+    onUpdateTask: (id: string, updates: Partial<SpaceTask>) => void;
+}> = ({ tasks, groupBy, onEditTask, onUpdateTask }) => {
+
+    // Drag & Drop Handlers
+    const handleDragStart = (e: React.DragEvent, taskId: string) => {
+        e.dataTransfer.setData('taskId', taskId);
+        e.dataTransfer.effectAllowed = 'move';
+    };
+
+    const handleDragOver = (e: React.DragEvent) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = 'move';
+    };
+
+    const handleDrop = (e: React.DragEvent, groupKey: string) => {
+        e.preventDefault();
+        const taskId = e.dataTransfer.getData('taskId');
+        if (!taskId) return;
+
+        // Verify if we are moving to a different group
+        const task = tasks.find(t => t.id === taskId);
+        if (!task) return;
+
+        if (groupBy === 'estado') {
+            if (task.estado !== groupKey) {
+                let newProgress = task.progress;
+                const newStatus = groupKey as TaskStatus;
+
+                // Auto-update progress based on status change
+                if (newStatus === 'DONE') newProgress = 100;
+                else if (newStatus === 'TODO') newProgress = 0;
+                else if (newStatus === 'ACTIVE' && (task.progress === 0 || task.progress === 100)) {
+                    newProgress = 10; // Default to 10% if coming from complete/empty
+                }
+
+                onUpdateTask(taskId, { estado: newStatus, progress: newProgress });
+            }
+        } else if (groupBy === 'prioridad') {
+            if (task.priority !== groupKey) onUpdateTask(taskId, { priority: groupKey as TaskPriority });
+        }
+        // TODO: Handle date grouping drops if needed
+    };
+
+    // Dynamic columns based on groupBy
+    const getColumns = (): { id: string; label: string; icon: string; color: string; bgColor: string; filterFn: (t: SpaceTask) => boolean }[] => {
+        if (groupBy === 'estado') {
+            return [
+                { id: 'TODO', label: 'Pendiente', icon: 'fa-circle-dot', color: 'text-orange-500', bgColor: 'bg-orange-500', filterFn: t => t.estado === 'TODO' },
+                { id: 'ACTIVE', label: 'En curso', icon: 'fa-spinner', color: 'text-blue-500', bgColor: 'bg-blue-500', filterFn: t => t.estado === 'ACTIVE' },
+                { id: 'DONE', label: 'Hecho', icon: 'fa-check-circle', color: 'text-emerald-500', bgColor: 'bg-emerald-500', filterFn: t => t.estado === 'DONE' }
+            ];
+        } else if (groupBy === 'prioridad') {
+            return [
+                { id: 'ASAP', label: 'Urgente', icon: 'fa-bolt', color: 'text-purple-500', bgColor: 'bg-purple-500', filterFn: t => t.priority === 'ASAP' },
+                { id: 'High', label: 'Alta', icon: 'fa-arrow-up', color: 'text-red-500', bgColor: 'bg-red-500', filterFn: t => t.priority === 'High' },
+                { id: 'Medium', label: 'Normal', icon: 'fa-minus', color: 'text-orange-500', bgColor: 'bg-orange-500', filterFn: t => t.priority === 'Medium' },
+                { id: 'Low', label: 'Baja', icon: 'fa-arrow-down', color: 'text-emerald-500', bgColor: 'bg-emerald-500', filterFn: t => t.priority === 'Low' }
+            ];
+        } else {
+            return DUE_DATE_ORDER.map(group => ({
+                id: group,
+                label: group,
+                icon: group === 'Con atraso' ? 'fa-exclamation-triangle' : group === 'Hoy' ? 'fa-clock' : 'fa-calendar',
+                color: group === 'Con atraso' ? 'text-red-500' : group === 'Hoy' ? 'text-orange-500' : 'text-slate-400',
+                bgColor: group === 'Con atraso' ? 'bg-red-500' : group === 'Hoy' ? 'bg-orange-500' : 'bg-slate-400',
+                filterFn: (t: SpaceTask) => getDueDateGroup(t.dueDate) === group
+            }));
+        }
+    };
+    const columns = getColumns();
+
+    return (
+        <div className="flex gap-4 h-full min-h-[400px] overflow-x-auto pb-4">
+            {columns.map(col => {
+                const colTasks = tasks.filter(col.filterFn);
+                return (
+                    <div
+                        key={col.id}
+                        className="flex flex-col bg-slate-50/50 rounded-2xl p-3 border border-slate-100 shadow-inner min-w-[220px] shrink-0"
+                        onDragOver={handleDragOver}
+                        onDrop={(e) => handleDrop(e, col.id)}
+                    >
+                        <div className="flex items-center justify-between mb-4 px-2">
+                            <div className="flex items-center gap-2">
+                                <i className={`fa-solid ${col.icon} ${col.color} text-xs`}></i>
+                                <h3 className="text-[10px] font-black uppercase tracking-widest text-slate-500">{col.label}</h3>
+                            </div>
+                            <span className="text-[10px] font-black bg-white px-2 py-0.5 rounded-full border border-slate-200 text-slate-400">
+                                {tasks.filter(col.filterFn).length}
+                            </span>
+                        </div>
+                        <div className="flex-1 space-y-3 overflow-y-auto custom-scrollbar pr-1">
+                            {tasks.filter(col.filterFn).map(task => {
+                                const slack = getFormattedSlack({ dueDate: task.dueDate, duration: task.duration });
+
+                                return (
+                                    <div
+                                        key={task.id}
+                                        draggable
+                                        onDragStart={(e) => handleDragStart(e, task.id)}
+                                        onClick={() => onEditTask(task)}
+                                        className={`bg-white p-5 rounded-2xl border shadow-sm hover:shadow-md transition-all cursor-pointer group relative overflow-hidden ${task.hasConflict ? 'border-red-400 ring-1 ring-red-400 hover:border-red-500 hover:ring-red-500' : 'border-slate-200 hover:border-blue-200'}`}
+                                    >
+                                        {/* Priority Indicator Line */}
+                                        <div className={`absolute top-0 left-0 w-1 h-full ${task.priority === 'ASAP' ? 'bg-purple-500' :
+                                            task.priority === 'High' ? 'bg-red-500' :
+                                                task.priority === 'Medium' ? 'bg-orange-400' : 'bg-emerald-400'
+                                            }`}></div>
+
+                                        <div className="flex justify-between items-start mb-3 pl-2">
+                                            <h4 className="font-bold text-slate-800 text-sm leading-tight group-hover:text-blue-600 transition-colors line-clamp-2">
+                                                {task.nombre}
+                                            </h4>
+                                        </div>
+
+                                        <div className="pl-2 space-y-3">
+                                            {task.clientName && (
+                                                <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">
+                                                    {task.clientName}
+                                                </p>
+                                            )}
+
+                                            <div className="flex flex-wrap gap-2">
+                                                <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded border ${getPriorityStyle(task.priority)}`}>
+                                                    {PRIORITY_LABELS[task.priority]}
+                                                </span>
+                                                {task.elasticity === 0 && (
+                                                    <span className="text-[8px] font-black uppercase px-2 py-0.5 rounded border bg-yellow-50 text-yellow-600 border-yellow-200">
+                                                        Rígido
+                                                    </span>
+                                                )}
+                                            </div>
+
+                                            {/* Metrics Box */}
+                                            <div className="bg-slate-50 rounded-xl p-3 border border-slate-100/50 space-y-2">
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-[9px] font-black text-slate-400 uppercase">Margen</span>
+                                                    <span className={`text-[9px] font-black ${slack.isOverdue ? 'text-red-500' : 'text-emerald-500'}`}>
+                                                        {slack.text}
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between items-center">
+                                                    <span className="text-[9px] font-black text-slate-400 uppercase">Esfuerzo</span>
+                                                    <span className="text-[9px] font-bold text-slate-600">
+                                                        {formatDuration(task.duration)}
+                                                    </span>
+                                                </div>
+                                                <div className="flex justify-between items-center pt-2 border-t border-slate-200/50">
+                                                    <span className="text-[9px] font-black text-slate-400 uppercase">Entrega</span>
+                                                    <span className="text-[9px] font-bold text-slate-600">
+                                                        {formatFriendlyDate(task.dueDate)}
+                                                    </span>
+                                                </div>
+                                            </div>
+
+                                            {/* Progress Bar */}
+                                            <div className="space-y-1">
+                                                <div className="flex justify-between items-center text-[8px] font-black uppercase">
+                                                    <span className="text-slate-400">Progreso</span>
+                                                    <span className="text-blue-600">{task.progress}%</span>
+                                                </div>
+                                                <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden">
+                                                    <div className="bg-blue-600 h-full transition-all duration-1000" style={{ width: `${task.progress}%` }}></div>
+                                                </div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                );
+            })}
+        </div>
+    );
+};
+
+// ==================== GANTT VIEW ====================
+type TimeRange = 'Día' | 'Semana' | 'Mes' | 'Trimestre' | 'Año';
+
+
+
+// ==================== CALENDAR VIEW ====================
+const CalendarViewComponent: React.FC<{
+    tasks: SpaceTask[];
+    events: SpaceEvent[];
+    rules: any;
+    onEditTask: (t: SpaceTask) => void;
+    onEditEvent?: (e: SpaceEvent) => void;
+}> = ({ tasks, events, rules, onEditTask, onEditEvent }) => {
+    const [currentDate, setCurrentDate] = useState(new Date());
+    const [view, setView] = useState<'month' | 'week' | '4days' | 'day'>('month');
+
+    // Helper functions for date manipulation
+    const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
+    const getFirstDayOfMonth = (year: number, month: number) => {
+        const day = new Date(year, month, 1).getDay();
+        return day === 0 ? 6 : day - 1; // Ajuste para iniciar Lunes
+    };
+
+    // Generate dates to show based on View
+    const getDatesToShow = () => {
+        const dates: Date[] = [];
+        const start = new Date(currentDate);
+        start.setHours(0, 0, 0, 0);
+
+        if (view === 'month') {
+            const year = currentDate.getFullYear();
+            const month = currentDate.getMonth();
+            const daysInMonth = getDaysInMonth(year, month);
+            for (let i = 1; i <= daysInMonth; i++) {
+                dates.push(new Date(year, month, i));
+            }
+        } else if (view === 'week') {
+            // Get start of week (Monday)
+            const day = start.getDay();
+            const diff = start.getDate() - day + (day === 0 ? -6 : 1);
+            const monday = new Date(start.setDate(diff));
+            for (let i = 0; i < 7; i++) {
+                const d = new Date(monday);
+                d.setDate(monday.getDate() + i);
+                dates.push(d);
+            }
+        } else if (view === '4days') {
+            for (let i = 0; i < 4; i++) {
+                const d = new Date(start);
+                d.setDate(start.getDate() + i);
+                dates.push(d);
+            }
+        } else if (view === 'day') {
+            dates.push(new Date(start));
+        }
+        return dates;
+    };
+
+    const datesToShow = getDatesToShow();
+    const monthName = currentDate.toLocaleDateString('es-ES', { month: 'long', year: 'numeric' });
+
+    const handleNext = () => {
+        const d = new Date(currentDate);
+        if (view === 'month') d.setMonth(d.getMonth() + 1);
+        else if (view === 'week') d.setDate(d.getDate() + 7);
+        else if (view === '4days') d.setDate(d.getDate() + 4);
+        else d.setDate(d.getDate() + 1);
+        setCurrentDate(d);
+    };
+
+    const handlePrev = () => {
+        const d = new Date(currentDate);
+        if (view === 'month') d.setMonth(d.getMonth() - 1);
+        else if (view === 'week') d.setDate(d.getDate() - 7);
+        else if (view === '4days') d.setDate(d.getDate() - 4);
+        else d.setDate(d.getDate() - 1);
+        setCurrentDate(d);
+    };
+
+    const isTaskActiveOnDay = (task: SpaceTask, date: Date) => {
+        const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(date); dayEnd.setHours(23, 59, 59, 999);
+        const dayStartTs = dayStart.getTime();
+        const dayEndTs = dayEnd.getTime();
+
+        const parseLocal = (dateStr: string) => {
+            if (!dateStr) return 0;
+            // Robust parsing for ISO strings (YYYY-MM-DDTHH:mm) or simple dates (YYYY-MM-DD)
+            return new Date(dateStr).getTime();
+        };
+
+        if (task.startDate && task.endDate) {
+            const start = parseLocal(task.startDate);
+            let end = parseLocal(task.endDate);
+
+            // If endDate is date-only, assume inclusive end-of-day
+            if (task.endDate.length <= 10) {
+                end += (24 * 60 * 60 * 1000) - 1;
+            }
+            // If it has time, 'end' is the exact moment.
+
+            return start <= dayEndTs && end >= dayStartTs;
+        }
+
+        const due = parseLocal(task.dueDate);
+        return due >= dayStartTs && due <= dayEndTs;
+    };
+
+    const isEventActiveOnDay = (event: SpaceEvent, date: Date) => {
+        const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
+        const dayEnd = new Date(date); dayEnd.setHours(23, 59, 59, 999);
+        const dayStartTs = dayStart.getTime();
+        const dayEndTs = dayEnd.getTime();
+        const parseLocal = (dateStr: string) => dateStr ? new Date(dateStr).getTime() : 0;
+
+        const start = parseLocal(event.startDate);
+        const end = parseLocal(event.endDate);
+        return start <= dayEndTs && end >= dayStartTs;
+    };
+
+    // Grid rendering logic
+    const gridCols = view === 'month' ? 'grid-cols-7' : view === 'week' ? 'grid-cols-7' : view === '4days' ? 'grid-cols-4' : 'grid-cols-1';
+
+    return (
+        <div className="flex flex-col h-full bg-white rounded-3xl border border-slate-200 shadow-sm p-4 overflow-hidden">
+            <div className="flex items-center justify-between mb-4 shrink-0">
+                <div className="flex items-center gap-4">
+                    <div className="flex bg-slate-100 p-1 rounded-xl">
+                        <button onClick={() => setView('month')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'month' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>Mes</button>
+                        <button onClick={() => setView('week')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'week' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>Semana</button>
+                        <button onClick={() => setView('4days')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === '4days' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>4 Días</button>
+                        <button onClick={() => setView('day')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'day' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>Día</button>
+                    </div>
+                </div>
+
+                <div className="flex items-center gap-4">
+                    <button onClick={handlePrev} className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-500 transition-colors"><i className="fa-solid fa-chevron-left"></i></button>
+                    <h3 className="text-sm font-black text-slate-800 uppercase tracking-widest min-w-[140px] text-center">
+                        {view === 'month' ? monthName : currentDate.toLocaleDateString('es-ES', { day: 'numeric', month: 'long' })}
+                    </h3>
+                    <button onClick={handleNext} className="w-8 h-8 rounded-full hover:bg-slate-100 flex items-center justify-center text-slate-500 transition-colors"><i className="fa-solid fa-chevron-right"></i></button>
+                </div>
+            </div>
+
+            <div className={`grid ${gridCols} gap-2 mb-2`}>
+                {view !== 'day' && ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'].slice(0, view === '4days' ? 4 : 7).map((d, i) => (
+                    <div key={i} className="text-center text-[10px] font-black uppercase text-slate-400 tracking-widest py-2">
+                        {view === '4days' ? new Date(datesToShow[i]).toLocaleDateString('es-ES', { weekday: 'short' }) : d}
+                    </div>
+                ))}
+            </div>
+
+            <div className={`grid ${gridCols} gap-2 flex-1 overflow-y-auto custom-scrollbar`}>
+                {/* Blank spaces for month view start */}
+                {view === 'month' && Array.from({ length: getFirstDayOfMonth(currentDate.getFullYear(), currentDate.getMonth()) }, (_, i) => i).map(b => (
+                    <div key={`blank-${b}`} className="min-h-[80px] bg-slate-50/30 rounded-xl"></div>
+                ))}
+
+                {datesToShow.map((date, idx) => {
+                    const activeEvents = events.filter(e => isEventActiveOnDay(e, date));
+                    const activeTasks = tasks.filter(t => isTaskActiveOnDay(t, date) && t.estado !== 'DONE');
+                    const isToday = new Date().toDateString() === date.toDateString();
+                    const isWorkingDay = rules.workingDays.includes(date.getDay());
+
+                    return (
+                        <div key={idx} className={`${isWorkingDay ? 'bg-white' : 'bg-slate-50/80'} border text-center border-slate-100 rounded-xl p-2 relative hover:border-blue-300 transition-colors flex flex-col ${view === 'day' ? 'min-h-[300px]' : 'min-h-[100px]'} ${isToday ? 'ring-2 ring-blue-500/20 bg-blue-50/10' : ''}`}>
+                            <span className={`text-xs font-bold mb-2 block ${isToday ? 'text-blue-600' : isWorkingDay ? 'text-slate-400' : 'text-slate-300'}`}>
+                                {date.getDate()} {view === 'day' && date.toLocaleDateString('es-ES', { weekday: 'long' })}
+                            </span>
+                            <div className="space-y-1 overflow-y-auto flex-1 custom-scrollbar">
+                                {activeEvents.map(event => (
+                                    <div
+                                        key={event.id}
+                                        onClick={() => onEditEvent?.(event)}
+                                        className="text-[8px] px-2 py-1 rounded-md font-bold uppercase truncate cursor-pointer hover:opacity-80 border-l-2 text-left shadow-sm bg-orange-50 text-orange-700 border-orange-500"
+                                    >
+                                        <div className="flex justify-between items-center gap-1">
+                                            <span className="flex items-center gap-1">
+                                                <i className="fa-solid fa-calendar-day text-[7px]"></i>
+                                                {event.nombre}
+                                            </span>
+                                        </div>
+                                    </div>
+                                ))}
+                                {activeTasks.map(task => (
+                                    <div
+                                        key={task.id}
+                                        onClick={() => onEditTask(task)}
+                                        className={`text-[8px] px-2 py-1 rounded-md font-bold uppercase truncate cursor-pointer hover:opacity-80 border-l-2 text-left shadow-sm ${task.hasConflict ? 'ring-2 ring-red-400' : ''} ${task.priority === 'ASAP' ? 'bg-purple-50 text-purple-700 border-purple-500' :
+                                            task.priority === 'High' ? 'bg-red-50 text-red-700 border-red-500' :
+                                                task.priority === 'Medium' ? 'bg-orange-50 text-orange-700 border-orange-500' :
+                                                    'bg-emerald-50 text-emerald-700 border-emerald-500'
+                                            }`}
+                                    >
+                                        <div className="flex justify-between items-center gap-1">
+                                            <span className="flex items-center gap-1">
+                                                {task.hasConflict && <i className="fa-solid fa-triangle-exclamation text-red-500 text-[7px]"></i>}
+                                                {task.nombre}
+                                            </span>
+                                            {task.duration >= 120 && <span className="opacity-50 text-[7px]">{formatDuration(task.duration)}</span>}
+                                        </div>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    );
+};
+
+// ==================== MAIN COMPONENT ====================
+const SpacesView: React.FC = () => {
+    const { state, dispatch } = useSpaces();
+    const [viewMode, setViewMode] = useState<ViewMode>('lista');
+    const [showModal, setShowModal] = useState(false);
+    const [editingTask, setEditingTask] = useState<SpaceTask | null>(null);
+    const [editingTaskParent, setEditingTaskParent] = useState<SpaceTask | null>(null); // Captured parent for validation
+    const [newTask, setNewTask] = useState(getDefaultTask());
+    const [notification, setNotification] = useState<{ message: string, type: 'error' | 'success' } | null>(null);
+    const [groupBy, setGroupBy] = useState<GroupBy>('estado');
+    const [taskToDelete, setTaskToDelete] = useState<SpaceTask | null>(null);
+    const [subtaskWarning, setSubtaskWarning] = useState<{ task: SpaceTask, missingCount: number } | null>(null);
+
+    // EVENT STATES
+    const [showEventModal, setShowEventModal] = useState(false);
+    const [newEvent, setNewEvent] = useState({ nombre: '', startDate: '', endDate: '', description: '' });
+    const [editingEvent, setEditingEvent] = useState<SpaceEvent | null>(null);
+    const [eventToDelete, setEventToDelete] = useState<SpaceEvent | null>(null);
+
+    // Auto-dismiss notification
+    useEffect(() => {
+        if (notification) {
+            const timer = setTimeout(() => setNotification(null), 5000);
+            return () => clearTimeout(timer);
+        }
+    }, [notification]);
+
+    // DERIVE ACTIVE WORKSPACE
+    const activeWorkspace = state.workspaces.find(w => w.id === state.activeWorkspaceId);
+    if (!activeWorkspace) return <div className="flex-1 bg-slate-50 flex items-center justify-center text-slate-400">Select a workspace</div>;
+    const spaces = activeWorkspace.espacios;
+
+    // Find active items
+    const activeSpace = spaces.find(s => s.id === state.activeSpaceId);
+    let activeFolder: SpaceFolder | undefined;
+    let activeList: SpaceList | undefined;
+
+    if (activeSpace && state.activeFolderId) {
+        activeFolder = activeSpace.carpetas.find(f => f.id === state.activeFolderId);
+        if (activeFolder && state.activeListId) {
+            activeList = activeFolder.listas.find(l => l.id === state.activeListId);
+        }
+    } else if (activeSpace && state.activeListId) {
+        activeList = activeSpace.listas.find(l => l.id === state.activeListId);
+    }
+
+    const handleAddTask = () => {
+        if (!newTask.nombre.trim() || !state.activeSpaceId || !state.activeListId) return;
+
+        let finalTask = { ...newTask, nombre: newTask.nombre.trim() };
+
+        // AUTO-SYNC for Manual Mode
+        if (!finalTask.autoSchedule) {
+            finalTask.dueDate = finalTask.endDate;
+            // No longer auto-calculating duration from dates to respect user input
+        }
+
+        const finalStartDate = finalTask.startDate || new Date().toISOString().split('T')[0];
+
+        // Ensure manual tasks have a scheduled slot for overlap detection
+        if (!finalTask.autoSchedule && finalTask.startDate && finalTask.endDate) {
+            finalTask.scheduledSlots = [{
+                id: Math.random().toString(36).substr(2, 9),
+                start: finalTask.startDate,
+                end: finalTask.endDate,
+                isFragment: false
+            }];
+        }
+
+        dispatch({
+            type: 'ADD_TASK',
+            payload: {
+                spaceId: state.activeSpaceId,
+                folderId: state.activeFolderId || undefined,
+                listId: state.activeListId,
+                task: { ...finalTask, startDate: finalStartDate },
+            },
+        });
+        setNewTask(getDefaultTask());
+        setShowModal(false);
+    };
+
+    const handleUpdateTask = () => {
+        if (!editingTask || !state.activeSpaceId || !state.activeListId) return;
+
+        // STRICT VALIDATION: Parent Constraint Check
+        // Helper to find parent of the current editingTask
+        const findParentTask = (tasks: SpaceTask[], childId: string): SpaceTask | null => {
+            for (const t of tasks) {
+                if (t.subtasks && t.subtasks.some(st => st.id === childId)) return t;
+                if (t.subtasks && t.subtasks.length > 0) {
+                    const found = findParentTask(t.subtasks, childId);
+                    if (found) return found;
+                }
+            }
+            return null;
+        };
+
+        // Use the CAPTURED parent for validation (avoids race condition)
+        const parent = editingTaskParent;
+        if (parent) {
+            // Parse dates robustly
+            const parseDate = (d: string) => {
+                if (!d) return null;
+                if (d.includes('/') && d.split('/').length === 3) {
+                    const [day, month, year] = d.split('/');
+                    return new Date(`${year}-${month}-${day}`).getTime();
+                }
+                return new Date(d).getTime();
+            };
+
+            const childStart = parseDate(editingTask.startDate);
+            const childEnd = parseDate(editingTask.endDate || editingTask.dueDate); // Child's effective end
+            const parentStart = parseDate(parent.startDate);
+            // FIX: Use dueDate (user's deadline) as the constraint, NOT endDate (auto-calculated)
+            const parentDeadline = parseDate(parent.dueDate || parent.endDate);
+
+            // Validation 1: Child starts before Parent
+            if (childStart && parentStart && childStart < parentStart) {
+                setNotification({
+                    message: `La subtarea no puede empezar el ${editingTask.startDate} porque la tarea padre comienza el ${parent.startDate}.`,
+                    type: 'error'
+                });
+                return; // BLOCK SAVE
+            }
+
+            // Validation 2: Child DEADLINE > Parent DEADLINE (Logical Inconsistency)
+            if (editingTask.dueDate && parentDeadline) {
+                const childDeadline = parseDate(editingTask.dueDate);
+                if (childDeadline && childDeadline > parentDeadline) {
+                    setNotification({
+                        message: `La fecha límite de la subtarea (${editingTask.dueDate}) no puede ser posterior a la de la tarea padre (${parent.dueDate || parent.endDate}).`,
+                        type: 'error'
+                    });
+                    return; // BLOCK SAVE
+                }
+            }
+
+            // Validation 3: Child Ends (scheduled) > Parent DEADLINE
+            if (childEnd && parentDeadline && childEnd > parentDeadline) {
+                setNotification({
+                    message: `La subtarea no puede terminar después del ${editingTask.endDate || editingTask.dueDate} porque la fecha límite de la tarea padre es el ${parent.dueDate || parent.endDate}.`,
+                    type: 'error'
+                });
+                return; // BLOCK SAVE
+            }
+        }
+
+        let finalTask = { ...editingTask };
+
+        // AUTO-SYNC for Manual Mode
+        if (!finalTask.autoSchedule) {
+            finalTask.dueDate = finalTask.endDate;
+            // No longer auto-calculating duration from dates to respect user input
+
+            // Ensure manual tasks have a scheduled slot for overlap detection
+            if (finalTask.startDate && finalTask.endDate) {
+                finalTask.scheduledSlots = [{
+                    id: Math.random().toString(36).substr(2, 9),
+                    start: finalTask.startDate,
+                    end: finalTask.endDate,
+                    isFragment: false
+                }];
+            }
+        }
+
+        dispatch({
+            type: 'UPDATE_TASK',
+            payload: {
+                spaceId: state.activeSpaceId,
+                folderId: state.activeFolderId || undefined,
+                listId: state.activeListId,
+                task: finalTask,
+            },
+        });
+        setEditingTask(null);
+    };
+
+    const handleToggleTask = (taskId: string, forceAction?: 'RESOLVE_ALL' | 'IGNORE' | 'CANCEL') => {
+        if (!state.activeSpaceId || !state.activeListId || !activeList) return;
+
+        // 1. Recursive helper to find task and its FULL LINEAGE (path of parents)
+        const findTaskPath = (tasks: SpaceTask[], id: string, path: SpaceTask[] = []): { task: SpaceTask, path: SpaceTask[] } | null => {
+            for (const t of tasks) {
+                if (t.id === id) return { task: t, path };
+                if (t.subtasks && t.subtasks.length > 0) {
+                    const found = findTaskPath(t.subtasks, id, [...path, t]);
+                    if (found) return found;
+                }
+            }
+            return null;
+        };
+
+        const result = findTaskPath(activeList.tareas, taskId);
+        if (!result) return;
+        const { task, path } = result;
+
+        // --- NEW LOGIC: CHECK SUBTASKS BEFORE COMPLETION ---
+        // Only if we are toggling to DONE (currently not done)
+        const isCompleting = task.estado !== 'DONE';
+
+        if (isCompleting && !forceAction) {
+            // Check if there are any non-DONE subtasks
+            if (task.subtasks && task.subtasks.length > 0) {
+                const incompleteCount = task.subtasks.filter(st => st.estado !== 'DONE').length;
+                if (incompleteCount > 0) {
+                    // Show Warning Modal and HALT
+                    setSubtaskWarning({ task, missingCount: incompleteCount });
+                    return;
+                }
+            }
+        }
+
+        // 2. Determine new status for the toggled task
+        let newStatus: TaskStatus = task.estado === 'DONE' ? 'TODO' : 'DONE';
+        let newProgress = newStatus === 'DONE' ? 100 : 0;
+
+        // Special handling if forced action
+        if (forceAction === 'RESOLVE_ALL') {
+            newStatus = 'DONE';
+            newProgress = 100;
+        } else if (forceAction === 'IGNORE') {
+            newStatus = 'DONE';
+            newProgress = 100;
+        }
+
+        let updatedTask = { ...task, estado: newStatus, progress: newProgress };
+
+        // 3. Handle Children Downwards
+        if (updatedTask.subtasks && updatedTask.subtasks.length > 0) {
+            if (forceAction === 'RESOLVE_ALL') {
+                // Mark ALL children as DONE
+                const updateChildren = (st: SpaceTask[]): SpaceTask[] => st.map(child => ({
+                    ...child,
+                    estado: 'DONE',
+                    progress: 100,
+                    subtasks: child.subtasks ? updateChildren(child.subtasks) : []
+                }));
+                updatedTask.subtasks = updateChildren(updatedTask.subtasks);
+            } else if (forceAction === 'IGNORE') {
+                // Do NOT touch children
+            } else {
+                // Standard toggle behavior (if no warning triggered, meaning all were likely done or user is unchecking)
+                // If unchecking (DONE -> TODO), we usually uncheck children too? Or leave them?
+                // The prompt asked for specific completion logic.
+                // Let's assume standard behavior:
+                // - If completing (and passed check): children are already done, so no change needed.
+                // - If un-completing: Let's set children to TODO as well to be safe, or keep them?
+                // Let's keep a simple rule: Toggle affects children only if we are un-completing?
+                // Actually the previous code forced children to newStatus.
+                // "si se cumplen todas las subtareas, no necesariamente la tarea padre se marca como hecho".
+                // BUT if parent is marked done manually, what happens to children?
+                // 'Resolver' -> marks all as done.
+                // 'Continuar sin resolver' -> Parent done, children stay.
+                // So standard toggle (no warning needed) implies children are already done.
+                // If unchecking: let's uncheck children for consistency with previous behavior unless requested otherwise.
+                if (newStatus === 'TODO') {
+                    // USER REQUEST CHANGE: When un-checking a parent, do NOT un-check children automatically.
+                    // Keep them as they are (likely DONE).
+
+                    /* 
+                    const updateChildren = (st: SpaceTask[]): SpaceTask[] => st.map(child => ({
+                        ...child,
+                        estado: 'TODO',
+                        progress: 0,
+                        subtasks: child.subtasks ? updateChildren(child.subtasks) : []
+                    }));
+                    updatedTask.subtasks = updateChildren(updatedTask.subtasks);
+                    */
+                }
+            }
+        }
+
+        // 4. Update Parent Hierarchy (Bottom-Up)
+        let currentChild: SpaceTask = updatedTask;
+        const ancestors = [...path].reverse();
+        let finalTaskToDispatch: SpaceTask = updatedTask;
+
+        if (ancestors.length > 0) {
+            for (const ancestor of ancestors) {
+                const updatedSubtasks = ancestor.subtasks!.map(st => st.id === currentChild.id ? currentChild : st);
+
+                // Calculate ancestor's new status based on siblings
+                // RULE CHANGE: Parent Auto-Completion is DISABLED.
+                // Parent status is ONLY updated if it was already DONE and now needs to be undone because a child became active?
+                // Or purely manual? "eso debe ser manual para el usuario".
+                // So if I finish a subtask, parent stays as is ( ACTIVE or TODO).
+                // If I un-finish a subtask, parent MIGHT need to go from DONE to ACTIVE?
+                // Typically yes, if a child is not done, parent cannot be done?
+                // But wait, the user explicitly allows "Continuar sin resolver" (Parent DONE, child TODO).
+                // So we should NOT enforce parent state logic strictly.
+                // WE ONLY UPDATE PROGRESS % of parent, but NOT status, unless...
+                // actually simpler: Do not touch parent status at all automatically.
+
+                // Let's just update progress average.
+                const totalCount = updatedSubtasks.length;
+                const totalProgressSum = updatedSubtasks.reduce((acc, curr) => acc + (curr.progress || 0), 0);
+                const newParentProgress = Math.round(totalProgressSum / totalCount);
+
+                currentChild = {
+                    ...ancestor,
+                    subtasks: updatedSubtasks,
+                    // valid: keep existing state, only update progress
+                    progress: newParentProgress
+                };
+            }
+            finalTaskToDispatch = currentChild;
+        }
+
+        dispatch({
+            type: 'UPDATE_TASK',
+            payload: {
+                spaceId: state.activeSpaceId,
+                folderId: state.activeFolderId || undefined,
+                listId: state.activeListId,
+                task: finalTaskToDispatch,
+            },
+        });
+
+        // Clear warning if any
+        setSubtaskWarning(null);
+    };
+
+    const handleDeleteTask = (taskId: string) => {
+        if (!state.activeSpaceId || !state.activeListId) return;
+        dispatch({
+            type: 'DELETE_TASK',
+            payload: {
+                spaceId: state.activeSpaceId,
+                folderId: state.activeFolderId || undefined,
+                listId: state.activeListId,
+                taskId,
+            },
+        });
+    };
+
+    // EVENT HANDLERS
+    const handleAddEvent = () => {
+        if (!newEvent.nombre.trim() || !state.activeSpaceId || !state.activeListId) return;
+
+        // CHECK EVENT OVERLAPS
+        // 1. Flatten all existing events
+        const allEvents: SpaceEvent[] = [];
+        const activeWorkspace = state.workspaces.find(w => w.id === state.activeWorkspaceId);
+        if (activeWorkspace) {
+            activeWorkspace.espacios.forEach(s => {
+                s.listas.forEach(l => l.eventos?.forEach(e => allEvents.push(e)));
+                s.carpetas.forEach(f => f.listas.forEach(l => l.eventos?.forEach(e => allEvents.push(e))));
+            });
+        }
+
+        // 2. Check overlap
+        // (Visual feedback is handled via inline UI, no notification blocker needed here)
+        /* 
+        const newStart = new Date(newEvent.startDate).getTime();
+        const newEnd = new Date(newEvent.endDate).getTime();
+        const overlap = allEvents.find(e => {
+            if ((newEvent as any).id && e.id === (newEvent as any).id) return false; // Ignore self
+            const eStart = new Date(e.startDate).getTime();
+            const eEnd = new Date(e.endDate).getTime();
+            return newStart < eEnd && newEnd > eStart;
+        });
+        */
+
+        if ((newEvent as any).id) {
+            dispatch({
+                type: 'UPDATE_EVENT',
+                payload: {
+                    spaceId: state.activeSpaceId,
+                    folderId: state.activeFolderId || undefined,
+                    listId: state.activeListId,
+                    event: newEvent as SpaceEvent,
+                },
+            });
+            setNotification({ message: 'Evento actualizado exitosamente', type: 'success' });
+        } else {
+            dispatch({
+                type: 'ADD_EVENT',
+                payload: {
+                    spaceId: state.activeSpaceId,
+                    folderId: state.activeFolderId || undefined,
+                    listId: state.activeListId,
+                    event: { ...newEvent, nombre: newEvent.nombre.trim() },
+                },
+            });
+            setNotification({ message: 'Evento creado exitosamente', type: 'success' });
+        }
+        setNewEvent({ nombre: '', startDate: '', endDate: '', description: '' });
+        setShowEventModal(false);
+    };
+
+    const handleDeleteEvent = (eventId: string) => {
+        if (!state.activeSpaceId || !state.activeListId) return;
+        dispatch({
+            type: 'DELETE_EVENT',
+            payload: {
+                spaceId: state.activeSpaceId,
+                folderId: state.activeFolderId || undefined,
+                listId: state.activeListId,
+                eventId,
+            },
+        });
+        setShowEventModal(false);
+        setNewEvent({ nombre: '', startDate: '', endDate: '', description: '' });
+        setNotification({ message: 'Evento eliminado', type: 'success' });
+    };
+
+    const openEditModal = (task: SpaceTask) => {
+        // Find parent task to ensure validation uses correct data
+        const findParentTask = (tasks: SpaceTask[], childId: string): SpaceTask | null => {
+            for (const t of tasks) {
+                if (t.subtasks && t.subtasks.some(st => st.id === childId)) return t;
+                if (t.subtasks && t.subtasks.length > 0) {
+                    const found = findParentTask(t.subtasks, childId);
+                    if (found) return found;
+                }
+            }
+            return null;
+        };
+        const parent = activeList ? findParentTask(activeList.tareas, task.id) : null;
+        setEditingTaskParent(parent);
+        setEditingTask({ ...task });
+    };
+
+    // Empty states
+    if (spaces.length === 0) {
+        return (
+            <div className="flex-1 flex items-center justify-center bg-[#F4F5F8]">
+                <div className="text-center max-w-md p-8">
+                    <div className="w-20 h-20 bg-gradient-to-br from-blue-500 to-indigo-600 rounded-3xl flex items-center justify-center mx-auto mb-6 shadow-xl shadow-blue-500/20">
+                        <i className="fa-solid fa-layer-group text-3xl text-white"></i>
+                    </div>
+                    <h2 className="text-2xl font-black text-slate-800 mb-2">Bienvenido a Espacios</h2>
+                    <p className="text-sm text-slate-500 mb-6">Organiza tu trabajo en una jerarquía flexible.</p>
+                    <p className="text-xs text-slate-400">Usa el panel lateral para crear tu primer espacio <i className="fa-solid fa-arrow-left ml-1"></i></p>
+                </div>
+            </div>
+        );
+    }
+
+    if (!activeList) {
+        return (
+            <div className="flex-1 flex items-center justify-center bg-[#F4F5F8]">
+                <div className="text-center max-w-sm p-8">
+                    <div className="w-16 h-16 bg-slate-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <i className="fa-solid fa-hand-pointer text-2xl text-slate-400"></i>
+                    </div>
+                    <h3 className="text-lg font-bold text-slate-700 mb-2">Selecciona una Lista</h3>
+                    <p className="text-xs text-slate-500">Haz clic en una lista del panel lateral para ver y gestionar sus tareas.</p>
+                </div>
+            </div>
+        );
+    }
+
+    const tasks = activeList.tareas;
+
+    return (
+        <div className="flex-1 flex flex-col bg-[#F4F5F8] overflow-hidden">
+            {/* Header with breadcrumb and view switcher */}
+            <div className="bg-white border-b border-gray-200 px-6 py-4 shrink-0">
+                <div className="flex items-center gap-2 text-sm mb-3">
+                    <div className="w-3 h-3 rounded" style={{ backgroundColor: activeSpace?.color || '#3A57E8' }}></div>
+                    <span className="font-semibold text-slate-700">{activeSpace?.nombre}</span>
+                    {activeFolder && (
+                        <>
+                            <i className="fa-solid fa-chevron-right text-[8px] text-slate-400"></i>
+                            <span className="text-slate-500">{activeFolder.nombre}</span>
+                        </>
+                    )}
+                    <i className="fa-solid fa-chevron-right text-[8px] text-slate-400"></i>
+                    <span className="font-bold text-slate-800">{activeList.nombre}</span>
+                </div>
+
+                {/* View switcher + Add button */}
+                <div className="flex items-center justify-between">
+                    <div className="flex gap-4 items-center">
+                        <button onClick={() => setViewMode('lista')} className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-colors ${viewMode === 'lista' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+                            <i className="fa-solid fa-list"></i> Lista
+                        </button>
+                        <button onClick={() => setViewMode('kanban')} className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-colors ${viewMode === 'kanban' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+                            <i className="fa-solid fa-columns"></i> Kanban
+                        </button>
+                        <button onClick={() => setViewMode('gantt')} className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-colors ${viewMode === 'gantt' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+                            <i className="fa-solid fa-chart-gantt"></i> Gantt
+                        </button>
+                        <button onClick={() => setViewMode('calendar')} className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-colors ${viewMode === 'calendar' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+                            <i className="fa-solid fa-calendar-days"></i> Calendario
+                        </button>
+                        <button onClick={() => setViewMode('settings')} className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-colors ${viewMode === 'settings' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
+                            <i className="fa-solid fa-gear"></i> Configuración
+                        </button>
+
+                        {/* Grouping Selector */}
+                        {['lista', 'kanban', 'gantt'].includes(viewMode) && (
+                            <div className="ml-4 pl-4 border-l border-slate-200 flex items-center gap-2">
+                                <span className="text-[9px] font-bold text-slate-400 uppercase">Grupo:</span>
+                                <select
+                                    value={groupBy}
+                                    onChange={(e) => setGroupBy(e.target.value as GroupBy)}
+                                    className="text-[10px] font-bold bg-blue-50 text-blue-700 px-3 py-1.5 rounded-lg border-0 outline-none cursor-pointer"
+                                >
+                                    <option value="estado">Estado</option>
+                                    <option value="prioridad">Prioridad</option>
+                                    {viewMode !== 'gantt' && <option value="fecha">Fecha límite</option>}
+                                </select>
+                            </div>
+                        )}
+                    </div>
+                    <div className="flex gap-2">
+                        <button
+                            onClick={() => { setNewEvent({ nombre: '', startDate: '', endDate: '', description: '' }); setShowEventModal(true); }}
+                            className="px-4 py-2 bg-orange-500 text-white rounded-xl text-[10px] font-black uppercase shadow-lg shadow-orange-200 hover:bg-orange-600 transition-colors"
+                        >
+                            <i className="fa-solid fa-calendar-plus mr-2"></i>Evento
+                        </button>
+                        <button
+                            onClick={() => { setNewTask(getDefaultTask()); setShowModal(true); }}
+                            className="px-6 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase shadow-lg shadow-blue-200 hover:bg-blue-700 transition-colors"
+                        >
+                            <i className="fa-solid fa-plus mr-2"></i>Nueva Tarea
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            {/* Content area */}
+            <div className="flex-1 overflow-y-auto p-6">
+                <div className="max-w-5xl mx-auto h-full">
+                    {viewMode === 'lista' && <ListaView tasks={tasks} rules={state.rules} groupBy={groupBy} onEditTask={openEditModal} onToggleTask={handleToggleTask} onDeleteTask={(t) => setTaskToDelete(t)} onAddTask={(defaults) => {
+                        setNewTask({ ...getDefaultTask(), ...defaults });
+                        setShowModal(true);
+                    }} onAddSubtask={(p) => {
+                        // Quick-add subtask logic
+                        const subtask: SpaceTask = {
+                            ...getDefaultTask(),
+                            id: Math.random().toString(36).substr(2, 9),
+                            nombre: 'Nueva Subtarea',
+                            orden: Date.now()
+                        };
+                        const updatedParent = { ...p, subtasks: [...(p.subtasks || []), subtask] };
+                        dispatch({
+                            type: 'UPDATE_TASK',
+                            payload: { spaceId: state.activeSpaceId!, folderId: state.activeFolderId || undefined, listId: state.activeListId!, task: updatedParent }
+                        });
+                        // FIX: Capture the parent NOW to avoid race condition when validating subtask dates
+                        setEditingTaskParent(updatedParent);
+                        setEditingTask(subtask);
+                    }}
+                    />}
+                    {viewMode === 'kanban' && <KanbanView tasks={tasks} groupBy={groupBy} onEditTask={openEditModal} onUpdateTask={(id, updates) => {
+                        const taskPayload = tasks.find(t => t.id === id);
+                        if (taskPayload) {
+                            dispatch({
+                                type: 'UPDATE_TASK',
+                                payload: { spaceId: state.activeSpaceId!, folderId: state.activeFolderId || undefined, listId: state.activeListId!, task: { ...taskPayload, ...updates } }
+                            });
+                        }
+                    }} />}
+                    {viewMode === 'gantt' && <GanttChartView tasks={tasks} rules={state.rules} groupBy={groupBy} onEditTask={openEditModal} />}
+                    {viewMode === 'calendar' && <CalendarViewComponent tasks={tasks} events={activeList.eventos || []} rules={state.rules} onEditTask={openEditModal} onEditEvent={(e) => {
+                        setNewEvent({ ...e });
+                        setShowEventModal(true);
+                    }} />}
+                    {viewMode === 'settings' && <SettingsView />}
+                </div>
+            </div>
+
+            {/* CREATE TASK MODAL */}
+            {showModal && (
+                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={() => setShowModal(false)}>
+                    <div onClick={(e) => e.stopPropagation()} className="bg-white w-full max-w-2xl rounded-[2.5rem] p-10 space-y-6 shadow-2xl animate-in zoom-in-95 overflow-y-auto max-h-[90vh] custom-scrollbar">
+                        <h3 className="text-3xl font-black text-slate-800 tracking-tighter uppercase">Crear Tarea</h3>
+
+                        <div className="space-y-4">
+                            <Input label="Nombre de la Tarea" value={newTask.nombre} onChange={(v: string) => setNewTask({ ...newTask, nombre: v })} />
+                            <Input label="Cliente (opcional)" value={newTask.clientName || ''} onChange={(v: string) => setNewTask({ ...newTask, clientName: v })} />
+
+                            {/* Auto-schedule section */}
+                            <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <i className={`fa-solid ${newTask.autoSchedule ? 'fa-brain text-blue-500' : 'fa-anchor text-orange-500'}`}></i>
+                                        <span className={`text-[10px] font-black uppercase ${newTask.autoSchedule ? 'text-blue-800' : 'text-orange-800'}`}>
+                                            {newTask.autoSchedule ? 'Planificación Automática' : 'Bloqueo Manual'}
+                                        </span>
+                                    </div>
+                                    <div className="flex bg-white p-1 rounded-lg border border-slate-200">
+                                        <button type="button" onClick={() => setNewTask({ ...newTask, autoSchedule: true })} className={`px-3 py-1.5 rounded-md text-[9px] font-black uppercase transition-all ${newTask.autoSchedule ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Auto (IA)</button>
+                                        <button type="button" onClick={() => setNewTask({ ...newTask, autoSchedule: false })} className={`px-3 py-1.5 rounded-md text-[9px] font-black uppercase transition-all ${!newTask.autoSchedule ? 'bg-orange-500 text-white shadow-sm' : 'text-slate-400 hover:text-slate-600'}`}>Manual</button>
+                                    </div>
+                                </div>
+
+                                {newTask.autoSchedule ? (
+                                    <>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <Input label="Fecha Mín. Inicio" type="datetime-local" value={newTask.startDate.slice(0, 16)} onChange={(v: string) => setNewTask({ ...newTask, startDate: v })} />
+                                            <Input label="Fecha Límite (Deadline)" type="datetime-local" value={newTask.dueDate.slice(0, 16)} onChange={(v: string) => setNewTask({ ...newTask, dueDate: v })} />
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-1.5 flex-1">
+                                                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Tipo Deadline</label>
+                                                <select
+                                                    className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-black text-xs uppercase"
+                                                    value={newTask.deadlineType}
+                                                    onChange={e => setNewTask({ ...newTask, deadlineType: e.target.value as DeadlineType })}
+                                                >
+                                                    <option value="Soft Deadline">Soft Deadline</option>
+                                                    <option value="Hard Deadline">Hard Deadline</option>
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1.5 flex-1">
+                                                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Esfuerzo (Horas)</label>
+                                                <input
+                                                    type="number"
+                                                    step="0.5"
+                                                    min="0.1"
+                                                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none"
+                                                    value={newTask.duration / 60}
+                                                    onChange={(e) => setNewTask({ ...newTask, duration: Math.round(Number(e.target.value) * 60) })}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between">
+                                            <div>
+                                                <p className="text-[9px] font-black text-slate-500 uppercase">Elasticidad</p>
+                                                <p className="text-[8px] text-slate-400 font-bold">{newTask.elasticity === 1 ? 'Puede realizarse en bloques separados' : 'Debe realizarse de corrido'}</p>
+                                            </div>
+                                            <button type="button" onClick={() => setNewTask({ ...newTask, elasticity: newTask.elasticity === 1 ? 0 : 1 })} className={`w-12 h-6 rounded-full transition-all relative ${newTask.elasticity === 1 ? 'bg-green-500' : 'bg-slate-300'}`}>
+                                                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${newTask.elasticity === 1 ? 'left-7' : 'left-1'}`}></div>
+                                            </button>
+                                        </div>
+                                    </>
+                                ) : (
+                                    <div className="grid grid-cols-2 gap-4">
+                                        <Input label="Inicio Exacto" type="datetime-local" value={newTask.startDate.slice(0, 16)} onChange={(v: string) => setNewTask({ ...newTask, startDate: v })} />
+                                        <Input label="Fin Exacto" type="datetime-local" value={newTask.endDate.slice(0, 16)} onChange={(v: string) => setNewTask({ ...newTask, endDate: v })} />
+                                        <div className="space-y-1.5">
+                                            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Esfuerzo (Horas)</label>
+                                            <input
+                                                type="number"
+                                                step="0.5"
+                                                min="0.1"
+                                                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none"
+                                                value={newTask.duration / 60}
+                                                onChange={(e) => setNewTask({ ...newTask, duration: Math.round(Number(e.target.value) * 60) })}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1.5 flex-1">
+                                    <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Prioridad</label>
+                                    <select
+                                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase"
+                                        value={newTask.priority}
+                                        onChange={e => setNewTask({ ...newTask, priority: e.target.value as TaskPriority })}
+                                    >
+                                        <option value="ASAP">Urgente</option>
+                                        <option value="High">Alta</option>
+                                        <option value="Medium">Normal</option>
+                                        <option value="Low">Baja</option>
+                                    </select>
+                                </div>
+                                <Input label="Valor Total ($)" type="number" value={newTask.totalValue} onChange={(v: string) => setNewTask({ ...newTask, totalValue: Number(v) })} />
+                            </div>
+                        </div>
+
+                        <div className="flex gap-4 pt-4">
+                            <button type="button" onClick={() => setShowModal(false)} className="flex-1 font-black text-slate-400 uppercase text-[10px]">Cerrar</button>
+                            <button type="button" onClick={handleAddTask} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-2xl tracking-widest">Crear Tarea</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* EDIT TASK MODAL */}
+            {editingTask && (
+                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={() => setEditingTask(null)}>
+                    <div onClick={(e) => e.stopPropagation()} className="bg-white w-full max-w-2xl rounded-[2.5rem] p-10 space-y-6 shadow-2xl animate-in zoom-in-95 overflow-y-auto max-h-[90vh] custom-scrollbar">
+                        <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-4">
+                                <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter">Mi Entorno</h2>
+                            </div>
+                            <button type="button" onClick={() => setEditingTask(null)} className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100">
+                                <i className="fa-solid fa-xmark text-xl"></i>
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <Input label="Nombre de la Tarea" value={editingTask.nombre} onChange={(v: string) => setEditingTask({ ...editingTask, nombre: v })} />
+                            <Input label="Cliente (opcional)" value={editingTask.clientName || ''} onChange={(v: string) => setEditingTask({ ...editingTask, clientName: v })} />
+
+                            {editingTask.hasConflict && (
+                                <div className="bg-red-50 border-2 border-red-100 rounded-3xl p-5 animate-in fade-in slide-in-from-top-2">
+                                    <div className="flex items-start gap-4">
+                                        <div className="w-10 h-10 bg-red-500 rounded-2xl flex items-center justify-center shrink-0 shadow-lg shadow-red-200">
+                                            <i className="fa-solid fa-triangle-exclamation text-white"></i>
+                                        </div>
+                                        <div className="space-y-1">
+                                            <p className="text-[10px] font-black uppercase tracking-widest text-red-600">Conflicto de Agendamiento</p>
+                                            <p className="text-xs font-bold text-red-900 leading-snug">
+                                                {editingTask.conflictDescription || "Esta tarea no se puede completar en el tiempo previsto debido a restricciones de agenda."}
+                                            </p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Auto-schedule section */}
+                            <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
+                                <div className="flex items-center justify-between mb-2">
+                                    <div className="flex items-center gap-2">
+                                        <i className={`fa-solid ${editingTask.autoSchedule ? 'fa-brain text-blue-500' : 'fa-anchor text-orange-500'}`}></i>
+                                        <span className={`text-[10px] font-black uppercase ${editingTask.autoSchedule ? 'text-blue-800' : 'text-orange-800'}`}>
+                                            {editingTask.autoSchedule ? 'Planificación Automática' : 'Bloqueo Manual'}
+                                        </span>
+                                    </div>
+                                    <div className="flex bg-white p-1 rounded-lg border border-slate-200">
+                                        <button type="button" onClick={() => setEditingTask({ ...editingTask, autoSchedule: true })} className={`px-3 py-1.5 rounded-md text-[9px] font-black uppercase transition-all ${editingTask.autoSchedule ? 'bg-blue-600 text-white shadow-sm' : 'text-slate-400'}`}>Auto</button>
+                                        <button type="button" onClick={() => setEditingTask({ ...editingTask, autoSchedule: false })} className={`px-3 py-1.5 rounded-md text-[9px] font-black uppercase transition-all ${!editingTask.autoSchedule ? 'bg-orange-500 text-white shadow-sm' : 'text-slate-400'}`}>Manual</button>
+                                    </div>
+                                </div>
+
+                                {editingTask.autoSchedule ? (
+                                    <>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <Input label="Fecha Mín. Inicio" type="datetime-local" value={editingTask.startDate.slice(0, 16)} onChange={(v: string) => setEditingTask({ ...editingTask, startDate: v })} />
+                                            <Input label="Fecha Límite (Deadline)" type="datetime-local" value={editingTask.dueDate.slice(0, 16)} onChange={(v: string) => setEditingTask({ ...editingTask, dueDate: v })} />
+                                        </div>
+                                        <div className="grid grid-cols-2 gap-4">
+                                            <div className="space-y-1.5 flex-1">
+                                                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Tipo Deadline</label>
+                                                <select
+                                                    className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-black text-xs uppercase"
+                                                    value={editingTask.deadlineType}
+                                                    onChange={e => setEditingTask({ ...editingTask, deadlineType: e.target.value as DeadlineType })}
+                                                >
+                                                    <option value="Soft Deadline">Soft Deadline</option>
+                                                    <option value="Hard Deadline">Hard Deadline</option>
+                                                </select>
+                                            </div>
+                                            <div className="space-y-1.5 flex-1">
+                                                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Esfuerzo (Horas)</label>
+                                                <input
+                                                    type="number"
+                                                    step="0.5"
+                                                    min="0.1"
+                                                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none"
+                                                    value={editingTask.duration / 60}
+                                                    onChange={(e) => setEditingTask({ ...editingTask, duration: Math.round(Number(e.target.value) * 60) })}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div className="p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between">
+                                            <div>
+                                                <p className="text-[9px] font-black text-slate-500 uppercase">Elasticidad</p>
+                                                <p className="text-[8px] text-slate-400 font-bold">{editingTask.elasticity === 1 ? 'Puede realizarse en bloques separados' : 'Debe realizarse de corrido'}</p>
+                                            </div>
+                                            <button type="button" onClick={() => setEditingTask({ ...editingTask, elasticity: editingTask.elasticity === 1 ? 0 : 1 })} className={`w-12 h-6 rounded-full transition-all relative ${editingTask.elasticity === 1 ? 'bg-green-500' : 'bg-slate-300'}`}>
+                                                <div className={`absolute top-1 w-4 h-4 bg-white rounded-full transition-all ${editingTask.elasticity === 1 ? 'left-7' : 'left-1'}`}></div>
+                                            </button>
+                                        </div>
+
+                                        {/* Horarios Sugeridos (Auto-Schedule) */}
+                                        {editingTask.scheduledSlots && editingTask.scheduledSlots.length > 0 && (
+                                            <div className="p-4 bg-white rounded-2xl border border-slate-200">
+                                                <h5 className="text-[9px] font-black uppercase text-slate-400 mb-2">Horarios Sugeridos (Auto-Schedule)</h5>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                                                    {editingTask.scheduledSlots.map((s, idx) => (
+                                                        <div key={idx} className="text-[10px] font-bold text-slate-700 bg-slate-50 p-2 rounded-lg border flex justify-between items-center">
+                                                            <span>{new Date(s.start).toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                                                            <i className="fa-solid fa-arrow-right text-[8px] text-slate-300"></i>
+                                                            <span>{new Date(s.end).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
+                                ) : (
+                                    <div className="grid grid-cols-2 gap-4">
+                                        {/* Helper for Parent Range */}
+                                        {(() => {
+                                            // Quick Find Parent Logic inside Render to show restriction hint
+                                            const findParentTask = (tasks: SpaceTask[], childId: string): SpaceTask | null => {
+                                                for (const t of tasks) {
+                                                    if (t.subtasks && t.subtasks.some(st => st.id === childId)) return t;
+                                                    if (t.subtasks && t.subtasks.length > 0) {
+                                                        const found = findParentTask(t.subtasks, childId);
+                                                        if (found) return found;
+                                                    }
+                                                }
+                                                return null;
+                                            };
+                                            const parent = activeList && editingTask ? findParentTask(activeList.tareas, editingTask.id) : null;
+
+                                            if (parent) {
+                                                return (
+                                                    <div className="col-span-2 bg-orange-50 border border-orange-100 rounded-xl p-3 flex items-start gap-3">
+                                                        <i className="fa-solid fa-triangle-exclamation text-orange-500 text-xs mt-0.5"></i>
+                                                        <div>
+                                                            <p className="text-[10px] font-black text-orange-800 uppercase tracking-wide">Restricción de Subtarea</p>
+                                                            <p className="text-[10px] text-orange-700 leading-tight mt-0.5">
+                                                                Debe estar entre <span className="font-bold">{new Date(parent.startDate).toLocaleString()}</span> y <span className="font-bold">{new Date(parent.endDate || parent.dueDate).toLocaleString()}</span> (Tarea Padre)
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                );
+                                            }
+                                            return null;
+                                        })()}
+
+                                        <Input label="Inicio Exacto" type="datetime-local" value={editingTask.startDate.slice(0, 16)} onChange={(v: string) => setEditingTask({ ...editingTask, startDate: v })} />
+                                        <Input label="Fin Exacto" type="datetime-local" value={editingTask.endDate.slice(0, 16)} onChange={(v: string) => setEditingTask({ ...editingTask, endDate: v })} />
+                                        <div className="space-y-1.5">
+                                            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Esfuerzo (Horas)</label>
+                                            <input
+                                                type="number"
+                                                step="0.5"
+                                                min="0.1"
+                                                className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none"
+                                                value={editingTask.duration / 60}
+                                                onChange={(e) => setEditingTask({ ...editingTask, duration: Math.round(Number(e.target.value) * 60) })}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="space-y-1.5 flex-1">
+                                    <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Prioridad</label>
+                                    <select
+                                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase"
+                                        value={editingTask.priority}
+                                        onChange={e => setEditingTask({ ...editingTask, priority: e.target.value as TaskPriority })}
+                                    >
+                                        <option value="ASAP">Urgente</option>
+                                        <option value="High">Alta</option>
+                                        <option value="Medium">Normal</option>
+                                        <option value="Low">Baja</option>
+                                    </select>
+                                </div>
+                                <Input label="Valor Total ($)" type="number" value={editingTask.totalValue} onChange={(v: string) => setEditingTask({ ...editingTask, totalValue: Number(v) })} />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
+                                <div className="space-y-1.5 flex-1">
+                                    <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Progreso (%)</label>
+                                    <input
+                                        type="number"
+                                        min="0"
+                                        max="100"
+                                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs"
+                                        value={editingTask.progress}
+                                        onChange={(e) => {
+                                            const val = Math.min(100, Math.max(0, Number(e.target.value)));
+                                            setEditingTask({ ...editingTask, progress: val, estado: getStatusFromProgress(val) });
+                                        }}
+                                    />
+                                </div>
+                                <div className="space-y-1.5 flex-1">
+                                    <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Estado</label>
+                                    <select
+                                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase opacity-80 cursor-not-allowed"
+                                        value={editingTask.estado}
+                                        disabled
+                                    >
+                                        <option value="TODO">Pendiente</option>
+                                        <option value="ACTIVE">En curso</option>
+                                        <option value="DONE">Hecho</option>
+                                    </select>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex gap-4 pt-4">
+                            <button type="button" onClick={() => setEditingTask(null)} className="flex-1 font-black text-slate-400 uppercase text-[10px]">Cancelar</button>
+                            <button type="button" onClick={handleUpdateTask} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl">Guardar Cambios</button>
+                        </div>
+
+                        <button
+                            type="button"
+                            onClick={() => { setTaskToDelete(editingTask); }}
+                            className="w-full py-3 rounded-2xl font-black text-[9px] uppercase text-red-400 hover:bg-red-50 transition-colors"
+                        >
+                            Eliminar Tarea
+                        </button>
+                    </div>
+                </div>
+            )}
+
+            {/* MODERN TOAST NOTIFICATION */}
+            {notification && (
+                <div className="fixed top-8 left-1/2 -translate-x-1/2 z-[300] animate-in slide-in-from-top-4 duration-300">
+                    <div className={`flex items-center gap-4 px-6 py-4 rounded-3xl shadow-2xl backdrop-blur-xl border ${notification.type === 'error'
+                        ? 'bg-white/90 border-red-100 text-red-900'
+                        : 'bg-white/90 border-green-100 text-green-900'
+                        }`}>
+                        <div className={`w-10 h-10 rounded-2xl flex items-center justify-center shadow-lg ${notification.type === 'error' ? 'bg-red-500 text-white' : 'bg-green-500 text-white'
+                            }`}>
+                            <i className={`fa-solid ${notification.type === 'error' ? 'fa-triangle-exclamation' : 'fa-check'}`}></i>
+                        </div>
+                        <div>
+                            <p className="text-[10px] font-black uppercase tracking-widest opacity-50 mb-0.5">
+                                {notification.type === 'error' ? 'Restricción' : 'Éxito'}
+                            </p>
+                            <p className="text-xs font-bold leading-tight max-w-[300px]">{notification.message}</p>
+                        </div>
+                        <button
+                            onClick={() => setNotification(null)}
+                            className="ml-4 w-8 h-8 flex items-center justify-center rounded-full hover:bg-black/5 transition-colors"
+                        >
+                            <i className="fa-solid fa-xmark text-slate-400"></i>
+                        </button>
+                    </div>
+                </div>
+            )}
+            {/* DELETE CONFIRMATION MODAL */}
+            {taskToDelete && (
+                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[400] flex items-center justify-center p-4" onClick={() => setTaskToDelete(null)}>
+                    <div onClick={(e) => e.stopPropagation()} className="bg-white w-full max-w-sm rounded-[2rem] p-8 shadow-2xl animate-in zoom-in-95">
+                        <div className="w-16 h-16 bg-red-50 text-red-500 rounded-2xl flex items-center justify-center mx-auto mb-6">
+                            <i className="fa-solid fa-trash-can text-2xl"></i>
+                        </div>
+                        <h3 className="text-xl font-black text-slate-800 text-center mb-2 uppercase tracking-tight">¿Eliminar Tarea?</h3>
+                        <p className="text-slate-500 text-center text-xs mb-8 font-medium">
+                            Estás a punto de eliminar <span className="font-bold text-slate-700">"{taskToDelete.nombre}"</span>. Esta acción no se puede deshacer.
+                        </p>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setTaskToDelete(null)}
+                                className="flex-1 py-4 bg-slate-100 text-slate-500 rounded-2xl font-black text-[10px] uppercase hover:bg-slate-200 transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => {
+                                    handleDeleteTask(taskToDelete.id);
+                                    setTaskToDelete(null);
+                                    if (editingTask?.id === taskToDelete.id) setEditingTask(null);
+                                }}
+                                className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-red-200 hover:bg-red-600 transition-colors"
+                            >
+                                Sí, Eliminar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* INCOMPLETE SUBTASKS WARNING MODAL */}
+            {subtaskWarning && (
+                <div className="fixed inset-0 bg-slate-900/40 backdrop-blur-sm z-[450] flex items-center justify-center p-4" onClick={() => setSubtaskWarning(null)}>
+                    <div onClick={(e) => e.stopPropagation()} className="bg-white w-full max-w-md rounded-[2rem] p-8 shadow-2xl animate-in zoom-in-95 border-2 border-orange-100">
+                        <div className="w-16 h-16 bg-orange-50 text-orange-500 rounded-2xl flex items-center justify-center mx-auto mb-6 shadow-sm border border-orange-100">
+                            <i className="fa-solid fa-layer-group text-2xl"></i>
+                        </div>
+                        <h3 className="text-xl font-black text-slate-800 text-center mb-2 uppercase tracking-tight">Subtareas Pendientes</h3>
+                        <p className="text-slate-500 text-center text-xs mb-8 font-medium px-4">
+                            La tarea <span className="font-bold text-slate-700">"{subtaskWarning.task.nombre}"</span> tiene <span className="font-bold text-orange-500">{subtaskWarning.missingCount} subtareas</span> que aún no han sido completadas.
+                        </p>
+
+                        <div className="space-y-3">
+                            <button
+                                onClick={() => handleToggleTask(subtaskWarning.task.id, 'IGNORE')}
+                                className="w-full py-4 bg-white border-2 border-slate-100 text-slate-700 rounded-2xl font-black text-[10px] uppercase hover:bg-slate-50 hover:border-slate-200 transition-all flex items-center justify-between px-6 group"
+                            >
+                                <span>Continuar sin resolver</span>
+                                <i className="fa-solid fa-arrow-right text-slate-300 group-hover:text-slate-500"></i>
+                            </button>
+
+                            <button
+                                onClick={() => handleToggleTask(subtaskWarning.task.id, 'RESOLVE_ALL')}
+                                className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-black transition-all flex items-center justify-between px-6"
+                            >
+                                <span>Resolver Todas</span>
+                                <i className="fa-solid fa-check-double text-slate-400"></i>
+                            </button>
+
+                            <button
+                                onClick={() => setSubtaskWarning(null)}
+                                className="w-full py-3 text-slate-400 rounded-2xl font-bold text-[10px] uppercase hover:text-slate-600 transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* EVENT MODAL */}
+            {showEventModal && (
+                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={() => setShowEventModal(false)}>
+                    <div onClick={(e) => e.stopPropagation()} className="bg-white w-full max-w-lg rounded-[2.5rem] p-10 space-y-6 shadow-2xl animate-in zoom-in-95">
+                        <div className="flex justify-between items-center">
+                            <div className="flex items-center gap-4">
+                                <div className="w-12 h-12 bg-orange-100 rounded-2xl flex items-center justify-center">
+                                    <i className="fa-solid fa-calendar-day text-orange-600 text-xl"></i>
+                                </div>
+                                <h2 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">
+                                    {(newEvent as any).id ? 'Editar Evento' : 'Nuevo Evento'}
+                                </h2>
+                            </div>
+                            <button type="button" onClick={() => setShowEventModal(false)} className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100">
+                                <i className="fa-solid fa-xmark text-xl"></i>
+                            </button>
+                        </div>
+
+                        <p className="text-xs text-slate-500 -mt-2">
+                            Los eventos son bloques de tiempo fijos (compromisos inamovibles) que el algoritmo respetará al planificar tareas.
+                        </p>
+
+                        <div className="space-y-4">
+                            <Input label="Nombre del Evento" value={newEvent.nombre} onChange={(v: string) => setNewEvent({ ...newEvent, nombre: v })} />
+                            <div className="grid grid-cols-2 gap-4">
+                                <Input label="Fecha Inicio" type="datetime-local" value={newEvent.startDate.slice(0, 16)} onChange={(v: string) => setNewEvent({ ...newEvent, startDate: v })} />
+                                <Input label="Fecha Fin" type="datetime-local" value={newEvent.endDate.slice(0, 16)} onChange={(v: string) => setNewEvent({ ...newEvent, endDate: v })} />
+                            </div>
+                            {/* Inline Conflict Warning */}
+                            {(() => {
+                                // Real-time conflict check
+                                const allEvents: SpaceEvent[] = [];
+                                const activeWorkspace = state.workspaces.find(w => w.id === state.activeWorkspaceId);
+                                if (activeWorkspace) {
+                                    activeWorkspace.espacios.forEach(s => {
+                                        s.listas.forEach(l => l.eventos?.forEach(e => allEvents.push(e)));
+                                        s.carpetas.forEach(f => f.listas.forEach(l => l.eventos?.forEach(e => allEvents.push(e))));
+                                    });
+                                }
+                                const newStart = new Date(newEvent.startDate).getTime();
+                                const newEnd = new Date(newEvent.endDate).getTime();
+                                const overlap = allEvents.find(e => {
+                                    if ((newEvent as any).id && e.id === (newEvent as any).id) return false;
+                                    const eStart = new Date(e.startDate).getTime();
+                                    const eEnd = new Date(e.endDate).getTime();
+                                    return newStart < eEnd && newEnd > eStart;
+                                });
+
+                                if (overlap && newStart && newEnd) {
+                                    return (
+                                        <div className="bg-red-50 border border-red-100 p-3 rounded-xl flex items-center gap-3">
+                                            <div className="w-8 h-8 rounded-full bg-red-100 text-red-500 flex items-center justify-center shrink-0">
+                                                <i className="fa-solid fa-triangle-exclamation text-xs"></i>
+                                            </div>
+                                            <div>
+                                                <p className="text-[10px] font-black uppercase text-red-500">Conflicto de Horario</p>
+                                                <p className="text-[10px] text-red-400 font-medium">Se solapa con "<span className="font-bold">{overlap.nombre}</span>"</p>
+                                            </div>
+                                        </div>
+                                    );
+                                }
+                                return null;
+                            })()}
+                            <div className="space-y-1.5">
+                                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Descripción (Opcional)</label>
+                                <textarea
+                                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs outline-none resize-none min-h-[80px]"
+                                    value={newEvent.description || ''}
+                                    onChange={(e) => setNewEvent({ ...newEvent, description: e.target.value })}
+                                    placeholder="Añade detalles sobre este evento..."
+                                />
+                            </div>
+                        </div>
+
+                        <div className="flex gap-4 pt-4">
+                            <button type="button" onClick={() => setShowEventModal(false)} className="flex-1 font-black text-slate-400 uppercase text-[10px]">Cerrar</button>
+                            {(newEvent as any).id && (
+                                <button
+                                    type="button"
+                                    onClick={() => handleDeleteEvent((newEvent as any).id)}
+                                    className="px-6 py-4 bg-red-50 text-red-500 rounded-2xl font-black text-[10px] uppercase hover:bg-red-100 transition-colors"
+                                >
+                                    Eliminar
+                                </button>
+                            )}
+                            <button type="button" onClick={handleAddEvent} className="flex-1 py-4 bg-orange-500 text-white rounded-2xl font-black text-[10px] uppercase shadow-2xl tracking-widest hover:bg-orange-600 transition-colors">
+                                {(newEvent as any).id ? 'Guardar Cambios' : 'Crear Evento'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+export default SpacesView;
