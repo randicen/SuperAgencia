@@ -164,7 +164,7 @@ const App: React.FC = () => {
 
       console.log("Intentando UPSERT en Supabase...", fullState);
 
-      const { data, error } = await client
+      const { data: returnData, error } = await client
         .from('app_state_dump')
         .upsert(
           { 
@@ -178,12 +178,17 @@ const App: React.FC = () => {
 
       if (error) {
           console.error("Supabase Error Detallado:", error);
-          // Solo alertamos si es un error crítico para no molestar
-          if (error.code !== 'PGRST116') alert("Error de Sincronización: " + error.message);
+          alert("❌ ERROR REAL: " + error.message);
           throw error;
       }
       
-      setSyncStatus('synced');
+      if (returnData && returnData.length > 0) {
+          console.log("✅ CONFIRMADO POR SUPABASE:", returnData);
+          setSyncStatus('synced');
+      } else {
+          console.error("⚠️ Supabase no devolvió datos tras el upsert.");
+          setSyncStatus('error');
+      }
     } catch (err: any) {
       console.error("Sync Catch Error:", err);
       setSyncStatus('error');
