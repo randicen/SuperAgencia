@@ -155,20 +155,13 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onExport, on
     };
 
     const sqlBlueprint = `
-create table if not exists clients_dump (
+create table if not exists app_state_dump (
   id text primary key,
   data jsonb not null,
   updated_at timestamp with time zone default now()
 );
-create table if not exists projects_dump (
-  id text primary key,
-  data jsonb not null,
-  updated_at timestamp with time zone default now()
-);
-alter table clients_dump enable row level security;
-alter table projects_dump enable row level security;
-create policy "Public Access Clients" on clients_dump for all using (true);
-create policy "Public Access Projects" on projects_dump for all using (true);
+alter table app_state_dump enable row level security;
+create policy "Public Access All" on app_state_dump for all using (true);
   `;
     const workspaceMenuRef = useRef<HTMLDivElement>(null);
 
