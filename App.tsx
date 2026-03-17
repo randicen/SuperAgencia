@@ -81,7 +81,7 @@ const App: React.FC = () => {
       const { data, error } = await client
         .from('app_state_dump')
         .select('data')
-        .eq('id', 'master_state')
+        .eq('id', 'coo_master_state')
         .single();
 
       if (data && data.data) {
@@ -153,7 +153,7 @@ const App: React.FC = () => {
 
       const { error } = await client
         .from('app_state_dump')
-        .upsert({ id: 'master_state', data: fullState }, { onConflict: 'id' });
+        .upsert({ id: 'coo_master_state', data: fullState }, { onConflict: 'id' });
 
       if (error) throw error;
       setSyncStatus('synced');
