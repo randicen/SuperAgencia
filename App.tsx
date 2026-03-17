@@ -152,29 +152,40 @@ const App: React.FC = () => {
       const spacesData = rawSpaces ? JSON.parse(rawSpaces) : {};
       
       const fullState = {
-        projects,
-        clients,
-        transactions,
-        rules,
-        notes,
-        chatSessions,
+        projects: projects || [],
+        clients: clients || [],
+        transactions: transactions || [],
+        rules: rules || {},
+        notes: notes || [],
+        chatSessions: chatSessions || [],
         spaces: spacesData,
         lastModified: Date.now()
       };
 
-      const { error } = await client
-        .from('app_state_dump')
-        .upsert({ 
-          id: 'coo_master_state', 
-          data: fullState,
-          updated_at: new Date().toISOString()
-        });
+      console.log("Intentando UPSERT en Supabase...", fullState);
 
-      if (error) throw error;
+      const { data, error } = await client
+        .from('app_state_dump')
+        .upsert(
+          { 
+            id: 'coo_master_state', 
+            data: fullState,
+            updated_at: new Date().toISOString()
+          }, 
+          { onConflict: 'id' }
+        )
+        .select();
+
+      if (error) {
+          console.error("Supabase Error Detallado:", error);
+          // Solo alertamos si es un error crítico para no molestar
+          if (error.code !== 'PGRST116') alert("Error de Sincronización: " + error.message);
+          throw error;
+      }
+      
       setSyncStatus('synced');
-      console.log("🚀 Sincronización exitosa con Supabase.");
-    } catch (err) {
-      console.error("Sync Error:", err);
+    } catch (err: any) {
+      console.error("Sync Catch Error:", err);
       setSyncStatus('error');
     }
   }, [projects, clients, transactions, rules, notes, chatSessions, spacesSyncTrigger]);
