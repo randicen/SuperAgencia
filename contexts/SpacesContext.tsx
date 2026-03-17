@@ -499,6 +499,22 @@ export function SpacesProvider({ children }: { children: ReactNode }) {
         }
     }, []);
 
+    // Escuchar datos de la nube
+    useEffect(() => {
+        const handleCloudData = () => {
+            const saved = localStorage.getItem('coo_spaces');
+            if (saved) {
+                try {
+                    dispatch({ type: 'LOAD_STATE', payload: JSON.parse(saved) });
+                } catch (e) {
+                    console.error("Error al cargar datos de nube en espacios:", e);
+                }
+            }
+        };
+        window.addEventListener('coo_cloud_data_received', handleCloudData);
+        return () => window.removeEventListener('coo_cloud_data_received', handleCloudData);
+    }, []);
+
     // Save to localStorage
     useEffect(() => {
         // Save state to persistence. We check that we have at least one workspace to avoid 
