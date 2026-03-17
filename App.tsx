@@ -85,18 +85,25 @@ const App: React.FC = () => {
         .single();
 
       if (data && data.data) {
-        const s = data.data;
-        if (s.projects) setProjects(s.projects);
-        if (s.clients) setClients(s.clients);
-        if (s.transactions) setTransactions(s.transactions);
-        if (s.rules) setRules(s.rules);
-        if (s.notes) setNotes(s.notes);
-        if (s.chatSessions) setChatSessions(s.chatSessions);
-        if (s.spaces) {
-          localStorage.setItem('coo_spaces', JSON.stringify(s.spaces));
-          window.dispatchEvent(new Event('coo_cloud_data_received'));
+        const cloudState = data.data;
+        const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
+        
+        // Solo descargar si la nube es más nueva que el último cambio local registrado
+        if (!cloudState.lastModified || cloudState.lastModified > localLastSync) {
+          if (cloudState.projects) setProjects(cloudState.projects);
+          if (cloudState.clients) setClients(cloudState.clients);
+          if (cloudState.transactions) setTransactions(cloudState.transactions);
+          if (cloudState.rules) setRules(cloudState.rules);
+          if (cloudState.notes) setNotes(cloudState.notes);
+          if (cloudState.chatSessions) setChatSessions(cloudState.chatSessions);
+          if (cloudState.spaces) {
+            localStorage.setItem('coo_spaces', JSON.stringify(cloudState.spaces));
+            window.dispatchEvent(new Event('coo_cloud_data_received'));
+          }
+          console.log("✅ Datos descargados (Nube era más nueva).");
+        } else {
+          console.log("⏭️ Descarga omitida: Los datos locales son más recientes o iguales.");
         }
-        console.log("✅ Datos descargados de la nube exitosamente.");
       }
     } catch (err) {
       console.error("Download Error:", err);
@@ -139,7 +146,7 @@ const App: React.FC = () => {
     const client = createClient(supabaseUrl, supabaseKey);
 
     try {
-      // Sincronización atómica por dominios
+      const spacesData = JSON.parse(localStorage.getItem('coo_spaces') || '{}');
       const fullState = {
         projects,
         clients,
@@ -147,13 +154,17 @@ const App: React.FC = () => {
         rules,
         notes,
         chatSessions,
-        spaces: JSON.parse(localStorage.getItem('coo_spaces') || '{}'),
-        timestamp: new Date().toISOString()
+        spaces: spacesData,
+        lastModified: Date.now()
       };
 
       const { error } = await client
         .from('app_state_dump')
-        .upsert({ id: 'coo_master_state', data: fullState }, { onConflict: 'id' });
+        .upsert({ 
+          id: 'coo_master_state', 
+          data: fullState,
+          updated_at: new Date().toISOString()
+        }, { onConflict: 'id' });
 
       if (error) throw error;
       setSyncStatus('synced');
@@ -228,13 +239,39 @@ const App: React.FC = () => {
   }, [rules]); 
 
   // Persistencia Local (LA BASE DE TODO)
-  useEffect(() => localStorage.setItem('coo_projects', JSON.stringify(projects)), [projects]);
-  useEffect(() => localStorage.setItem('coo_transactions', JSON.stringify(transactions)), [transactions]);
-  useEffect(() => localStorage.setItem('coo_clients', JSON.stringify(clients)), [clients]);
-  useEffect(() => localStorage.setItem('coo_rules', JSON.stringify(rules)), [rules]);
-  useEffect(() => localStorage.setItem('coo_chat_sessions', JSON.stringify(chatSessions)), [chatSessions]);
-  useEffect(() => localStorage.setItem('coo_current_chat_id', currentChatId), [currentChatId]);
-  useEffect(() => localStorage.setItem('coo_notes', JSON.stringify(notes)), [notes]);
+  useEffect(() => {
+    localStorage.setItem('coo_projects', JSON.stringify(projects));
+    localStorage.setItem('coo_last_local_mod', Date.now().toString());
+  }, [projects]);
+  
+  useEffect(() => {
+    localStorage.setItem('coo_transactions', JSON.stringify(transactions));
+    localStorage.setItem('coo_last_local_mod', Date.now().toString());
+  }, [transactions]);
+  
+  useEffect(() => {
+    localStorage.setItem('coo_clients', JSON.stringify(clients));
+    localStorage.setItem('coo_last_local_mod', Date.now().toString());
+  }, [clients]);
+  
+  useEffect(() => {
+    localStorage.setItem('coo_rules', JSON.stringify(rules));
+    localStorage.setItem('coo_last_local_mod', Date.now().toString());
+  }, [rules]);
+  
+  useEffect(() => {
+    localStorage.setItem('coo_chat_sessions', JSON.stringify(chatSessions));
+    localStorage.setItem('coo_last_local_mod', Date.now().toString());
+  }, [chatSessions]);
+  
+  useEffect(() => {
+    localStorage.setItem('coo_current_chat_id', currentChatId);
+  }, [currentChatId]);
+  
+  useEffect(() => {
+    localStorage.setItem('coo_notes', JSON.stringify(notes));
+    localStorage.setItem('coo_last_local_mod', Date.now().toString());
+  }, [notes]);
 
 
   // --- DATA PORTABILITY (BACKUP & RESTORE) ---
