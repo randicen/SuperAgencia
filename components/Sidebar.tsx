@@ -9,12 +9,14 @@ interface SidebarProps {
     onExport: () => void;
     onImport?: (file: File) => void;
     onCloudSync: () => void;
+    syncStatus?: 'idle' | 'syncing' | 'synced' | 'error' | 'offline';
+    isOnline?: boolean;
     capacity: number;
     mobileOpen?: boolean;
     setMobileOpen?: (open: boolean) => void;
 }
 
-const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onExport, onImport, onCloudSync, capacity, mobileOpen = false, setMobileOpen }) => {
+const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onExport, onImport, onCloudSync, syncStatus = 'idle', isOnline = true, capacity, mobileOpen = false, setMobileOpen }) => {
     const { state: spacesState, dispatch } = useSpaces();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [showCloudModal, setShowCloudModal] = useState(false);
@@ -335,9 +337,14 @@ create policy "Public Access Projects" on projects_dump for all using (true);
 
                     <div className="flex items-center justify-between px-1">
                         <div className="flex items-center gap-1.5">
-                            <div className={`w-1.5 h-1.5 rounded-full ${supabaseUrl ? 'bg-emerald-500 animate-pulse' : 'bg-orange-500'}`}></div>
+                            <div className={`w-1.5 h-1.5 rounded-full ${
+                                !supabaseUrl ? 'bg-orange-500' : 
+                                !isOnline ? 'bg-slate-500' :
+                                syncStatus === 'syncing' ? 'bg-emerald-500 animate-pulse' :
+                                syncStatus === 'error' ? 'bg-red-500' : 'bg-emerald-500'
+                            }`}></div>
                             <span className="text-[9px] font-bold text-slate-500 uppercase tracking-tight">
-                                {isEnterpriseMode ? 'Modo: Enterprise' : (supabaseUrl ? 'Modo: Nube' : 'Modo: Local')}
+                                {!supabaseUrl ? 'Modo: Local' : (!isOnline ? 'Modo: Offline' : (syncStatus === 'syncing' ? 'Sincronizando...' : 'Modo: Nube'))}
                             </span>
                         </div>
                     </div>
@@ -378,9 +385,18 @@ create policy "Public Access Projects" on projects_dump for all using (true);
                     <div className="flex gap-2">
                         {(supabaseUrl && supabaseKey) ? (
                             <>
-                                <button onClick={onCloudSync} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg bg-emerald-600 text-white shadow-lg shadow-emerald-900/20 hover:bg-emerald-500 transition-all group">
-                                    <i className="fa-solid fa-rotate text-xs group-hover:animate-spin"></i>
-                                    <span className="text-[10px] font-black uppercase tracking-wide">Sync</span>
+                                <button 
+                                    onClick={onCloudSync} 
+                                    disabled={syncStatus === 'syncing'}
+                                    className={`flex-1 flex items-center justify-center gap-2 py-2.5 rounded-lg text-white shadow-lg transition-all group ${
+                                        syncStatus === 'syncing' ? 'bg-emerald-700 cursor-wait' : 
+                                        syncStatus === 'error' ? 'bg-red-600' : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-900/20'
+                                    }`}
+                                >
+                                    <i className={`fa-solid fa-rotate text-xs ${syncStatus === 'syncing' ? 'animate-spin' : 'group-hover:animate-spin'}`}></i>
+                                    <span className="text-[10px] font-black uppercase tracking-wide">
+                                        {syncStatus === 'syncing' ? '...' : (syncStatus === 'error' ? 'Retry' : 'Sync')}
+                                    </span>
                                 </button>
                                 <button onClick={() => setShowCloudModal(true)} className="w-10 flex items-center justify-center py-2.5 rounded-lg bg-[#1A1C23] text-slate-400 border border-[#2A2D35] hover:text-white">
                                     <i className="fa-solid fa-gear text-xs"></i>

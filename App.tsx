@@ -60,13 +60,84 @@ const App: React.FC = () => {
     return saved || 'default';
   });
 
+  const [isOnline, setIsOnline] = useState(navigator.onLine);
+  const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error' | 'offline'>('idle');
+
+  // Monitorear conexión
+  useEffect(() => {
+    const handleOnline = () => { setIsOnline(true); setSyncStatus('syncing'); };
+    const handleOffline = () => { setIsOnline(false); setSyncStatus('offline'); };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  // --- CLOUD SYNC LOGIC (SUPABASE) ---
+  const handleCloudSync = useCallback(async () => {
+    if (!navigator.onLine) {
+        setSyncStatus('offline');
+        return;
+    }
+
+    const envUrl = import.meta.env.VITE_SUPABASE_URL;
+    const envKey = import.meta.env.VITE_SUPABASE_KEY;
+    const supabaseUrl = envUrl || localStorage.getItem('coo_supabase_url');
+    const supabaseKey = envKey || localStorage.getItem('coo_supabase_key');
+
+    if (!supabaseUrl || !supabaseKey) return;
+
+    setSyncStatus('syncing');
+    const client = createClient(supabaseUrl, supabaseKey);
+
+    try {
+      // Sincronización atómica por dominios
+      const fullState = {
+        projects,
+        clients,
+        transactions,
+        rules,
+        notes,
+        chatSessions,
+        spaces: JSON.parse(localStorage.getItem('coo_spaces') || '{}'),
+        timestamp: new Date().toISOString()
+      };
+
+      const { error } = await client
+        .from('app_state_dump')
+        .upsert({ id: 'master_state', data: fullState }, { onConflict: 'id' });
+
+      if (error) throw error;
+      setSyncStatus('synced');
+    } catch (err) {
+      console.error("Sync Error:", err);
+      setSyncStatus('error');
+    }
+  }, [projects, clients, transactions, rules, notes, chatSessions]);
+
+  // Sincronización automática al volver online o cambiar datos (debounced)
+  useEffect(() => {
+    const handleTriggerSync = () => { if (isOnline) handleCloudSync(); };
+    window.addEventListener('coo_spaces_updated', handleTriggerSync);
+
+    const timer = setTimeout(() => {
+      if (isOnline) handleCloudSync();
+    }, 3000); // 3 segundos de gracia tras cambios
+    
+    return () => {
+      window.removeEventListener('coo_spaces_updated', handleTriggerSync);
+      clearTimeout(timer);
+    };
+  }, [projects, clients, transactions, rules, notes, chatSessions, isOnline, handleCloudSync]);
+
   // --- HEARTBEAT & SYNC: LATIDO OPERATIVO ---
   useEffect(() => {
     // 1. Calcular el estado actual basado en el tiempo real
     const updatedProjects = runAutoScheduling(projects, rules);
 
     // 2. Detectar si hay diferencias críticas para el Briefing
-    // Solo mostramos briefing si ha pasado tiempo o es una nueva sesión (simulado con un flag de sesión)
     const sessionKey = sessionStorage.getItem('coo_session_active');
 
     if (!sessionKey) {
@@ -83,7 +154,6 @@ const App: React.FC = () => {
         return diffDays <= 2 && dueDate >= now && p.status !== 'completed';
       });
 
-      // Ingresos recientes (últimos 7 días simulados, o simplemente pendientes)
       const pendingIncome = clients.reduce((acc, client) => {
         return acc + client.services.reduce((sAcc, s) => sAcc + s.installments.filter(i => i.status === 'PENDIENTE').reduce((iAcc, i) => iAcc + i.amount, 0), 0);
       }, 0);
@@ -109,9 +179,9 @@ const App: React.FC = () => {
     }, 60000);
 
     return () => clearInterval(interval);
-  }, [rules]); // Dependencia rules asegura que corra al inicio
+  }, [rules]); 
 
-  // Persistencia Local
+  // Persistencia Local (LA BASE DE TODO)
   useEffect(() => localStorage.setItem('coo_projects', JSON.stringify(projects)), [projects]);
   useEffect(() => localStorage.setItem('coo_transactions', JSON.stringify(transactions)), [transactions]);
   useEffect(() => localStorage.setItem('coo_clients', JSON.stringify(clients)), [clients]);
@@ -120,71 +190,6 @@ const App: React.FC = () => {
   useEffect(() => localStorage.setItem('coo_current_chat_id', currentChatId), [currentChatId]);
   useEffect(() => localStorage.setItem('coo_notes', JSON.stringify(notes)), [notes]);
 
-  useEffect(() => {
-    setProjects(prev => {
-      let changed = false;
-      const next = prev.map(p => {
-        const client = clients.find(c => c.id === p.clientId);
-        const service = client?.services.find(s => s.projectId === p.id);
-        if (service) {
-          const totalPaid = service.installments.filter(i => i.status === 'PAGADO').reduce((sum, i) => sum + i.amount, 0);
-          if (p.paidValue !== totalPaid || p.totalValue !== service.cost) {
-            changed = true;
-            return { ...p, paidValue: totalPaid, totalValue: service.cost };
-          }
-        }
-        return p;
-      });
-      return changed ? next : prev;
-    });
-  }, [clients]);
-
-  // --- CLOUD SYNC LOGIC (SUPABASE) ---
-  const handleCloudSync = async () => {
-    // Prioridad 1: Variables de Entorno (Deploy Profesional)
-    // Prioridad 2: LocalStorage (Modo Dev Manual)
-    const envUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL;
-    const envKey = process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_KEY;
-
-    const supabaseUrl = envUrl || localStorage.getItem('coo_supabase_url');
-    const supabaseKey = envKey || localStorage.getItem('coo_supabase_key');
-
-    if (!supabaseUrl || !supabaseKey) {
-      alert("No hay configuración de nube. Ve a Configuración (Engranaje) en la barra lateral.");
-      return;
-    }
-
-    const client = createClient(supabaseUrl, supabaseKey);
-
-    const btn = document.activeElement as HTMLElement;
-    const originalText = btn.innerHTML;
-    btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Subiendo...';
-
-    try {
-      // 1. Sync Clients
-      for (const c of clients) {
-        const { error } = await client
-          .from('clients_dump')
-          .upsert({ id: c.id, data: c }, { onConflict: 'id' });
-        if (error) throw error;
-      }
-
-      // 2. Sync Projects
-      for (const p of projects) {
-        const { error } = await client
-          .from('projects_dump')
-          .upsert({ id: p.id, data: p }, { onConflict: 'id' });
-        if (error) throw error;
-      }
-
-      alert("✅ Sincronización Exitosa: Tus datos están seguros en la nube.");
-    } catch (err: any) {
-      console.error("Cloud Error:", err);
-      alert(`❌ Error al sincronizar: ${err.message}`);
-    } finally {
-      btn.innerHTML = originalText;
-    }
-  };
 
   // --- DATA PORTABILITY (BACKUP & RESTORE) ---
   const handleExportData = () => {
@@ -321,6 +326,8 @@ const App: React.FC = () => {
           onExport={handleExportData}
           onImport={handleImportData}
           onCloudSync={handleCloudSync}
+          syncStatus={syncStatus}
+          isOnline={isOnline}
           capacity={Math.min(Math.round((projects.filter(p => p.status === 'active').length / rules.maxProjectsCapacity) * 100), 100)}
           mobileOpen={isMobileMenuOpen}
           setMobileOpen={setIsMobileMenuOpen}

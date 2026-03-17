@@ -505,6 +505,8 @@ export function SpacesProvider({ children }: { children: ReactNode }) {
         // overwriting with initial empty state on first render before LOAD_STATE.
         if (state.workspaces.length > 0) {
             localStorage.setItem('coo_spaces', JSON.stringify(state));
+            // Notificar a App.tsx que hubo un cambio en los espacios para sincronizar
+            window.dispatchEvent(new Event('coo_spaces_updated'));
         }
     }, [state]);
 
