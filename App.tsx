@@ -63,6 +63,8 @@ const App: React.FC = () => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error' | 'offline'>('idle');
   const [isLoadingCloud, setIsLoadingCloud] = useState(true);
+  // Estado para disparar sync cuando cambian los espacios
+  const [spacesSyncTrigger, setSpacesSyncTrigger] = useState(0);
 
   // --- CLOUD DOWNLOAD LOGIC (INITIAL LOAD) ---
   const handleInitialDownload = useCallback(async () => {
@@ -88,7 +90,7 @@ const App: React.FC = () => {
         const cloudState = data.data;
         const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
         
-        // Solo descargar si la nube es más nueva que el último cambio local registrado
+        // Solo descargar si la nube es más nueva que el último cambio local
         if (!cloudState.lastModified || cloudState.lastModified > localLastSync) {
           if (cloudState.projects) setProjects(cloudState.projects);
           if (cloudState.clients) setClients(cloudState.clients);
@@ -100,9 +102,9 @@ const App: React.FC = () => {
             localStorage.setItem('coo_spaces', JSON.stringify(cloudState.spaces));
             window.dispatchEvent(new Event('coo_cloud_data_received'));
           }
-          console.log("✅ Datos descargados (Nube era más nueva).");
+          console.log("✅ Datos bajados de la nube (Eran más nuevos).");
         } else {
-          console.log("⏭️ Descarga omitida: Los datos locales son más recientes o iguales.");
+          console.log("⏭️ Manteniendo datos locales (Son más nuevos que la nube).");
         }
       }
     } catch (err) {
@@ -146,7 +148,9 @@ const App: React.FC = () => {
     const client = createClient(supabaseUrl, supabaseKey);
 
     try {
-      const spacesData = JSON.parse(localStorage.getItem('coo_spaces') || '{}');
+      const rawSpaces = localStorage.getItem('coo_spaces');
+      const spacesData = rawSpaces ? JSON.parse(rawSpaces) : {};
+      
       const fullState = {
         projects,
         clients,
@@ -164,24 +168,25 @@ const App: React.FC = () => {
           id: 'coo_master_state', 
           data: fullState,
           updated_at: new Date().toISOString()
-        }, { onConflict: 'id' });
+        });
 
       if (error) throw error;
       setSyncStatus('synced');
+      console.log("🚀 Sincronización exitosa con Supabase.");
     } catch (err) {
       console.error("Sync Error:", err);
       setSyncStatus('error');
     }
-  }, [projects, clients, transactions, rules, notes, chatSessions]);
+  }, [projects, clients, transactions, rules, notes, chatSessions, spacesSyncTrigger]);
 
-  // Sincronización automática al volver online o cambiar datos (debounced)
+  // Sincronización automática debounced
   useEffect(() => {
-    const handleTriggerSync = () => { if (isOnline) handleCloudSync(); };
+    const handleTriggerSync = () => { setSpacesSyncTrigger(prev => prev + 1); };
     window.addEventListener('coo_spaces_updated', handleTriggerSync);
 
     const timer = setTimeout(() => {
       if (isOnline) handleCloudSync();
-    }, 3000); // 3 segundos de gracia tras cambios
+    }, 2000); // 2 segundos tras cambios
     
     return () => {
       window.removeEventListener('coo_spaces_updated', handleTriggerSync);
