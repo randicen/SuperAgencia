@@ -62,6 +62,52 @@ const App: React.FC = () => {
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error' | 'offline'>('idle');
+  const [isLoadingCloud, setIsLoadingCloud] = useState(true);
+
+  // --- CLOUD DOWNLOAD LOGIC (INITIAL LOAD) ---
+  const handleInitialDownload = useCallback(async () => {
+    const envUrl = import.meta.env.VITE_SUPABASE_URL;
+    const envKey = import.meta.env.VITE_SUPABASE_KEY;
+    const supabaseUrl = envUrl || localStorage.getItem('coo_supabase_url');
+    const supabaseKey = envKey || localStorage.getItem('coo_supabase_key');
+
+    if (!supabaseUrl || !supabaseKey) {
+      setIsLoadingCloud(false);
+      return;
+    }
+
+    try {
+      const client = createClient(supabaseUrl, supabaseKey);
+      const { data, error } = await client
+        .from('app_state_dump')
+        .select('data')
+        .eq('id', 'master_state')
+        .single();
+
+      if (data && data.data) {
+        const s = data.data;
+        if (s.projects) setProjects(s.projects);
+        if (s.clients) setClients(s.clients);
+        if (s.transactions) setTransactions(s.transactions);
+        if (s.rules) setRules(s.rules);
+        if (s.notes) setNotes(s.notes);
+        if (s.chatSessions) setChatSessions(s.chatSessions);
+        if (s.spaces) {
+          localStorage.setItem('coo_spaces', JSON.stringify(s.spaces));
+          window.dispatchEvent(new Event('coo_cloud_data_received'));
+        }
+        console.log("✅ Datos descargados de la nube exitosamente.");
+      }
+    } catch (err) {
+      console.error("Download Error:", err);
+    } finally {
+      setIsLoadingCloud(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    handleInitialDownload();
+  }, [handleInitialDownload]);
 
   // Monitorear conexión
   useEffect(() => {
@@ -317,8 +363,18 @@ const App: React.FC = () => {
 
   const activeMessages = chatSessions.find(s => s.id === currentChatId)?.messages || [];
 
+  if (isLoadingCloud) {
+    return (
+      <div className="h-screen w-screen bg-[#F4F5F8] flex flex-col items-center justify-center font-sans">
+        <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p className="text-slate-600 font-black uppercase tracking-widest text-xs animate-pulse">Sincronizando con la nube...</p>
+      </div>
+    );
+  }
+
   return (
     <SpacesProvider>
+
       <div className="flex w-full h-full bg-[#F4F5F8]">
         <Sidebar
           activeTab={activeTab}
