@@ -197,15 +197,30 @@ const App: React.FC = () => {
 
   // Sincronización automática debounced
   useEffect(() => {
-    const handleTriggerSync = () => { setSpacesSyncTrigger(prev => prev + 1); };
+    const handleTriggerSync = () => { 
+        console.log("🔔 Cambio detectado en Espacios, programando sync...");
+        setSpacesSyncTrigger(prev => prev + 1); 
+    };
     window.addEventListener('coo_spaces_updated', handleTriggerSync);
 
     const timer = setTimeout(() => {
-      if (isOnline) handleCloudSync();
-    }, 2000); // 2 segundos tras cambios
+      if (isOnline) {
+          console.log("📡 Iniciando auto-sincronización...");
+          handleCloudSync();
+      }
+    }, 1500); // 1.5 segundos de inactividad
     
+    // Seguro: Sincronizar si el usuario cambia de pestaña o cierra la app
+    const handleVisibilityChange = () => {
+        if (document.visibilityState === 'hidden' && isOnline) {
+            handleCloudSync();
+        }
+    };
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+
     return () => {
       window.removeEventListener('coo_spaces_updated', handleTriggerSync);
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
       clearTimeout(timer);
     };
   }, [projects, clients, transactions, rules, notes, chatSessions, isOnline, handleCloudSync]);
