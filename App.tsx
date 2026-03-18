@@ -65,6 +65,7 @@ const App: React.FC = () => {
   const [isLoadingCloud, setIsLoadingCloud] = useState(false);
   const [hasCheckedCloud, setHasCheckedCloud] = useState(false); // Bloqueo de seguridad
   const [spacesSyncTrigger, setSpacesSyncTrigger] = useState(0);
+  const [debugMsg, setDebugMsg] = useState<string | null>(null); // DEBUG HUD
   const isInternalUpdate = React.useRef(false); // Ref para evitar bucles de subida tras descarga
   const lastUploadedState = React.useRef<string>(''); // Reflete el último estado guardado/descargado para evitar uploads redundantes
 
@@ -128,6 +129,7 @@ const App: React.FC = () => {
       const cloudLastModified = (cloudRecord?.data as any)?.lastModified || 0;
 
       if (Number(cloudLastModified) > localLastSync) {
+          setDebugMsg(`REVERT_CLOUD_SYNC: Cloud(${cloudLastModified}) > Local(${localLastSync})`);
           console.log("⚠️ Hay datos más nuevos en la nube. Descargando automáticamente...");
           await handleInitialDownload(true);
           setSyncStatus('synced');
@@ -252,6 +254,9 @@ const App: React.FC = () => {
         
         // Solo descargar si la nube es estrictamente más nueva
         if (!cloudState.lastModified || cloudState.lastModified > localLastSync) {
+          if (cloudState.lastModified && localLastSync > 0) {
+              setDebugMsg(`REVERT_REALTIME: Cloud(${cloudState.lastModified}) > Local(${localLastSync})`);
+          }
           isInternalUpdate.current = true; // Bloqueamos subidas temporales
           
           if (cloudState.projects) setProjects(cloudState.projects);
