@@ -34,8 +34,8 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onExport, on
     const [isAppInstalled, setIsAppInstalled] = useState(false);
 
     // Detección de entorno profesional
-    const envUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || '';
-    const envKey = process.env.SUPABASE_KEY || process.env.VITE_SUPABASE_KEY || '';
+    const envUrl = import.meta.env.VITE_SUPABASE_URL || '';
+    const envKey = import.meta.env.VITE_SUPABASE_KEY || '';
     const isEnterpriseMode = !!(envUrl && envKey);
 
     const [supabaseUrl, setSupabaseUrl] = useState('');

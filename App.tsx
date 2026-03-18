@@ -66,93 +66,6 @@ const App: React.FC = () => {
   // Estado para disparar sync cuando cambian los espacios
   const [spacesSyncTrigger, setSpacesSyncTrigger] = useState(0);
 
-  // --- CLOUD DOWNLOAD LOGIC (INITIAL LOAD) ---
-  const handleInitialDownload = useCallback(async (isSilent = false) => {
-    const envUrl = import.meta.env.VITE_SUPABASE_URL;
-    const envKey = import.meta.env.VITE_SUPABASE_KEY;
-    const supabaseUrl = envUrl || localStorage.getItem('coo_supabase_url');
-    const supabaseKey = envKey || localStorage.getItem('coo_supabase_key');
-
-    if (!supabaseUrl || !supabaseKey) {
-      setIsLoadingCloud(false);
-      return;
-    }
-
-    try {
-      const client = createClient(supabaseUrl, supabaseKey);
-      const { data, error } = await client
-        .from('app_state_dump')
-        .select('data')
-        .eq('id', 'coo_master_state')
-        .single();
-
-      if (data && data.data) {
-        const cloudState = data.data;
-        const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
-        
-        // Solo descargar si la nube es estrictamente más nueva
-        if (!cloudState.lastModified || cloudState.lastModified > localLastSync) {
-          if (cloudState.projects) setProjects(cloudState.projects);
-          if (cloudState.clients) setClients(cloudState.clients);
-          if (cloudState.transactions) setTransactions(cloudState.transactions);
-          if (cloudState.rules) setRules(cloudState.rules);
-          if (cloudState.notes) setNotes(cloudState.notes);
-          if (cloudState.chatSessions) setChatSessions(cloudState.chatSessions);
-          if (cloudState.spaces) {
-            localStorage.setItem('coo_spaces', JSON.stringify(cloudState.spaces));
-            window.dispatchEvent(new Event('coo_cloud_data_received'));
-          }
-          if (!isSilent) console.log("✅ Datos sincronizados desde la nube.");
-        }
-      }
-    } catch (err) {
-      if (!isSilent) console.error("Download Error:", err);
-    } finally {
-      if (!isSilent) setIsLoadingCloud(false);
-    }
-  }, [projects, clients, transactions, rules, notes, chatSessions]);
-
-  useEffect(() => {
-    handleInitialDownload();
-  }, []); // Solo al montar
-
-  // Monitorear conexión y suscripción Real-time
-  useEffect(() => {
-    const handleOnline = () => { 
-        setIsOnline(true); 
-        setSyncStatus('syncing');
-        handleCloudSync(); // Sync inmediato al volver
-    };
-    const handleOffline = () => { setIsOnline(false); setSyncStatus('offline'); };
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
-    // --- REAL-TIME LISTENER ---
-    const envUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('coo_supabase_url');
-    const envKey = import.meta.env.VITE_SUPABASE_KEY || localStorage.getItem('coo_supabase_key');
-    
-    let channel: any;
-    if (envUrl && envKey) {
-        const client = createClient(envUrl, envKey);
-        channel = client
-            .channel('schema-db-changes')
-            .on('postgres_changes', 
-                { event: 'UPDATE', schema: 'public', table: 'app_state_dump', filter: 'id=eq.coo_master_state' },
-                () => {
-                    console.log("☁️ Cambio detectado en otro dispositivo, descargando...");
-                    handleInitialDownload(true);
-                }
-            )
-            .subscribe();
-    }
-
-    return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
-      if (channel) channel.unsubscribe();
-    };
-  }, [handleCloudSync, handleInitialDownload]);
-
   // --- CLOUD SYNC LOGIC (SUPABASE) ---
   const handleCloudSync = useCallback(async () => {
     if (!navigator.onLine) {
@@ -217,6 +130,93 @@ const App: React.FC = () => {
       setSyncStatus('error');
     }
   }, [projects, clients, transactions, rules, notes, chatSessions, spacesSyncTrigger]);
+
+  // --- CLOUD DOWNLOAD LOGIC (INITIAL LOAD) ---
+  const handleInitialDownload = useCallback(async (isSilent = false) => {
+    const envUrl = import.meta.env.VITE_SUPABASE_URL;
+    const envKey = import.meta.env.VITE_SUPABASE_KEY;
+    const supabaseUrl = envUrl || localStorage.getItem('coo_supabase_url');
+    const supabaseKey = envKey || localStorage.getItem('coo_supabase_key');
+
+    if (!supabaseUrl || !supabaseKey) {
+      setIsLoadingCloud(false);
+      return;
+    }
+
+    try {
+      const client = createClient(supabaseUrl, supabaseKey);
+      const { data, error } = await client
+        .from('app_state_dump')
+        .select('data')
+        .eq('id', 'coo_master_state')
+        .single();
+
+      if (data && data.data) {
+        const cloudState = data.data;
+        const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
+        
+        // Solo descargar si la nube es estrictamente más nueva
+        if (!cloudState.lastModified || cloudState.lastModified > localLastSync) {
+          if (cloudState.projects) setProjects(cloudState.projects);
+          if (cloudState.clients) setClients(cloudState.clients);
+          if (cloudState.transactions) setTransactions(cloudState.transactions);
+          if (cloudState.rules) setRules(cloudState.rules);
+          if (cloudState.notes) setNotes(cloudState.notes);
+          if (cloudState.chatSessions) setChatSessions(cloudState.chatSessions);
+          if (cloudState.spaces) {
+            localStorage.setItem('coo_spaces', JSON.stringify(cloudState.spaces));
+            window.dispatchEvent(new Event('coo_cloud_data_received'));
+          }
+          if (!isSilent) console.log("✅ Datos sincronizados desde la nube.");
+        }
+      }
+    } catch (err) {
+      if (!isSilent) console.error("Download Error:", err);
+    } finally {
+      if (!isSilent) setIsLoadingCloud(false);
+    }
+  }, [projects, clients, transactions, rules, notes, chatSessions, handleCloudSync]);
+
+  useEffect(() => {
+    handleInitialDownload();
+  }, [handleInitialDownload]); // Solo al montar o si cambia la callback
+
+  // Monitorear conexión y suscripción Real-time
+  useEffect(() => {
+    const handleOnline = () => { 
+        setIsOnline(true); 
+        setSyncStatus('syncing');
+        handleCloudSync(); // Sync inmediato al volver
+    };
+    const handleOffline = () => { setIsOnline(false); setSyncStatus('offline'); };
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    // --- REAL-TIME LISTENER ---
+    const envUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('coo_supabase_url');
+    const envKey = import.meta.env.VITE_SUPABASE_KEY || localStorage.getItem('coo_supabase_key');
+    
+    let channel: any;
+    if (envUrl && envKey) {
+        const client = createClient(envUrl, envKey);
+        channel = client
+            .channel('schema-db-changes')
+            .on('postgres_changes', 
+                { event: 'UPDATE', schema: 'public', table: 'app_state_dump', filter: 'id=eq.coo_master_state' },
+                () => {
+                    console.log("☁️ Cambio detectado en otro dispositivo, descargando...");
+                    handleInitialDownload(true);
+                }
+            )
+            .subscribe();
+    }
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+      if (channel) channel.unsubscribe();
+    };
+  }, [handleCloudSync, handleInitialDownload]);
 
   // Sincronización automática debounced
   useEffect(() => {
