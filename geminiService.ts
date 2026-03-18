@@ -453,6 +453,18 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         required: []
       }
     }
+  },
+  {
+    type: "function",
+    function: {
+      name: "consultar_estado_app",
+      description: "Úsala SIEMPRE que te pregunten qué listas, carpetas, espacios, notas o proyectos existen actualmente en la agencia. Obligatorio para leer el estado del negocio.",
+      parameters: {
+        type: "object",
+        properties: {},
+        required: []
+      }
+    }
   }
 ];
 
@@ -488,7 +500,7 @@ export const calculateQuote = async (
 
   const clientsList = clients.map(c => c.name).join(", ");
 
-  // CONTEXTO DE DATOS EN TEXTO PLANO (los LLMs lo parsean mejor que JSON anidado)
+  // CONTEXTO DE DATOS EN TEXTO PLANO (Solo se genera cuando el Agente llama a la herramienta)
   const buildPlainTextContext = () => {
     let text = '';
 
@@ -500,17 +512,14 @@ export const calculateQuote = async (
         text += `  📂 Espacio: ${s.nombre}\n`;
         // Listas raíz (sin carpeta)
         s.listas.forEach((l: any) => {
-          text += `    📋 Lista: ${l.nombre} (${l.tareas.length} tareas)\n`;
+          text += `    📋 Lista: ${l.nombre}\n`;
         });
         // Carpetas con sus listas
         s.carpetas.forEach((f: any) => {
           text += `    📁 Carpeta: ${f.nombre}\n`;
           f.listas.forEach((l: any) => {
-            text += `      📋 Lista: ${l.nombre} (${l.tareas.length} tareas)\n`;
+            text += `      📋 Lista: ${l.nombre}\n`;
           });
-          if (f.listas.length === 0) {
-            text += `      (Carpeta vacía, no hay listas aquí)\n`;
-          }
         });
       });
     });
@@ -536,71 +545,35 @@ export const calculateQuote = async (
     return text;
   };
 
-  const plainTextContext = buildPlainTextContext();
-
-  // --- SYSTEM PROMPTS BIFURCADOS ---
-  const baseContext = `
+  // --- SYSTEM PROMPT (Ligero, sin inyección pasiva de estado) ---
+  const systemPrompt = `
   ERES EL COO Y CFO DE ESTA AGENCIA. Tu nombre es "Director AI".
   Eres un socio estratégico: conversa con fluidez y mantén un tono profesional pero cercano.
 
-  === REGLA DE INTEGRIDAD ===
-  NUNCA reportes que completaste una acción si no ejecutaste la herramienta correspondiente.
-  Si no tienes una tool para lo que se pidió, dilo honestamente.
+  === REGLA DE INTEGRIDAD Y ESTADO ===
+  1. NUNCA asumas qué listas, carpetas o proyectos tiene el usuario de memoria.
+  2. Si el usuario te hace una pregunta de información (e.g. "¿Qué listas tengo?"), OBLIGATORIAMENTE debes llamar a la herramienta "consultar_estado_app". No intentes responder usando información del historial porque puede estar desactualizada. Confía SOLO en lo que te devuelva la herramienta.
+  3. No reportes que completaste una acción si no usaste la tool correspondiente.
 
-  === FUENTE ÚNICA DE VERDAD ===
-  Los datos listados abajo son el ESTADO ACTUAL Y REAL del sistema en este instante.
-  IGNORA cualquier dato diferente que aparezca en mensajes anteriores del chat.
-  Si un mensaje previo del asistente dice algo diferente, ESTÁ DESACTUALIZADO. Solo confía en estos datos:
-
-${plainTextContext}
-
-  === CÓMO REPORTAR DATOS ===
-  Cuando el usuario pregunte qué tiene (listas, carpetas, proyectos, etc.):
-  1. Lee las etiquetas "Carpeta:" y "Lista:" de los datos de arriba LITERALMENTE.
-  2. Reporta CADA "Lista:" de CADA "Carpeta:". No omitas nada.
-  3. Si dice "Lista: yug (0 tareas)", significa que la lista yug SÍ EXISTE y está vacía de tareas. ¡La lista existe!
-  4. Una "Carpeta:" NO está vacía si contiene al menos una "Lista:".
-  === SIN DATOS NO SOLICITADOS ===
-  NUNCA menciones información que el usuario no preguntó.
-  Cuando el usuario pregunte por listas, reporta TODAS las listas de TODAS las carpetas.
-  Responde SOLO lo que se preguntó.
-
-  Tarifa: $${rules.baseHourlyRate}/hora | Hoy: ${today.toLocaleDateString('es-ES')}
-  `;
-
-  const systemPrompt = `${baseContext}
   === PREGUNTAS vs COMANDOS ===
-  ANTES de usar cualquier herramienta, DETENTE y pregúntate: "¿El usuario quiere INFORMACIÓN o quiere que EJECUTE algo?"
+  EJEMPLOS DE PREGUNTAS:
+  - "q listas tengo" / "qué listas tengo" / "cuáles son mis proyectos" → LLAMA A LA HERRAMIENTA consultar_estado_app
+  - "cuántos proyectos tengo" / "dime el balance" → LLAMA A LA HERRAMIENTA consultar_estado_app
 
-  EJEMPLOS DE PREGUNTAS (SOLO responde con texto, NUNCA llames herramientas):
-  - "q listas tengo" / "qué listas tengo" / "cuáles son mis listas" → SOLO texto
-  - "qué carpetas hay" / "q carpetas tengo" → SOLO texto
-  - "cuántos proyectos tengo" / "cuál es mi balance" → SOLO texto
-  - "cuéntame sobre X" / "qué sabes de Y" → SOLO texto
-  - Cualquier frase que empiece con "qué", "cuál", "cuánto", "cómo", "dónde", "q" → SOLO texto
-
-  EJEMPLOS DE COMANDOS (SÍ llama herramientas):
-  - "crea una carpeta" / "mueve la lista" / "elimina el espacio" / "registra un gasto" → Usa herramienta
-  - Verbos imperativos: crea, mueve, elimina, renombra, registra, añade → Usa herramienta
-
-  SI TIENES DUDA: responde con texto. Es mejor NO ejecutar que ejecutar por error.
-
-  === COMANDOS EN PLURAL = MÚLTIPLES LLAMADAS ===
-  Si el usuario dice "mueve LAS listas" (plural), llama la herramienta UNA VEZ POR CADA ELEMENTO.
+  EJEMPLOS DE COMANDOS:
+  - "crea una carpeta" / "mueve la lista" / "registra un gasto" → LLAMA A LA HERRAMIENTA CORRECTA (ej. crear_carpeta)
 
   === REGLAS DE FORMATO ===
-  - Usa **negritas** para nombres, montos y fechas.
-  - Cuando reportes listas, incluye TODAS las listas de TODAS las carpetas.
-  - 'crear_tarea'/'crear_proyecto' usan MINUTOS: 1h=60 | 1día=480 | 1semana=2400.
-  - Para 'mover_lista', usa carpetaOrigenNombre si la lista viene de una carpeta.
+  - Respuestas concisas. Usa **negritas** para nombres.
+  - Tarifa de agencia: $${rules.baseHourlyRate}/hora | Hoy: ${today.toLocaleDateString('es-ES')}
   `;
 
   try {
     // TRUNCAR historial a últimos 30 mensajes
     const recentMessages = messages.slice(-30);
 
-    // DEBUG: Log context for troubleshooting
-    console.log('📋 Context sent to AI:\n', plainTextContext);
+    // DEBUG: Informar que inició la inferencia
+    console.log('🤖 Solicitando completion a Groq con routing activo...');
 
     const formattedMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = recentMessages.map(m => {
       let textContent = m.content;
@@ -635,8 +608,8 @@ ${plainTextContext}
       return msg;
     });
 
-    // --- SINGLE MODEL: tools always available, model decides ---
-    const response = await ai.chat.completions.create({
+    // --- LLAMADA PRINCIPAL A LA API ---
+    let response = await ai.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages: [
         { role: 'system', content: systemPrompt },
@@ -647,14 +620,59 @@ ${plainTextContext}
       tool_choice: 'auto'
     });
 
-    const messageResponse = response.choices[0].message;
+    let messageResponse = response.choices[0].message;
+
+    // --- BUCLE REACT: Intercepción de Herramientas de Solo Lectura ---
+    const toolCalls = messageResponse.tool_calls || [];
+    const hasConsultarEstado = toolCalls.some(tc => (tc as any).function.name === 'consultar_estado_app');
+
+    if (hasConsultarEstado) {
+      console.log('🔄 ReAct: Agente solicitó consultar estado. Interceptando internamente...');
+      
+      const reactMessages: any[] = [
+        { role: 'system', content: systemPrompt },
+        ...formattedMessages,
+        messageResponse
+      ];
+
+      toolCalls.forEach(tc => {
+        if ((tc as any).function.name === 'consultar_estado_app') {
+          // Proveemos el estado fresco como una observación
+          const estadoApp = buildPlainTextContext();
+          reactMessages.push({ role: 'tool', tool_call_id: tc.id, content: estadoApp });
+        } else {
+          // Si pidió herramientas adicionales por accidente, ignoramos simulando que ya se enlazaron al frontend
+          reactMessages.push({ role: 'tool', tool_call_id: tc.id, content: "Herramienta delegada al UI. Continúa redactando." });
+        }
+      });
+
+      // Segunda llamada silenciosa para que redacte con la prueba irrefutable
+      response = await ai.chat.completions.create({
+        model: 'llama-3.3-70b-versatile',
+        messages: reactMessages,
+        temperature: 0.1,
+        tools: tools,
+      });
+      messageResponse = response.choices[0].message;
+    }
     
+    // --- GESTIÓN DE ACCIONES PARA EL FRONTEND ---
     let functionCalls;
     if (messageResponse.tool_calls && messageResponse.tool_calls.length > 0) {
-      functionCalls = messageResponse.tool_calls.map(tc => ({
-        name: (tc as any).function.name,
-        args: JSON.parse((tc as any).function.arguments)
-      }));
+      functionCalls = messageResponse.tool_calls
+        // Filtrar herramientas internas asegurando que no exploten el frontend
+        .filter(tc => (tc as any).function.name !== 'consultar_estado_app')
+        .map(tc => {
+          try {
+            return {
+              name: (tc as any).function.name,
+              args: JSON.parse((tc as any).function.arguments)
+            };
+          } catch (e) {
+            console.error("Error parseando args:", e);
+            return null;
+          }
+        }).filter(Boolean);
     }
 
     return { text: messageResponse.content || "", functionCalls };
