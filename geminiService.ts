@@ -554,6 +554,12 @@ export const calculateQuote = async (
 
 ${plainTextContext}
 
+  === CÓMO REPORTAR DATOS ===
+  Cuando el usuario pregunte qué tiene (listas, carpetas, proyectos, etc.):
+  1. Lee los datos de arriba LITERALMENTE.
+  2. Reporta CADA ELEMENTO de CADA CARPETA. No omitas nada.
+  3. Si una carpeta tiene una lista, MENCIÓNALA. Si dice "• yug (0 tareas)", esa lista EXISTE.
+  4. "0 tareas" significa la lista existe pero está vacía, NO que no hay listas.
   === SIN DATOS NO SOLICITADOS ===
   NUNCA menciones información que el usuario no preguntó.
   Cuando el usuario pregunte por listas, reporta TODAS las listas de TODAS las carpetas.
@@ -590,8 +596,11 @@ ${plainTextContext}
   `;
 
   try {
-    // TRUNCAR historial a últimos 10 mensajes para evitar que respuestas viejas envenen al modelo
-    const recentMessages = messages.slice(-10);
+    // TRUNCAR historial a últimos 30 mensajes
+    const recentMessages = messages.slice(-30);
+
+    // DEBUG: Log context for troubleshooting
+    console.log('📋 Context sent to AI:\n', plainTextContext);
 
     const formattedMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = recentMessages.map(m => {
       let textContent = m.content;
