@@ -140,11 +140,30 @@ const App: React.FC = () => {
         lastModified: lastMod
       };
 
-      // --- SEGURIDAD ANTI-PING PONG: COMPARACIÓN PROFUNDA ---
-      const compareString = JSON.stringify({ ...fullState, lastModified: 0 });
+      // --- SEGURIDAD ANTI-PING PONG: COMPARACIÓN PROFUNDA (Ignorando ruido temporal) ---
+      // Ignoramos campos auto-generados que cambian cada minuto por el setInterval(runAutoScheduling)
+      const stateForCompare = {
+          ...fullState,
+          lastModified: 0,
+          projects: fullState.projects.map(p => ({
+              ...p,
+              scheduledSlots: [],
+              startDate: p.autoSchedule ? '' : p.startDate,
+              endDate: p.autoSchedule ? '' : p.endDate,
+              hasConflict: false,
+              conflictDescription: ''
+          }))
+      };
+
+      const compareString = JSON.stringify(stateForCompare);
       if (compareString === lastUploadedState.current) {
-          console.log("ℹ️ Saltando subida: Los datos locales no tienen cambios reales (solo timestamps).");
+          console.log("ℹ️ Saltando subida: Los datos locales base no han cambiado.");
           setSyncStatus('synced');
+          return;
+      }
+      
+      if (document.hidden) {
+          console.log("ℹ️ Saltando subida: La pestaña está en segundo plano.");
           return;
       }
 
@@ -230,8 +249,20 @@ const App: React.FC = () => {
           }
           if (!isSilent) console.log("✅ Datos sincronizados desde la nube.");
           
-          // Actualizar el estado fantasma de comparación
-          lastUploadedState.current = JSON.stringify({ ...cloudState, lastModified: 0 });
+          // Actualizar el estado fantasma de comparación ignorando el ruido temporal
+          const cloudStateForCompare = {
+              ...cloudState,
+              lastModified: 0,
+              projects: (cloudState.projects || []).map((p: any) => ({
+                  ...p,
+                  scheduledSlots: [],
+                  startDate: p.autoSchedule ? '' : p.startDate,
+                  endDate: p.autoSchedule ? '' : p.endDate,
+                  hasConflict: false,
+                  conflictDescription: ''
+              }))
+          };
+          lastUploadedState.current = JSON.stringify(cloudStateForCompare);
 
           // Importante: Actualizar el timestamp local para evitar un re-upload inmediato
           localStorage.setItem('coo_last_local_mod', (cloudState.lastModified || Date.now()).toString());
