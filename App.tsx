@@ -246,7 +246,7 @@ const App: React.FC = () => {
         channel = client
             .channel('schema-db-changes')
             .on('postgres_changes', 
-                { event: 'UPDATE', schema: 'public', table: 'app_state_dump', filter: 'id=eq.coo_master_state' },
+                { event: '*', schema: 'public', table: 'app_state_dump', filter: 'id=eq.coo_master_state' },
                 () => {
                     console.log("☁️ Cambio detectado en otro dispositivo, descargando...");
                     handleInitialDownload(true);

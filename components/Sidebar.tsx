@@ -162,6 +162,7 @@ create table if not exists app_state_dump (
 );
 alter table app_state_dump enable row level security;
 create policy "Public Access All" on app_state_dump for all using (true);
+alter publication supabase_realtime add table app_state_dump;
   `;
     const workspaceMenuRef = useRef<HTMLDivElement>(null);
 
