@@ -609,6 +609,7 @@ export const calculateQuote = async (
     });
 
     // --- LLAMADA PRINCIPAL A LA API ---
+    console.log('[ReAct] Iniciando Primera Llamada a Groq...');
     let response = await ai.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages: [
@@ -621,32 +622,44 @@ export const calculateQuote = async (
     });
 
     let messageResponse = response.choices[0].message;
+    console.log('[ReAct] Groq Respondió:', messageResponse);
 
     // --- BUCLE REACT: Intercepción de Herramientas de Solo Lectura ---
     const toolCalls = messageResponse.tool_calls || [];
     const hasConsultarEstado = toolCalls.some(tc => (tc as any).function.name === 'consultar_estado_app');
 
     if (hasConsultarEstado) {
-      console.log('🔄 ReAct: Agente solicitó consultar estado. Interceptando internamente...');
+      console.log('🔄 [ReAct] Agente solicitó consultar estado. Interceptando internamente...');
       
+      // Limpiar el mensaje de respuesta de clases SDK internas para evitar cuelgues de serialización
+      const cleanAssistantMessage = {
+        role: messageResponse.role,
+        content: messageResponse.content || "",
+        tool_calls: toolCalls.map(tc => ({
+          id: tc.id,
+          type: tc.type,
+          function: { name: (tc as any).function.name, arguments: (tc as any).function.arguments }
+        }))
+      };
+
       const reactMessages: any[] = [
         { role: 'system', content: systemPrompt },
         ...formattedMessages,
-        messageResponse
+        cleanAssistantMessage
       ];
 
       toolCalls.forEach(tc => {
         if ((tc as any).function.name === 'consultar_estado_app') {
           // Proveemos el estado fresco como una observación
           const estadoApp = buildPlainTextContext();
-          reactMessages.push({ role: 'tool', tool_call_id: tc.id, content: estadoApp });
+          reactMessages.push({ role: 'tool', tool_call_id: tc.id, name: "consultar_estado_app", content: estadoApp });
         } else {
-          // Si pidió herramientas adicionales por accidente, ignoramos simulando que ya se enlazaron al frontend
-          reactMessages.push({ role: 'tool', tool_call_id: tc.id, content: "Herramienta delegada al UI. Continúa redactando." });
+          // Herramientas adicionales
+          reactMessages.push({ role: 'tool', tool_call_id: tc.id, name: (tc as any).function.name, content: "Delegado. Continúa redactando." });
         }
       });
 
-      // Segunda llamada silenciosa para que redacte con la prueba irrefutable
+      console.log('[ReAct] Iniciando Segunda Llamada Silenciosa...');
       response = await ai.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: reactMessages,
@@ -654,6 +667,7 @@ export const calculateQuote = async (
         tools: tools,
       });
       messageResponse = response.choices[0].message;
+      console.log('[ReAct] Segunda Respuesta Groq:', messageResponse);
     }
     
     // --- GESTIÓN DE ACCIONES PARA EL FRONTEND ---
