@@ -340,7 +340,7 @@ export const calculateQuote = async (
   `;
 
   try {
-    const formattedMessages = messages.map(m => {
+    const formattedMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = messages.map(m => {
       let textContent = m.content;
       
       if (m.attachments && m.attachments.length > 0) {
@@ -352,20 +352,35 @@ export const calculateQuote = async (
         });
       }
 
-      return {
-        role: m.role as 'user' | 'assistant',
+      const msg: any = {
+        role: m.role,
         content: textContent || "."
       };
+
+      // Si el mensaje tiene acciones pendientes, debemos pasarlas como tool_calls para mantener el contexto
+      if (m.role === 'assistant' && m.pendingActions && m.pendingActions.length > 0) {
+        msg.tool_calls = m.pendingActions.map((pa, idx) => ({
+          id: `call_${idx}_${Date.now()}`,
+          type: 'function',
+          function: {
+            name: pa.name,
+            arguments: JSON.stringify(pa.args)
+          }
+        }));
+      }
+
+      return msg;
     });
 
     const response = await ai.chat.completions.create({
-      model: 'openai/gpt-oss-120b',
+      model: 'llama-3.1-70b-versatile',
       messages: [
         { role: 'system', content: systemPrompt },
         ...formattedMessages
       ],
       temperature: 0.1,
-      tools: tools
+      tools: tools,
+      tool_choice: 'auto'
     });
 
     const messageResponse = response.choices[0].message;

@@ -396,25 +396,36 @@ const AIChat: React.FC<AIChatProps> = ({
                     dangerouslySetInnerHTML={{ __html: formatMessageText(m.content) }}
                 ></div>
 
-                {m.pendingActions && (
-                  <div className="mt-6 pt-6 border-t border-slate-100 space-y-4">
-                    {m.pendingActions.map((action: any, i: number) => (
-                        <div key={i} className="p-4 rounded-2xl border bg-slate-50 border-slate-200">
-                            <div className="flex items-center gap-3 mb-3">
-                                <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white text-xs"><i className="fa-solid fa-bolt"></i></div>
-                                <span className="text-[10px] font-black uppercase text-slate-800">{action.name.replace(/_/g, ' ')}</span>
-                            </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                                {Object.entries(action.args || {}).map(([k, v]: any) => (
-                                    <div key={k} className="flex flex-col bg-white p-2 rounded-lg border border-slate-100">
-                                        <span className="text-[8px] font-black text-slate-400 uppercase mb-0.5">{humanizeLabel(k)}</span>
-                                        <span className="text-[10px] font-bold text-slate-700 truncate">{humanizeValue(k, v)}</span>
-                                    </div>
-                                ))}
-                            </div>
-                        </div>
-                    ))}
-                    <div className="flex gap-3"><button onClick={() => handleConfirmActions(idx)} className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-blue-700 transition-all">Confirmar Acción</button></div>
+                {m.pendingActions && m.pendingActions.length > 0 && (
+                  <div className="mt-6 pt-6 border-t border-slate-100 space-y-4 w-full">
+                    {m.pendingActions.map((action: any, i: number) => {
+                        if (!action || !action.name) return null;
+                        return (
+                          <div key={i} className="p-4 rounded-2xl border bg-slate-50 border-slate-200">
+                              <div className="flex items-center gap-3 mb-3">
+                                  <div className="w-8 h-8 rounded-lg bg-blue-600 flex items-center justify-center text-white text-xs"><i className="fa-solid fa-bolt"></i></div>
+                                  <span className="text-[10px] font-black uppercase text-slate-800">{action.name.replace(/_/g, ' ')}</span>
+                              </div>
+                              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                  {Object.entries(action.args || {}).map(([k, v]: any) => (
+                                      <div key={k} className="flex flex-col bg-white p-2 rounded-lg border border-slate-100">
+                                          <span className="text-[8px] font-black text-slate-400 uppercase mb-0.5">{humanizeLabel(k)}</span>
+                                          <span className="text-[10px] font-bold text-slate-700 truncate">{humanizeValue(k, v)}</span>
+                                      </div>
+                                  ))}
+                              </div>
+                          </div>
+                        );
+                    })}
+                    <div className="flex gap-3">
+                      <button 
+                        onClick={() => handleConfirmActions(idx)} 
+                        className="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black text-[10px] uppercase shadow-xl hover:bg-blue-700 hover:scale-[1.02] active:scale-[0.98] transition-all flex items-center justify-center gap-2"
+                      >
+                        <i className="fa-solid fa-check"></i>
+                        Confirmar Acción
+                      </button>
+                    </div>
                   </div>
                 )}
               </div>
