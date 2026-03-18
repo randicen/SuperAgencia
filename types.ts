@@ -95,6 +95,7 @@ export interface Message {
   content: string;
   timestamp: Date;
   pendingActions?: any[];
+  executedActions?: any[];
   attachments?: Attachment[];
 }
 

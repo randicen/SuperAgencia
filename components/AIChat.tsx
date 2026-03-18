@@ -272,9 +272,25 @@ const AIChat: React.FC<AIChatProps> = ({
     const msg = messages[msgIdx];
     if (msg.pendingActions) {
       msg.pendingActions.forEach(action => executeAction(action));
+      
+      const summary = msg.pendingActions.map(a => `✅ **Ejecutado:** ${a.name.replace(/_/g, ' ')}`).join('\n');
+      
       setMessages(prev => {
         const newMessages = [...prev];
-        newMessages[msgIdx] = { ...msg, pendingActions: undefined };
+        const updatedMsg = { 
+          ...msg, 
+          executedActions: [...(msg.executedActions || []), ...msg.pendingActions!],
+          pendingActions: undefined 
+        };
+        
+        // Si el contenido era solo el placeholder, lo reemplazamos por el resumen
+        if (updatedMsg.content === "🔄 Preparando acción...") {
+            updatedMsg.content = summary;
+        } else {
+            updatedMsg.content += `\n\n${summary}`;
+        }
+        
+        newMessages[msgIdx] = updatedMsg;
         return newMessages;
       });
     }

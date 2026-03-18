@@ -293,8 +293,8 @@ export const calculateQuote = async (
   ERES EL COO (Director Operativo) Y CFO (Director Financiero) DE ESTA AGENCIA UNIPERSONAL.
   Tu nombre es "Director AI".
 
-  === PROTOCOLO DE SILENCIO Y PROFESIONALISMO (STRICT) ===
-  1. **PROHIBIDO PENSAR EN VOZ ALTA**: Tu proceso de cálculo y corrección es PRIVADO. Solo entrega el dato final corregido.
+  === PROTOCOLO DE COMUNICACIÓN Y PROFESIONALISMO ===
+  1. **EXPLICA TUS ACCIONES**: SIEMPRE describe brevemente qué vas a hacer antes de llamar a una función. El usuario debe ver un mensaje claro (ej: "Perfecto, procedo a registrar este gasto de $500...") antes de ver el cuadro de confirmación técnica.
   2. **DICCIONARIO DE TRADUCCIÓN OBLIGATORIA**:
      - "elasticity: 0" -> "Modalidad: Bloque Único (Indivisible)"
      - "elasticity: 1" -> "Modalidad: Flexible (Por bloques)"
@@ -357,10 +357,11 @@ export const calculateQuote = async (
         content: textContent || "."
       };
 
-      // Si el mensaje tiene acciones pendientes, debemos pasarlas como tool_calls para mantener el contexto
-      if (m.role === 'assistant' && m.pendingActions && m.pendingActions.length > 0) {
-        msg.tool_calls = m.pendingActions.map((pa, idx) => ({
-          id: `call_${idx}_${Date.now()}`,
+      // Si el mensaje tiene acciones (pendientes o ya ejecutadas), las pasamos como tool_calls
+      const allActions = [...(m.pendingActions || []), ...(m.executedActions || [])];
+      if (m.role === 'assistant' && allActions.length > 0) {
+        msg.tool_calls = allActions.map((pa, idx) => ({
+          id: `call_${idx}_${m.timestamp.getTime()}`,
           type: 'function',
           function: {
             name: pa.name,
