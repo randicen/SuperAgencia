@@ -395,7 +395,7 @@ export const calculateQuote = async (
       const allActions = [...(m.pendingActions || []), ...(m.executedActions || [])];
       if (m.role === 'assistant' && allActions.length > 0) {
         msg.tool_calls = allActions.map((pa, idx) => ({
-          id: `call_${idx}_${m.timestamp.getTime()}`,
+          id: `call_${idx}_${new Date(m.timestamp).getTime()}`,
           type: 'function',
           function: {
             name: pa.name,
