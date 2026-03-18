@@ -596,6 +596,7 @@ const App: React.FC = () => {
   };
 
   const handleSetMessages = (action: React.SetStateAction<Message[]>) => {
+    updateLastMod(); // SELLO CRÍTICO PARA EVITAR REVERSIÓN AL RECARGAR
     setChatSessions(prev => {
       const index = prev.findIndex(s => s.id === currentChatId);
       if (index === -1) return prev;
@@ -610,23 +611,28 @@ const App: React.FC = () => {
   };
 
   const handleNewChat = () => {
-    const newId = Math.random().toString(36).substr(2, 9);
-    setChatSessions(prev => [{ id: newId, title: 'Nuevo Chat', messages: [], lastModified: Date.now() }, ...prev]);
-    setCurrentChatId(newId);
+    updateLastMod();
+    setChatSessions(prev => {
+      const newSession: ChatSession = { id: Math.random().toString(36).substr(2, 9), title: 'Nuevo Chat', messages: [], lastModified: Date.now() };
+      setCurrentChatId(newSession.id);
+      return [newSession, ...prev];
+    });
   };
 
   const handleDeleteChat = (id: string) => {
-    const newSessions = chatSessions.filter(s => s.id !== id);
-    if (newSessions.length === 0) {
-      const newId = 'default';
-      setChatSessions([{ id: newId, title: 'Nuevo Chat', messages: [], lastModified: Date.now() }]);
-      setCurrentChatId(newId);
-    } else {
-      setChatSessions(newSessions);
-      if (currentChatId === id) {
-        setCurrentChatId(newSessions[0].id);
+    updateLastMod();
+    setChatSessions(prev => {
+      const filtered = prev.filter(s => s.id !== id);
+      if (filtered.length === 0) {
+        const newSession: ChatSession = { id: Math.random().toString(36).substr(2, 9), title: 'Nuevo Chat', messages: [], lastModified: Date.now() };
+        setCurrentChatId(newSession.id);
+        return [newSession];
       }
-    }
+      if (currentChatId === id) {
+        setCurrentChatId(filtered[0].id);
+      }
+      return filtered;
+    });
   };
 
   const activeMessages = chatSessions.find(s => s.id === currentChatId)?.messages || [];
