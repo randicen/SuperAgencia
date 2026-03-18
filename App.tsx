@@ -378,6 +378,9 @@ const App: React.FC = () => {
 
   // --- DATA PORTABILITY (BACKUP & RESTORE) ---
   const handleExportData = () => {
+    const rawSpaces = localStorage.getItem('coo_spaces');
+    const spacesData = rawSpaces ? JSON.parse(rawSpaces) : {};
+
     const data = {
       projects,
       clients,
@@ -385,6 +388,7 @@ const App: React.FC = () => {
       rules,
       notes,
       chatSessions,
+      spaces: spacesData,
       version: "1.0",
       timestamp: new Date().toISOString()
     };
@@ -425,8 +429,16 @@ const App: React.FC = () => {
         if (rawData.rules) setRules({ ...DEFAULT_RULES, ...rawData.rules }); // Merge con default para asegurar nuevos campos
         if (rawData.notes) setNotes(rawData.notes);
         if (rawData.chatSessions) setChatSessions(rawData.chatSessions);
+        if (rawData.spaces) {
+            localStorage.setItem('coo_spaces', JSON.stringify(rawData.spaces));
+            window.dispatchEvent(new Event('coo_cloud_data_received'));
+        }
 
-        alert('✅ Datos restaurados y actualizados a la versión actual.');
+        // Forzamos sincronización a la nube de todos los datos restaurados
+        updateLastMod();
+        setSpacesSyncTrigger(prev => prev + 1);
+
+        alert('✅ Datos restaurados y guardados en la nube.');
       } catch (error) {
         console.error(error);
         alert('❌ Error al leer el archivo de respaldo. Asegúrate que sea un .json válido.');

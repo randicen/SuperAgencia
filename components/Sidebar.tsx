@@ -34,7 +34,9 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onExport, on
     const [isAppInstalled, setIsAppInstalled] = useState(false);
 
     // Detección de entorno profesional
+    // @ts-ignore
     const envUrl = import.meta.env.VITE_SUPABASE_URL || '';
+    // @ts-ignore
     const envKey = import.meta.env.VITE_SUPABASE_KEY || '';
     const isEnterpriseMode = !!(envUrl && envKey);
 
@@ -364,16 +366,11 @@ alter publication supabase_realtime add table app_state_dump;
                         </button>
                     )}
 
-                    <div className="grid grid-cols-2 gap-2">
-                        <button onClick={onExport} className="flex flex-col items-center justify-center gap-1 bg-[#1A1C23] hover:bg-[#252833] py-2 rounded-md border border-[#2A2D35] transition-colors group">
+                    <div className="grid grid-cols-1 gap-2">
+                        <button onClick={onExport} className="w-full flex items-center justify-center gap-2 bg-[#1A1C23] hover:bg-[#252833] py-2.5 rounded-md border border-[#2A2D35] transition-colors group">
                             <i className="fa-solid fa-cloud-arrow-down text-slate-500 group-hover:text-white transition-colors"></i>
-                            <span className="text-[9px] font-bold text-slate-500 group-hover:text-white uppercase">Backup</span>
+                            <span className="text-[10px] font-bold text-slate-500 group-hover:text-white uppercase tracking-wider">Descargar Backup .JSON</span>
                         </button>
-                        <button onClick={() => fileInputRef.current?.click()} className="flex flex-col items-center justify-center gap-1 bg-[#1A1C23] hover:bg-[#252833] py-2 rounded-md border border-[#2A2D35] transition-colors group">
-                            <i className="fa-solid fa-cloud-arrow-up text-slate-500 group-hover:text-white transition-colors"></i>
-                            <span className="text-[9px] font-bold text-slate-500 group-hover:text-white uppercase">Restaurar</span>
-                        </button>
-                        <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleFileChange} />
                     </div>
 
                     <div className="flex gap-2">
