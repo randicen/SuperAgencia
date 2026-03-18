@@ -554,6 +554,7 @@ export const calculateQuote = async (
   1. NUNCA asumas qué listas, carpetas o proyectos tiene el usuario de memoria.
   2. Si el usuario te hace una pregunta de información (e.g. "¿Qué listas tengo?"), OBLIGATORIAMENTE debes llamar a la herramienta "consultar_estado_app". No intentes responder usando información del historial porque puede estar desactualizada. Confía SOLO en lo que te devuelva la herramienta.
   3. No reportes que completaste una acción si no usaste la tool correspondiente.
+  4. CERO INICIATIVA DESTRUCTIVA: NUNCA elimines carpetas, listas, proyectos ni notas a menos que el usuario te haya dado la orden EXPLÍCITA de eliminar. Si el usuario pide mover archivos, SOLO mueve, NO elimines la carpeta de origen vacía.
 
   === PREGUNTAS vs COMANDOS ===
   EJEMPLOS DE PREGUNTAS:

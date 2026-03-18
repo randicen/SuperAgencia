@@ -152,7 +152,7 @@ const AIChat: React.FC<AIChatProps> = ({
     } catch (error) { setMessages(prev => [...prev, { role: 'assistant', content: "Error de red.", timestamp: new Date() }]); } finally { setIsTyping(false); }
   };
 
-  const executeAction = (action: any) => {
+  const executeAction = (action: any, processedIds?: Set<string>) => {
     const args = action.args || {}; 
     if (action.name === 'abrir_calculadora') { setShowCalculator(true); }
     
@@ -309,8 +309,11 @@ const AIChat: React.FC<AIChatProps> = ({
         }
         if (action.name === 'eliminar_carpeta') {
             const space = findSpace(args.espacioNombre);
-            const folder = space?.carpetas.find(f => f.nombre.toLowerCase().trim() === args.carpetaNombre.toLowerCase().trim());
-            if (space && folder) spacesDispatch({ type: 'DELETE_FOLDER', payload: { spaceId: space.id, folderId: folder.id } });
+            const folder = space?.carpetas.find(f => f.nombre.toLowerCase().trim() === args.carpetaNombre.toLowerCase().trim() && !(processedIds?.has(f.id)));
+            if (space && folder) {
+                if (processedIds) processedIds.add(folder.id);
+                spacesDispatch({ type: 'DELETE_FOLDER', payload: { spaceId: space.id, folderId: folder.id } });
+            }
         }
         if (action.name === 'renombrar_lista') {
             const space = findSpace(args.espacioNombre);
@@ -335,13 +338,16 @@ const AIChat: React.FC<AIChatProps> = ({
                 let folderId = undefined;
                 if (args.carpetaNombre) {
                     const folder = space.carpetas.find(f => f.nombre.toLowerCase().trim() === args.carpetaNombre.toLowerCase().trim());
-                    const list = folder?.listas.find(l => l.nombre.toLowerCase().trim() === args.listaNombre.toLowerCase().trim());
+                    const list = folder?.listas.find(l => l.nombre.toLowerCase().trim() === args.listaNombre.toLowerCase().trim() && !(processedIds?.has(l.id)));
                     if (list) { listId = list.id; folderId = folder!.id; }
                 } else {
-                    const list = space.listas.find(l => l.nombre.toLowerCase().trim() === args.listaNombre.toLowerCase().trim());
+                    const list = space.listas.find(l => l.nombre.toLowerCase().trim() === args.listaNombre.toLowerCase().trim() && !(processedIds?.has(l.id)));
                     if (list) listId = list.id;
                 }
-                if (listId) spacesDispatch({ type: 'DELETE_LIST', payload: { spaceId: space.id, folderId, listId } });
+                if (listId) {
+                    if (processedIds) processedIds.add(listId);
+                    spacesDispatch({ type: 'DELETE_LIST', payload: { spaceId: space.id, folderId, listId } });
+                }
             }
         }
 
@@ -354,16 +360,17 @@ const AIChat: React.FC<AIChatProps> = ({
                 // Find the list in source (folder or root)
                 if (args.carpetaOrigenNombre) {
                     const srcFolder = space.carpetas.find(f => f.nombre.toLowerCase().trim() === args.carpetaOrigenNombre.toLowerCase().trim());
-                    const list = srcFolder?.listas.find(l => l.nombre.toLowerCase().trim() === args.listaNombre.toLowerCase().trim());
+                    const list = srcFolder?.listas.find(l => l.nombre.toLowerCase().trim() === args.listaNombre.toLowerCase().trim() && !(processedIds?.has(l.id)));
                     if (list && srcFolder) { listId = list.id; sourceFolderId = srcFolder.id; }
                 } else {
-                    const list = space.listas.find(l => l.nombre.toLowerCase().trim() === args.listaNombre.toLowerCase().trim());
+                    const list = space.listas.find(l => l.nombre.toLowerCase().trim() === args.listaNombre.toLowerCase().trim() && !(processedIds?.has(l.id)));
                     if (list) listId = list.id;
                 }
 
                 const targetFolder = space.carpetas.find(f => f.nombre.toLowerCase().trim() === args.carpetaDestinoNombre.toLowerCase().trim());
 
                 if (listId && targetFolder) {
+                    if (processedIds) processedIds.add(listId);
                     spacesDispatch({ type: 'MOVE_LIST', payload: { spaceId: space.id, listId, sourceFolderId, targetFolderId: targetFolder.id } });
                 }
             }
@@ -416,7 +423,8 @@ const AIChat: React.FC<AIChatProps> = ({
   const handleConfirmActions = (msgIdx: number) => {
     const msg = messages[msgIdx];
     if (msg.pendingActions) {
-      msg.pendingActions.forEach(action => executeAction(action));
+      const processedIds = new Set<string>();
+      msg.pendingActions.forEach(action => executeAction(action, processedIds));
       
       const summary = msg.pendingActions.map(a => `✅ **Ejecutado:** ${a.name.replace(/_/g, ' ')}`).join('\n');
       
