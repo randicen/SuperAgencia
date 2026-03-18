@@ -87,6 +87,7 @@ const App: React.FC = () => {
       const rawSpaces = localStorage.getItem('coo_spaces');
       const spacesData = rawSpaces ? JSON.parse(rawSpaces) : {};
       
+      const lastMod = Date.now();
       const fullState = {
         projects: projects || [],
         clients: clients || [],
@@ -95,7 +96,7 @@ const App: React.FC = () => {
         notes: notes || [],
         chatSessions: chatSessions || [],
         spaces: spacesData,
-        lastModified: Date.now()
+        lastModified: lastMod
       };
 
       console.log("Intentando UPSERT en Supabase...", fullState);
@@ -121,6 +122,10 @@ const App: React.FC = () => {
       if (returnData && returnData.length > 0) {
           console.log("✅ CONFIRMADO POR SUPABASE:", returnData);
           setSyncStatus('synced');
+          
+          // Actualizamos el timestamp local para coincidir con lo que acabamos de subir
+          // Esto evita que el Real-time listener crea que hay data "más nueva" en la nube
+          localStorage.setItem('coo_last_local_mod', lastMod.toString());
       } else {
           console.error("⚠️ Supabase no devolvió datos tras el upsert.");
           setSyncStatus('error');
@@ -168,6 +173,9 @@ const App: React.FC = () => {
             window.dispatchEvent(new Event('coo_cloud_data_received'));
           }
           if (!isSilent) console.log("✅ Datos sincronizados desde la nube.");
+          
+          // Importante: Actualizar el timestamp local para evitar un re-upload inmediato
+          localStorage.setItem('coo_last_local_mod', (cloudState.lastModified || Date.now()).toString());
         }
       }
     } catch (err) {
@@ -175,11 +183,11 @@ const App: React.FC = () => {
     } finally {
       if (!isSilent) setIsLoadingCloud(false);
     }
-  }, [projects, clients, transactions, rules, notes, chatSessions, handleCloudSync]);
+  }, []); // Remove all state dependencies to avoid infinite loops and reversion
 
   useEffect(() => {
     handleInitialDownload();
-  }, [handleInitialDownload]); // Solo al montar o si cambia la callback
+  }, []); // Run ONLY on mount
 
   // Monitorear conexión y suscripción Real-time
   useEffect(() => {
