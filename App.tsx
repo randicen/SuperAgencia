@@ -66,6 +66,10 @@ const App: React.FC = () => {
   const [hasCheckedCloud, setHasCheckedCloud] = useState(false); // Bloqueo de seguridad
   const [spacesSyncTrigger, setSpacesSyncTrigger] = useState(0);
 
+  const updateLastMod = () => {
+    localStorage.setItem('coo_last_local_mod', Date.now().toString());
+  };
+
   // --- CLOUD SYNC LOGIC (SUPABASE) ---
   const handleCloudSync = useCallback(async () => {
     if (!navigator.onLine) {
@@ -86,27 +90,26 @@ const App: React.FC = () => {
     try {
       // --- SEGURIDAD: NO SUBIR SI NO HEMOS DESCARGADO PRIMERO ---
       if (!hasCheckedCloud) {
-          console.warn("Sincronización bloqueada: Aún no se ha verificado la nube.");
+          console.warn("Sincronización bloqueada: Aún no se ha verificado la nube. Verificando...");
           await handleInitialDownload(true);
+          setSyncStatus('idle'); // REPARADO: No se queda pegado
           return;
       }
 
-      const client = createClient(supabaseUrl, supabaseKey);
-      
       // --- SEGURIDAD: PREVISIÓN DE SOBRESCRITURA (Conflict Resolution) ---
-      const { data: cloudMetadata } = await client
+      const { data: cloudRecord } = await client
         .from('app_state_dump')
-        .select('data->lastModified')
+        .select('data')
         .eq('id', 'coo_master_state')
-        .single();
+        .maybeSingle();
       
       const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
-      const cloudLastModified = (cloudMetadata as any)?.lastModified || 0;
+      const cloudLastModified = (cloudRecord?.data as any)?.lastModified || 0;
 
       if (Number(cloudLastModified) > localLastSync) {
-          console.log("⚠️ Hay datos más nuevos en la nube. Abortando upload para proteger integridad.");
-          setSyncStatus('idle');
+          console.log("⚠️ Hay datos más nuevos en la nube. Descargando automáticamente...");
           await handleInitialDownload(true);
+          setSyncStatus('synced');
           return;
       }
 
@@ -202,14 +205,19 @@ const App: React.FC = () => {
           
           // Importante: Actualizar el timestamp local para evitar un re-upload inmediato
           localStorage.setItem('coo_last_local_mod', (cloudState.lastModified || Date.now()).toString());
+        } else {
+            if (!isSilent) console.log("ℹ️ El estado local es igual o más nuevo que la nube.");
         }
+      } else {
+          if (!isSilent) console.log("ℹ️ No se encontró estado en la nube (Base de datos vacía).");
       }
       setHasCheckedCloud(true);
     } catch (err) {
       if (!isSilent) console.error("Download Error:", err);
     } finally {
       if (!isSilent) setIsLoadingCloud(false);
-      setHasCheckedCloud(true); // Incluso con error, permitimos intentar sync manual después
+      setHasCheckedCloud(true); 
+      // Si este download fue provocado por un sync manual, el status se resetea en handleCloudSync
     }
   }, []); // Remove all state dependencies to avoid infinite loops and reversion
 
@@ -334,39 +342,14 @@ const App: React.FC = () => {
   }, [rules]); 
 
   // Persistencia Local (LA BASE DE TODO)
-  useEffect(() => {
-    localStorage.setItem('coo_projects', JSON.stringify(projects));
-    localStorage.setItem('coo_last_local_mod', Date.now().toString());
-  }, [projects]);
-  
-  useEffect(() => {
-    localStorage.setItem('coo_transactions', JSON.stringify(transactions));
-    localStorage.setItem('coo_last_local_mod', Date.now().toString());
-  }, [transactions]);
-  
-  useEffect(() => {
-    localStorage.setItem('coo_clients', JSON.stringify(clients));
-    localStorage.setItem('coo_last_local_mod', Date.now().toString());
-  }, [clients]);
-  
-  useEffect(() => {
-    localStorage.setItem('coo_rules', JSON.stringify(rules));
-    localStorage.setItem('coo_last_local_mod', Date.now().toString());
-  }, [rules]);
-  
-  useEffect(() => {
-    localStorage.setItem('coo_chat_sessions', JSON.stringify(chatSessions));
-    localStorage.setItem('coo_last_local_mod', Date.now().toString());
-  }, [chatSessions]);
-  
-  useEffect(() => {
-    localStorage.setItem('coo_current_chat_id', currentChatId);
-  }, [currentChatId]);
-  
-  useEffect(() => {
-    localStorage.setItem('coo_notes', JSON.stringify(notes));
-    localStorage.setItem('coo_last_local_mod', Date.now().toString());
-  }, [notes]);
+  // NOTA: Quitamos Date.now() de aquí. Solo se actualiza en handleAcciones reales del usuario.
+  useEffect(() => { localStorage.setItem('coo_projects', JSON.stringify(projects)); }, [projects]);
+  useEffect(() => { localStorage.setItem('coo_transactions', JSON.stringify(transactions)); }, [transactions]);
+  useEffect(() => { localStorage.setItem('coo_clients', JSON.stringify(clients)); }, [clients]);
+  useEffect(() => { localStorage.setItem('coo_rules', JSON.stringify(rules)); }, [rules]);
+  useEffect(() => { localStorage.setItem('coo_chat_sessions', JSON.stringify(chatSessions)); }, [chatSessions]);
+  useEffect(() => { localStorage.setItem('coo_current_chat_id', currentChatId); }, [currentChatId]);
+  useEffect(() => { localStorage.setItem('coo_notes', JSON.stringify(notes)); }, [notes]);
 
 
   // --- DATA PORTABILITY (BACKUP & RESTORE) ---
@@ -432,12 +415,19 @@ const App: React.FC = () => {
     let updatedList = projects.map(p => p.id === updatedProject.id ? updatedProject : p);
     if (updatedProject.autoSchedule) { updatedList = runAutoScheduling(updatedList, rules); }
     setProjects(updatedList);
+    updateLastMod();
   };
 
   const handleAddProject = (newProject: Project) => {
     let updatedList = [...projects, newProject];
     if (newProject.autoSchedule) { updatedList = runAutoScheduling(updatedList, rules); }
     setProjects(updatedList);
+    updateLastMod();
+  };
+
+  const handleAddTransaction = (t: Transaction) => {
+    setTransactions(prev => [...prev, t]);
+    updateLastMod();
   };
 
   const handleDeleteProject = (projectId: string) => {
@@ -449,6 +439,7 @@ const App: React.FC = () => {
       ...c,
       services: c.services.filter(s => s.projectId !== projectId)
     })));
+    updateLastMod();
   };
 
   const handleDeleteClient = (clientId: string) => {
@@ -457,6 +448,12 @@ const App: React.FC = () => {
       const filtered = prev.filter(p => p.clientId !== clientId);
       return runAutoScheduling(filtered, rules);
     });
+    updateLastMod();
+  };
+
+  const handleUpdateNotes = (newNotes: Note[]) => {
+    setNotes(newNotes);
+    updateLastMod();
   };
 
   const handleSetMessages = (action: React.SetStateAction<Message[]>) => {
