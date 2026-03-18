@@ -609,8 +609,21 @@ export const calculateQuote = async (
       return msg;
     });
 
+    // --- FILTRADO DINÁMICO DE HERRAMIENTAS (ANTI-AUTODESTRUCCIÓN) ---
+    // Mathematically prevent the LLM from deleting stuff if not explicitly requested
+    const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
+    const userMessageContent = lastUserMsg ? lastUserMsg.content.toLowerCase() : "";
+    const isDestructiveIntent = /(elimina|borra|quita|suprime|delete|remove|destruye|limpia)/.test(userMessageContent);
+
+    const safeTools = tools.filter(t => {
+      if (!isDestructiveIntent && (t as any).function?.name?.startsWith('eliminar_')) {
+        return false;
+      }
+      return true;
+    });
+
     // --- LLAMADA PRINCIPAL A LA API ---
-    console.log('[ReAct] Iniciando Primera Llamada a Groq...');
+    console.log('[ReAct] Iniciando Primera Llamada a Groq... (SafeTools:', safeTools.length, ')');
     let response = await ai.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages: [
@@ -618,7 +631,7 @@ export const calculateQuote = async (
         ...formattedMessages
       ],
       temperature: 0.1,
-      tools: tools,
+      tools: safeTools,
       tool_choice: 'auto'
     });
 
