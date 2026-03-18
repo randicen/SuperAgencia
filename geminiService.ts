@@ -663,8 +663,9 @@ export const calculateQuote = async (
       response = await ai.chat.completions.create({
         model: 'llama-3.3-70b-versatile',
         messages: reactMessages,
-        temperature: 0.1,
-        tools: tools,
+        temperature: 0.1
+        // SIN 'tools': Obligamos al modelo a generar TEXTO con la información que le acabamos de inyectar.
+        // Si no hacemos esto, Llama puede atascarse pidiendo la herramienta una y otra vez.
       });
       messageResponse = response.choices[0].message;
       console.log('[ReAct] Segunda Respuesta Groq:', messageResponse);
