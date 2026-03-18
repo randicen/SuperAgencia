@@ -146,7 +146,7 @@ const AIChat: React.FC<AIChatProps> = ({
     setIsTyping(true);
     try {
       const response = await calculateQuote(newMessages, rules, projects, clients);
-      const text = response.text || (response.functionCalls ? "🔄 Preparando acción..." : "");
+      const text = response.text || (response.functionCalls && response.functionCalls.length > 0 ? "🔄 Preparando acción..." : "");
       const assistantMessage: Message = { role: 'assistant', content: text, timestamp: new Date(), pendingActions: response.functionCalls };
       setMessages(prev => [...prev, assistantMessage]);
     } catch (error) { setMessages(prev => [...prev, { role: 'assistant', content: "Error de red.", timestamp: new Date() }]); } finally { setIsTyping(false); }
