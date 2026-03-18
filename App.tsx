@@ -62,7 +62,7 @@ const App: React.FC = () => {
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error' | 'offline'>('idle');
-  const [isLoadingCloud, setIsLoadingCloud] = useState(true);
+  const [isLoadingCloud, setIsLoadingCloud] = useState(false); // Start as false to avoid white screen
   // Estado para disparar sync cuando cambian los espacios
   const [spacesSyncTrigger, setSpacesSyncTrigger] = useState(0);
 
