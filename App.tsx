@@ -66,6 +66,7 @@ const App: React.FC = () => {
   const [hasCheckedCloud, setHasCheckedCloud] = useState(false); // Bloqueo de seguridad
   const [spacesSyncTrigger, setSpacesSyncTrigger] = useState(0);
   const isInternalUpdate = React.useRef(false); // Ref para evitar bucles de subida tras descarga
+  const lastUploadedState = React.useRef<string>(''); // Reflete el último estado guardado/descargado para evitar uploads redundantes
 
 
   const updateLastMod = () => {
@@ -139,7 +140,15 @@ const App: React.FC = () => {
         lastModified: lastMod
       };
 
-      console.log("Intentando UPSERT en Supabase...", fullState);
+      // --- SEGURIDAD ANTI-PING PONG: COMPARACIÓN PROFUNDA ---
+      const compareString = JSON.stringify({ ...fullState, lastModified: 0 });
+      if (compareString === lastUploadedState.current) {
+          console.log("ℹ️ Saltando subida: Los datos locales no tienen cambios reales (solo timestamps).");
+          setSyncStatus('synced');
+          return;
+      }
+
+      console.log("Intentando UPSERT en Supabase...");
 
       // CRITICAL FIX: Update the local timestamp BEFORE the network call
       // so if the realtime listener fires instantly, localLastSync is already up-to-date.
@@ -165,6 +174,7 @@ const App: React.FC = () => {
       
       if (returnData && returnData.length > 0) {
           console.log("✅ CONFIRMADO POR SUPABASE:", returnData);
+          lastUploadedState.current = compareString;
           setSyncStatus('synced');
       } else {
           console.error("⚠️ Supabase no devolvió datos tras el upsert.");
@@ -179,7 +189,9 @@ const App: React.FC = () => {
 
   // --- CLOUD DOWNLOAD LOGIC (INITIAL LOAD) ---
   const handleInitialDownload = useCallback(async (isSilent = false) => {
+    // @ts-ignore
     const envUrl = import.meta.env.VITE_SUPABASE_URL;
+    // @ts-ignore
     const envKey = import.meta.env.VITE_SUPABASE_KEY;
     const supabaseUrl = envUrl || localStorage.getItem('coo_supabase_url');
     const supabaseKey = envKey || localStorage.getItem('coo_supabase_key');
@@ -218,13 +230,16 @@ const App: React.FC = () => {
           }
           if (!isSilent) console.log("✅ Datos sincronizados desde la nube.");
           
+          // Actualizar el estado fantasma de comparación
+          lastUploadedState.current = JSON.stringify({ ...cloudState, lastModified: 0 });
+
           // Importante: Actualizar el timestamp local para evitar un re-upload inmediato
           localStorage.setItem('coo_last_local_mod', (cloudState.lastModified || Date.now()).toString());
           
-          // Liberamos el bloqueo tras un breve delay para permitir que React termine de procesar los setStates
+          // Liberamos el bloqueo tras un safety delay mayor que el debounce (1500ms)
           setTimeout(() => {
               isInternalUpdate.current = false;
-          }, 1000);
+          }, 2500);
         } else {
 
             if (!isSilent) console.log("ℹ️ El estado local es igual o más nuevo que la nube.");
