@@ -79,8 +79,10 @@ const App: React.FC = () => {
         return;
     }
 
-    const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
-    const envKey = (import.meta as any).env?.VITE_SUPABASE_KEY;
+    // @ts-ignore
+    const envUrl = import.meta.env.VITE_SUPABASE_URL;
+    // @ts-ignore
+    const envKey = import.meta.env.VITE_SUPABASE_KEY;
     const supabaseUrl = envUrl || localStorage.getItem('coo_supabase_url');
     const supabaseKey = envKey || localStorage.getItem('coo_supabase_key');
 
@@ -158,7 +160,6 @@ const App: React.FC = () => {
 
       if (error) {
           console.error("Supabase Error Detallado:", error);
-          alert("❌ ERROR REAL: " + error.message);
           throw error;
       }
       
@@ -257,8 +258,10 @@ const App: React.FC = () => {
     window.addEventListener('offline', handleOffline);
 
     // --- REAL-TIME LISTENER ---
-    const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || localStorage.getItem('coo_supabase_url');
-    const envKey = (import.meta as any).env?.VITE_SUPABASE_KEY || localStorage.getItem('coo_supabase_key');
+    // @ts-ignore
+    const envUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('coo_supabase_url');
+    // @ts-ignore
+    const envKey = import.meta.env.VITE_SUPABASE_KEY || localStorage.getItem('coo_supabase_key');
     
     let channel: any;
     if (envUrl && envKey) {
