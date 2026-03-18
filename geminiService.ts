@@ -456,58 +456,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   }
 ];
 
-const classifyIntent = async (messages: Message[]): Promise<'QUESTION' | 'COMMAND'> => {
-  const classifierAI = new OpenAI({
-    // @ts-ignore
-    apiKey: import.meta.env.VITE_GROQ_API_KEY || '',
-    baseURL: 'https://api.groq.com/openai/v1',
-    dangerouslyAllowBrowser: true
-  });
 
-  // Tomar los últimos 3 mensajes para contexto conversacional
-  const recentMessages = messages.slice(-3).map(m => ({
-    role: m.role as 'user' | 'assistant',
-    content: m.content
-  }));
-
-  try {
-    const response = await classifierAI.chat.completions.create({
-      model: 'llama-3.1-8b-instant',
-      messages: [
-        {
-          role: 'system',
-          content: `Eres un clasificador de intención. Analiza la conversación y responde ÚNICAMENTE con una de estas dos palabras:
-QUESTION - si el usuario está pidiendo información, haciendo una pregunta, describiendo su situación, o conversando.
-COMMAND - si el usuario está dando una orden directa y explícita de realizar una acción (crear, eliminar, mover, renombrar, registrar, etc.).
-
-IMPORTANTE: Usa el CONTEXTO de la conversación para decidir.
-Ejemplo:
-- Asistente: "¿Cómo quieres que se llame la carpeta?" → Usuario: "Letroma" → COMMAND (es una confirmación de acción)
-- Asistente: "¿En qué te ayudo?" → Usuario: "Letroma" → QUESTION (no hay contexto de acción)
-
-Criterios:
-- "¿qué carpetas tengo?" → QUESTION
-- "mueve la lista X" → COMMAND
-- "¿puedes crear...?" → QUESTION (es una pregunta, no un comando)
-- "crea una carpeta" → COMMAND
-- "quiero todas las listas en 2026" → QUESTION (informativo)
-- "traslada las listas a Carpeta 2" → COMMAND
-- "sí, hazlo" / "dale" / "procede" (tras contexto de acción) → COMMAND
-- Cualquier saludo o conversación general → QUESTION
-
-Responde SOLO con QUESTION o COMMAND. Ninguna otra palabra.`
-        },
-        ...recentMessages
-      ],
-      temperature: 0,
-      max_tokens: 5
-    });
-    const result = response.choices[0].message.content?.trim().toUpperCase();
-    return result === 'COMMAND' ? 'COMMAND' : 'QUESTION';
-  } catch {
-    return 'QUESTION';
-  }
-};
 
 export const calculateQuote = async (
   messages: Message[],
@@ -613,27 +562,31 @@ ${plainTextContext}
   Tarifa: $${rules.baseHourlyRate}/hora | Hoy: ${today.toLocaleDateString('es-ES')}
   `;
 
-  const questionPrompt = `${baseContext}
-  === MODO CONSULTA ===
-  El usuario está haciendo una consulta o conversando. Responde con información precisa basada en tus datos.
-  - Usa **negritas** para nombres, montos y fechas.
-  - Sé conciso pero completo.
-  - Si el usuario pregunta algo que requeriría una acción, describe lo que podrías hacer y espera confirmación.
-  `;
+  const systemPrompt = `${baseContext}
+  === PREGUNTAS vs COMANDOS ===
+  ANTES de usar cualquier herramienta, DETENTE y pregúntate: "¿El usuario quiere INFORMACIÓN o quiere que EJECUTE algo?"
 
-  const commandPrompt = `${baseContext}
-  === MODO EJECUCIÓN ===
-  El usuario quiere que ejecutes una acción. Usa las herramientas disponibles.
+  EJEMPLOS DE PREGUNTAS (SOLO responde con texto, NUNCA llames herramientas):
+  - "q listas tengo" / "qué listas tengo" / "cuáles son mis listas" → SOLO texto
+  - "qué carpetas hay" / "q carpetas tengo" → SOLO texto
+  - "cuántos proyectos tengo" / "cuál es mi balance" → SOLO texto
+  - "cuéntame sobre X" / "qué sabes de Y" → SOLO texto
+  - Cualquier frase que empiece con "qué", "cuál", "cuánto", "cómo", "dónde", "q" → SOLO texto
+
+  EJEMPLOS DE COMANDOS (SÍ llama herramientas):
+  - "crea una carpeta" / "mueve la lista" / "elimina el espacio" / "registra un gasto" → Usa herramienta
+  - Verbos imperativos: crea, mueve, elimina, renombra, registra, añade → Usa herramienta
+
+  SI TIENES DUDA: responde con texto. Es mejor NO ejecutar que ejecutar por error.
 
   === COMANDOS EN PLURAL = MÚLTIPLES LLAMADAS ===
-  Si el usuario dice "mueve LAS listas" o "crea LAS carpetas" (plural), debes llamar la herramienta UNA VEZ POR CADA ELEMENTO.
-  Ejemplo: "mueve las listas de 2026 a Carpeta 2" con 2 listas → llama 'mover_lista' DOS veces, una por cada lista.
+  Si el usuario dice "mueve LAS listas" (plural), llama la herramienta UNA VEZ POR CADA ELEMENTO.
 
-  === REGLAS DE EJECUCIÓN ===
-  - Para mover elementos en plural, haz múltiples tool_calls en la misma respuesta.
-  - Para 'mover_lista', usa carpetaOrigenNombre si la lista viene de una carpeta.
+  === REGLAS DE FORMATO ===
   - Usa **negritas** para nombres, montos y fechas.
+  - Cuando reportes listas, incluye TODAS las listas de TODAS las carpetas.
   - 'crear_tarea'/'crear_proyecto' usan MINUTOS: 1h=60 | 1día=480 | 1semana=2400.
+  - Para 'mover_lista', usa carpetaOrigenNombre si la lista viene de una carpeta.
   `;
 
   try {
@@ -673,19 +626,16 @@ ${plainTextContext}
       return msg;
     });
 
-    // --- TWO-MODEL PIPELINE: Fast classifier (8B) + Smart responder (70B) ---
-    const intent = await classifyIntent(messages);
-    console.log(`🧠 Intent clasificado: ${intent}`);
-
+    // --- SINGLE MODEL: tools always available, model decides ---
     const response = await ai.chat.completions.create({
       model: 'llama-3.3-70b-versatile',
       messages: [
-        { role: 'system', content: intent === 'COMMAND' ? commandPrompt : questionPrompt },
+        { role: 'system', content: systemPrompt },
         ...formattedMessages
       ],
       temperature: 0.1,
-      tools: intent === 'COMMAND' ? tools : undefined,
-      tool_choice: intent === 'COMMAND' ? 'auto' : undefined
+      tools: tools,
+      tool_choice: 'auto'
     });
 
     const messageResponse = response.choices[0].message;
