@@ -495,21 +495,21 @@ export const calculateQuote = async (
     // Workspaces
     text += 'ESTRUCTURA DE WORKSPACES:\n';
     workspaces.forEach((w: any) => {
-      text += `\n📦 ${w.nombre}\n`;
+      text += `\n📦 Workspace: ${w.nombre}\n`;
       w.espacios.forEach((s: any) => {
-        text += `  📂 ${s.nombre}\n`;
+        text += `  📂 Espacio: ${s.nombre}\n`;
         // Listas raíz (sin carpeta)
         s.listas.forEach((l: any) => {
-          text += `    • ${l.nombre} (${l.tareas.length} tareas)\n`;
+          text += `    📋 Lista: ${l.nombre} (${l.tareas.length} tareas)\n`;
         });
         // Carpetas con sus listas
         s.carpetas.forEach((f: any) => {
-          text += `    📁 ${f.nombre}\n`;
+          text += `    📁 Carpeta: ${f.nombre}\n`;
           f.listas.forEach((l: any) => {
-            text += `      • ${l.nombre} (${l.tareas.length} tareas)\n`;
+            text += `      📋 Lista: ${l.nombre} (${l.tareas.length} tareas)\n`;
           });
           if (f.listas.length === 0) {
-            text += `      (vacía)\n`;
+            text += `      (Carpeta vacía, no hay listas aquí)\n`;
           }
         });
       });
@@ -556,10 +556,10 @@ ${plainTextContext}
 
   === CÓMO REPORTAR DATOS ===
   Cuando el usuario pregunte qué tiene (listas, carpetas, proyectos, etc.):
-  1. Lee los datos de arriba LITERALMENTE.
-  2. Reporta CADA ELEMENTO de CADA CARPETA. No omitas nada.
-  3. Si una carpeta tiene una lista, MENCIÓNALA. Si dice "• yug (0 tareas)", esa lista EXISTE.
-  4. "0 tareas" significa la lista existe pero está vacía, NO que no hay listas.
+  1. Lee las etiquetas "Carpeta:" y "Lista:" de los datos de arriba LITERALMENTE.
+  2. Reporta CADA "Lista:" de CADA "Carpeta:". No omitas nada.
+  3. Si dice "Lista: yug (0 tareas)", significa que la lista yug SÍ EXISTE y está vacía de tareas. ¡La lista existe!
+  4. Una "Carpeta:" NO está vacía si contiene al menos una "Lista:".
   === SIN DATOS NO SOLICITADOS ===
   NUNCA menciones información que el usuario no preguntó.
   Cuando el usuario pregunte por listas, reporta TODAS las listas de TODAS las carpetas.
