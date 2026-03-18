@@ -287,6 +287,21 @@ const AIChat: React.FC<AIChatProps> = ({
     if (activeWS) {
         const findSpace = (name: string) => activeWS.espacios.find(s => s.nombre.toLowerCase().trim() === name.toLowerCase().trim());
         
+        if (action.name === 'crear_carpeta') {
+            const space = findSpace(args.espacioNombre);
+            if (space) spacesDispatch({ type: 'ADD_FOLDER', payload: { spaceId: space.id, nombre: args.nombre } });
+        }
+        if (action.name === 'crear_lista') {
+            const space = findSpace(args.espacioNombre);
+            if (space) {
+                let folderId = undefined;
+                if (args.carpetaNombre) {
+                    const folder = space.carpetas.find(f => f.nombre.toLowerCase().trim() === args.carpetaNombre.toLowerCase().trim());
+                    if (folder) folderId = folder.id;
+                }
+                spacesDispatch({ type: 'ADD_LIST', payload: { spaceId: space.id, folderId, nombre: args.nombre } });
+            }
+        }
         if (action.name === 'renombrar_carpeta') {
             const space = findSpace(args.espacioNombre);
             const folder = space?.carpetas.find(f => f.nombre.toLowerCase().trim() === args.carpetaActualNombre.toLowerCase().trim());

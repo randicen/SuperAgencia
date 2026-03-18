@@ -296,6 +296,37 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "crear_lista",
+      description: "Crea una nueva lista de tareas dentro de un Espacio o una Carpeta.",
+      parameters: {
+        type: "object",
+        properties: {
+          espacioNombre: { type: "string", description: "Nombre del Espacio (Space) contededor" },
+          carpetaNombre: { type: "string", description: "Nombre de la carpeta (opcional)" },
+          nombre: { type: "string", description: "Nombre de la nueva lista" }
+        },
+        required: ["espacioNombre", "nombre"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "crear_carpeta",
+      description: "Crea una nueva carpeta (Folder) dentro de un Espacio.",
+      parameters: {
+        type: "object",
+        properties: {
+          espacioNombre: { type: "string" },
+          nombre: { type: "string", description: "Nombre de la nueva carpeta" }
+        },
+        required: ["espacioNombre", "nombre"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "renombrar_lista",
       description: "Cambia el nombre de una lista de tareas dentro de un Workspace.",
       parameters: {
@@ -396,6 +427,7 @@ export const calculateQuote = async (
   transactions: Transaction[] = []
 ) => {
   const ai = new OpenAI({ 
+    // @ts-ignore
     apiKey: import.meta.env.VITE_GROQ_API_KEY || '',
     baseURL: 'https://api.groq.com/openai/v1',
     dangerouslyAllowBrowser: true 
@@ -561,6 +593,7 @@ export const calculateQuote = async (
 
 export const analyzeSeasonality = async (s: SeasonalityData[], p: Project[]) => {
   const ai = new OpenAI({ 
+    // @ts-ignore
     apiKey: import.meta.env.VITE_GROQ_API_KEY || '',
     baseURL: 'https://api.groq.com/openai/v1',
     dangerouslyAllowBrowser: true 
