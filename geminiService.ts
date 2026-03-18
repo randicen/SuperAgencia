@@ -456,6 +456,59 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   }
 ];
 
+const classifyIntent = async (messages: Message[]): Promise<'QUESTION' | 'COMMAND'> => {
+  const classifierAI = new OpenAI({
+    // @ts-ignore
+    apiKey: import.meta.env.VITE_GROQ_API_KEY || '',
+    baseURL: 'https://api.groq.com/openai/v1',
+    dangerouslyAllowBrowser: true
+  });
+
+  // Tomar los últimos 3 mensajes para contexto conversacional
+  const recentMessages = messages.slice(-3).map(m => ({
+    role: m.role as 'user' | 'assistant',
+    content: m.content
+  }));
+
+  try {
+    const response = await classifierAI.chat.completions.create({
+      model: 'llama-3.1-8b-instant',
+      messages: [
+        {
+          role: 'system',
+          content: `Eres un clasificador de intención. Analiza la conversación y responde ÚNICAMENTE con una de estas dos palabras:
+QUESTION - si el usuario está pidiendo información, haciendo una pregunta, describiendo su situación, o conversando.
+COMMAND - si el usuario está dando una orden directa y explícita de realizar una acción (crear, eliminar, mover, renombrar, registrar, etc.).
+
+IMPORTANTE: Usa el CONTEXTO de la conversación para decidir.
+Ejemplo:
+- Asistente: "¿Cómo quieres que se llame la carpeta?" → Usuario: "Letroma" → COMMAND (es una confirmación de acción)
+- Asistente: "¿En qué te ayudo?" → Usuario: "Letroma" → QUESTION (no hay contexto de acción)
+
+Criterios:
+- "¿qué carpetas tengo?" → QUESTION
+- "mueve la lista X" → COMMAND
+- "¿puedes crear...?" → QUESTION (es una pregunta, no un comando)
+- "crea una carpeta" → COMMAND
+- "quiero todas las listas en 2026" → QUESTION (informativo)
+- "traslada las listas a Carpeta 2" → COMMAND
+- "sí, hazlo" / "dale" / "procede" (tras contexto de acción) → COMMAND
+- Cualquier saludo o conversación general → QUESTION
+
+Responde SOLO con QUESTION o COMMAND. Ninguna otra palabra.`
+        },
+        ...recentMessages
+      ],
+      temperature: 0,
+      max_tokens: 5
+    });
+    const result = response.choices[0].message.content?.trim().toUpperCase();
+    return result === 'COMMAND' ? 'COMMAND' : 'QUESTION';
+  } catch {
+    return 'QUESTION';
+  }
+};
+
 export const calculateQuote = async (
   messages: Message[],
   rules: BusinessRules,
@@ -525,39 +578,46 @@ export const calculateQuote = async (
     }
   };
 
-  const systemPrompt = `
+  // --- SYSTEM PROMPTS BIFURCADOS ---
+  const baseContext = `
   ERES EL COO Y CFO DE ESTA AGENCIA. Tu nombre es "Director AI".
   Eres un socio estratégico: conversa con fluidez y mantén un tono profesional pero cercano.
 
-  === REGLA #0 (INTEGRIDAD) ===
+  === REGLA DE INTEGRIDAD ===
   NUNCA reportes que completaste una acción si no ejecutaste la herramienta correspondiente.
   Si no tienes una tool para lo que se pidió, dilo honestamente.
 
-  === REGLA #1 (PREGUNTAS vs COMANDOS) ===
-  Antes de llamar CUALQUIER herramienta, pregúntate: "¿El usuario me está pidiendo que HAGA algo, o me está PREGUNTANDO sobre algo?"
-  - "¿Qué carpetas tengo?" → Es una PREGUNTA. Responde con texto. NUNCA llames una herramienta.
-  - "Mueve la lista X" → Es un COMANDO. Llama la herramienta.
-  - "¿Puedes crear...?" → Es una PREGUNTA de posibilidad. Responde con texto, espera confirmación.
-  SOLO usa herramientas cuando el usuario da un COMANDO EXPLÍCITO con intención clara de ejecutar.
-
-  === REGLA #2 (COMANDOS EN PLURAL = MÚLTIPLES LLAMADAS) ===
-  Si el usuario dice "mueve LAS listas" o "crea LAS carpetas" (plural), debes llamar la herramienta UNA VEZ POR CADA ELEMENTO.
-  Ejemplo: "mueve las listas de 2026 a Carpeta 2" con 2 listas → llama 'mover_lista' DOS veces, una por cada lista.
-
-  === REGLA #3 (SIN DATOS NO SOLICITADOS) ===
+  === SIN DATOS NO SOLICITADOS ===
   NUNCA menciones información que el usuario no preguntó: items eliminados, IDs internos, estados de espacios inactivos.
-  Responde SOLO lo que se preguntó. Si el usuario pregunta "¿qué carpetas tengo?", solo dices las carpetas actuales.
+  Responde SOLO lo que se preguntó.
 
   === TU MEMORIA (DATOS REALES) ===
   ${JSON.stringify(contextData, null, 2)}
 
-  === REGLAS FINALES ===
+  Tarifa: $${rules.baseHourlyRate}/hora | Hoy: ${today.toLocaleDateString('es-ES')}
+  `;
+
+  const questionPrompt = `${baseContext}
+  === MODO CONSULTA ===
+  El usuario está haciendo una consulta o conversando. Responde con información precisa basada en tus datos.
+  - Usa **negritas** para nombres, montos y fechas.
+  - Sé conciso pero completo.
+  - Si el usuario pregunta algo que requeriría una acción, describe lo que podrías hacer y espera confirmación.
+  `;
+
+  const commandPrompt = `${baseContext}
+  === MODO EJECUCIÓN ===
+  El usuario quiere que ejecutes una acción. Usa las herramientas disponibles.
+
+  === COMANDOS EN PLURAL = MÚLTIPLES LLAMADAS ===
+  Si el usuario dice "mueve LAS listas" o "crea LAS carpetas" (plural), debes llamar la herramienta UNA VEZ POR CADA ELEMENTO.
+  Ejemplo: "mueve las listas de 2026 a Carpeta 2" con 2 listas → llama 'mover_lista' DOS veces, una por cada lista.
+
+  === REGLAS DE EJECUCIÓN ===
   - Para mover elementos en plural, haz múltiples tool_calls en la misma respuesta.
   - Para 'mover_lista', usa carpetaOrigenNombre si la lista viene de una carpeta.
   - Usa **negritas** para nombres, montos y fechas.
   - 'crear_tarea'/'crear_proyecto' usan MINUTOS: 1h=60 | 1día=480 | 1semana=2400.
-
-  Tarifa: $${rules.baseHourlyRate}/hora | Hoy: ${today.toLocaleDateString('es-ES')}
   `;
 
   try {
@@ -594,15 +654,19 @@ export const calculateQuote = async (
       return msg;
     });
 
+    // --- TWO-MODEL PIPELINE: Fast classifier (8B) + Smart responder (70B) ---
+    const intent = await classifyIntent(messages);
+    console.log(`🧠 Intent clasificado: ${intent}`);
+
     const response = await ai.chat.completions.create({
-      model: 'openai/gpt-oss-120b',
+      model: 'llama-3.3-70b-versatile',
       messages: [
-        { role: 'system', content: systemPrompt },
+        { role: 'system', content: intent === 'COMMAND' ? commandPrompt : questionPrompt },
         ...formattedMessages
       ],
       temperature: 0.1,
-      tools: tools,
-      tool_choice: 'auto'
+      tools: intent === 'COMMAND' ? tools : undefined,
+      tool_choice: intent === 'COMMAND' ? 'auto' : undefined
     });
 
     const messageResponse = response.choices[0].message;
@@ -633,7 +697,7 @@ export const analyzeSeasonality = async (s: SeasonalityData[], p: Project[]) => 
 
   try {
     const response = await ai.chat.completions.create({
-      model: 'openai/gpt-oss-120b',
+      model: 'llama-3.3-70b-versatile',
       messages: [{ role: 'user', content: `Analiza estacionalidad y dame 3 consejos cortos: ${JSON.stringify(s)}` }]
     });
     return response.choices[0].message.content || "Análisis completado sin texto.";
