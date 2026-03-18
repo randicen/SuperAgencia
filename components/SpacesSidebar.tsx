@@ -19,8 +19,32 @@ const SpacesSidebar: React.FC = () => {
     const [editingWorkspaceId, setEditingWorkspaceId] = useState<string | null>(null);
     const [editWorkspaceName, setEditWorkspaceName] = useState('');
 
+    // State for renaming nodes
+    const [editingSpaceId, setEditingSpaceId] = useState<string | null>(null);
+    const [editingFolderId, setEditingFolderId] = useState<string | null>(null);
+    const [editingListId, setEditingListId] = useState<string | null>(null);
+    const [editName, setEditName] = useState('');
+
     const activeWorkspace = state.workspaces.find(w => w.id === state.activeWorkspaceId);
     const espacios = activeWorkspace?.espacios || [];
+
+    const handleRenameSpace = (id: string) => {
+        if (!editName.trim()) return;
+        dispatch({ type: 'RENAME_SPACE', payload: { spaceId: id, nombre: editName.trim() } });
+        setEditingSpaceId(null);
+    };
+
+    const handleRenameFolder = (spaceId: string, folderId: string) => {
+        if (!editName.trim()) return;
+        dispatch({ type: 'RENAME_FOLDER', payload: { spaceId, folderId, nombre: editName.trim() } });
+        setEditingFolderId(null);
+    };
+
+    const handleRenameList = (spaceId: string, listId: string, folderId?: string) => {
+        if (!editName.trim()) return;
+        dispatch({ type: 'RENAME_LIST', payload: { spaceId, folderId, listId, nombre: editName.trim() } });
+        setEditingListId(null);
+    };
 
     const handleAddSpace = () => {
         if (!newSpaceName.trim()) return;
@@ -227,28 +251,52 @@ const SpacesSidebar: React.FC = () => {
                                         <i className={`fa-solid fa-chevron-right text-[8px] transition-transform ${isSpaceExpanded ? 'rotate-90' : ''}`}></i>
                                     </button>
                                     <div className="w-3 h-3 rounded" style={{ backgroundColor: space.color }}></div>
-                                    <span className="flex-1 text-xs text-slate-300 truncate">{space.nombre}</span>
-                                    <div className="hidden group-hover:flex items-center gap-1">
+                                    <div 
+                                        className="flex-1 overflow-hidden"
+                                        onDoubleClick={() => { setEditingSpaceId(space.id); setEditName(space.nombre); }}
+                                    >
+                                        {editingSpaceId === space.id ? (
+                                            <input
+                                                autoFocus
+                                                value={editName}
+                                                onChange={e => setEditName(e.target.value)}
+                                                onKeyDown={e => e.key === 'Enter' && handleRenameSpace(space.id)}
+                                                onBlur={() => setEditingSpaceId(null)}
+                                                onClick={e => e.stopPropagation()}
+                                                className="w-full bg-transparent text-xs text-white border-b border-blue-500 outline-none"
+                                            />
+                                        ) : (
+                                            <span className="text-xs text-slate-300 truncate block">{space.nombre}</span>
+                                        )}
+                                    </div>
+                                    <div className="hidden group-hover:flex items-center gap-1 shrink-0">
+                                        <button
+                                            onClick={(e) => { e.stopPropagation(); setEditingSpaceId(space.id); setEditName(space.nombre); }}
+                                            className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-blue-400"
+                                            title="Renombrar (Doble clic)"
+                                        >
+                                            <i className="fa-solid fa-pen-to-square text-[10px]"></i>
+                                        </button>
                                         <button
                                             onClick={(e) => { e.stopPropagation(); setAddingFolderToSpace(space.id); setInputValue(''); }}
                                             className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-white hover:bg-slate-600 rounded"
                                             title="Agregar carpeta"
                                         >
-                                            <i className="fa-solid fa-folder-plus text-[9px]"></i>
+                                            <i className="fa-solid fa-folder-plus text-[10px]"></i>
                                         </button>
                                         <button
                                             onClick={(e) => { e.stopPropagation(); setAddingListTo({ spaceId: space.id }); setInputValue(''); }}
                                             className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-white hover:bg-slate-600 rounded"
                                             title="Agregar lista"
                                         >
-                                            <i className="fa-solid fa-list text-[9px]"></i>
+                                            <i className="fa-solid fa-list text-[10px]"></i>
                                         </button>
                                         <button
                                             onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_SPACE', payload: { spaceId: space.id } }); }}
                                             className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-red-500 hover:bg-slate-600 rounded"
                                             title="Eliminar"
                                         >
-                                            <i className="fa-solid fa-trash text-[9px]"></i>
+                                            <i className="fa-solid fa-trash text-[10px]"></i>
                                         </button>
                                     </div>
                                 </div>
@@ -287,19 +335,43 @@ const SpacesSidebar: React.FC = () => {
                                                             <i className={`fa-solid fa-chevron-right text-[7px] transition-transform ${isFolderExpanded ? 'rotate-90' : ''}`}></i>
                                                         </button>
                                                         <i className="fa-solid fa-folder text-yellow-500 text-[10px]"></i>
-                                                        <span className="flex-1 text-[11px] text-slate-400 truncate">{folder.nombre}</span>
-                                                        <div className="hidden group-hover:flex items-center gap-1">
+                                                        <div 
+                                                            className="flex-1 overflow-hidden"
+                                                            onDoubleClick={() => { setEditingFolderId(folder.id); setEditName(folder.nombre); }}
+                                                        >
+                                                            {editingFolderId === folder.id ? (
+                                                                <input
+                                                                    autoFocus
+                                                                    value={editName}
+                                                                    onChange={e => setEditName(e.target.value)}
+                                                                    onKeyDown={e => e.key === 'Enter' && handleRenameFolder(space.id, folder.id)}
+                                                                    onBlur={() => setEditingFolderId(null)}
+                                                                    onClick={e => e.stopPropagation()}
+                                                                    className="w-full bg-transparent text-[10px] text-white border-b border-blue-500 outline-none"
+                                                                />
+                                                            ) : (
+                                                                <span className="text-[11px] text-slate-400 truncate block">{folder.nombre}</span>
+                                                            )}
+                                                        </div>
+                                                        <div className="hidden group-hover:flex items-center gap-1 shrink-0">
+                                                            <button
+                                                                onClick={(e) => { e.stopPropagation(); setEditingFolderId(folder.id); setEditName(folder.nombre); }}
+                                                                className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-blue-400"
+                                                                title="Renombrar (Doble clic)"
+                                                            >
+                                                                <i className="fa-solid fa-pen-to-square text-[10px]"></i>
+                                                            </button>
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); setAddingListTo({ spaceId: space.id, folderId: folder.id }); setInputValue(''); }}
-                                                                className="w-4 h-4 flex items-center justify-center text-slate-500 hover:text-white"
+                                                                className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-white"
                                                             >
-                                                                <i className="fa-solid fa-plus text-[8px]"></i>
+                                                                <i className="fa-solid fa-plus text-[10px]"></i>
                                                             </button>
                                                             <button
                                                                 onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_FOLDER', payload: { spaceId: space.id, folderId: folder.id } }); }}
-                                                                className="w-4 h-4 flex items-center justify-center text-slate-500 hover:text-red-500"
+                                                                className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-red-500"
                                                             >
-                                                                <i className="fa-solid fa-trash text-[8px]"></i>
+                                                                <i className="fa-solid fa-trash text-[10px]"></i>
                                                             </button>
                                                         </div>
                                                     </div>
@@ -331,8 +403,41 @@ const SpacesSidebar: React.FC = () => {
                                                                         }`}
                                                                 >
                                                                     <i className="fa-solid fa-list text-[9px]"></i>
-                                                                    <span className="flex-1 text-[11px] truncate">{list.nombre}</span>
-                                                                    <span className="text-[9px] text-slate-500">{list.tareas.length}</span>
+                                                                    <div 
+                                                                        className="flex-1 overflow-hidden"
+                                                                        onDoubleClick={(e) => { e.stopPropagation(); setEditingListId(list.id); setEditName(list.nombre); }}
+                                                                    >
+                                                                        {editingListId === list.id ? (
+                                                                            <input
+                                                                                autoFocus
+                                                                                value={editName}
+                                                                                onChange={e => setEditName(e.target.value)}
+                                                                                onKeyDown={e => e.key === 'Enter' && handleRenameList(space.id, list.id, folder.id)}
+                                                                                onBlur={() => setEditingListId(null)}
+                                                                                onClick={e => e.stopPropagation()}
+                                                                                className="w-full bg-transparent text-[10px] text-white border-b border-blue-500 outline-none"
+                                                                            />
+                                                                        ) : (
+                                                                            <span className="text-[11px] truncate block">{list.nombre}</span>
+                                                                        )}
+                                                                    </div>
+                                                                    <div className="hidden group-hover:flex items-center gap-1 shrink-0">
+                                                                        <button
+                                                                            onClick={(e) => { e.stopPropagation(); setEditingListId(list.id); setEditName(list.nombre); }}
+                                                                            className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-blue-400"
+                                                                            title="Renombrar (Doble clic)"
+                                                                        >
+                                                                            <i className="fa-solid fa-pen-to-square text-[10px]"></i>
+                                                                        </button>
+                                                                        <button
+                                                                            onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_LIST', payload: { spaceId: space.id, folderId: folder.id, listId: list.id } }); }}
+                                                                            className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-red-500"
+                                                                            title="Eliminar"
+                                                                        >
+                                                                            <i className="fa-solid fa-trash text-[10px]"></i>
+                                                                        </button>
+                                                                    </div>
+                                                                    <span className="text-[9px] text-slate-500 group-hover:hidden">{list.tareas.length}</span>
                                                                 </div>
                                                             ))}
                                                         </div>
@@ -366,8 +471,41 @@ const SpacesSidebar: React.FC = () => {
                                                     }`}
                                             >
                                                 <i className="fa-solid fa-list text-[9px]"></i>
-                                                <span className="flex-1 text-[11px] truncate">{list.nombre}</span>
-                                                <span className="text-[9px] text-slate-500">{list.tareas.length}</span>
+                                                 <div 
+                                                     className="flex-1 overflow-hidden"
+                                                     onDoubleClick={(e) => { e.stopPropagation(); setEditingListId(list.id); setEditName(list.nombre); }}
+                                                 >
+                                                     {editingListId === list.id ? (
+                                                         <input
+                                                             autoFocus
+                                                             value={editName}
+                                                             onChange={e => setEditName(e.target.value)}
+                                                             onKeyDown={e => e.key === 'Enter' && handleRenameList(space.id, list.id)}
+                                                             onBlur={() => setEditingListId(null)}
+                                                             onClick={e => e.stopPropagation()}
+                                                             className="w-full bg-transparent text-[10px] text-white border-b border-blue-500 outline-none"
+                                                         />
+                                                     ) : (
+                                                         <span className="text-[11px] truncate block">{list.nombre}</span>
+                                                     )}
+                                                 </div>
+                                                 <div className="hidden group-hover:flex items-center gap-1 shrink-0">
+                                                     <button
+                                                         onClick={(e) => { e.stopPropagation(); setEditingListId(list.id); setEditName(list.nombre); }}
+                                                         className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-blue-400"
+                                                         title="Renombrar (Doble clic)"
+                                                     >
+                                                         <i className="fa-solid fa-pen-to-square text-[10px]"></i>
+                                                     </button>
+                                                     <button
+                                                         onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_LIST', payload: { spaceId: space.id, listId: list.id } }); }}
+                                                         className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-red-500"
+                                                         title="Eliminar"
+                                                     >
+                                                         <i className="fa-solid fa-trash text-[10px]"></i>
+                                                     </button>
+                                                 </div>
+                                                <span className="text-[9px] text-slate-500 group-hover:hidden">{list.tareas.length}</span>
                                             </div>
                                         ))}
                                     </div>

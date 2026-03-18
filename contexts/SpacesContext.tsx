@@ -298,6 +298,9 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
         case 'DELETE_SPACE':
             updatedEspacios = updatedEspacios.filter(s => s.id !== action.payload.spaceId);
             break;
+        case 'RENAME_SPACE':
+            updatedEspacios = updatedEspacios.map(s => s.id === action.payload.spaceId ? { ...s, nombre: action.payload.nombre } : s);
+            break;
         case 'ADD_FOLDER': {
             const newFolder: SpaceFolder = {
                 id: generateId(),

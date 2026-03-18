@@ -254,21 +254,36 @@ const AIChat: React.FC<AIChatProps> = ({
         if (note && onDeleteNote) onDeleteNote(note.id);
     }
 
-    // --- ESPACIOS (WORKSPACES) ---
-    if (action.name === 'crear_espacio') {
+    // --- WORKSPACES (ALTO NIVEL) ---
+    if (action.name === 'crear_workspace') {
         spacesDispatch({ type: 'ADD_WORKSPACE', payload: { nombre: args.nombre } });
     }
-    if (action.name === 'eliminar_espacio') {
+    if (action.name === 'eliminar_workspace') {
         const ws = spacesState.workspaces.find(w => w.nombre.toLowerCase().trim() === args.nombre.toLowerCase().trim());
         if (ws) spacesDispatch({ type: 'DELETE_WORKSPACE', payload: { workspaceId: ws.id } });
     }
-    if (action.name === 'renombrar_espacio') {
+    if (action.name === 'renombrar_workspace') {
         const ws = spacesState.workspaces.find(w => w.nombre.toLowerCase().trim() === args.nombreActual.toLowerCase().trim());
         if (ws) spacesDispatch({ type: 'RENAME_WORKSPACE', payload: { workspaceId: ws.id, nombre: args.nuevoNombre } });
     }
 
-    // --- CARPETAS Y LISTAS ---
+    // --- SPACES (SECCIONES DEL SIDEBAR) ---
+    if (action.name === 'crear_space') {
+        spacesDispatch({ type: 'ADD_SPACE', payload: { nombre: args.nombre, color: args.color || '#3b82f6' } });
+    }
     const activeWS = spacesState.workspaces.find(w => w.id === spacesState.activeWorkspaceId);
+    if (activeWS) {
+        if (action.name === 'eliminar_space') {
+            const space = activeWS.espacios.find(s => s.nombre.toLowerCase().trim() === args.nombre.toLowerCase().trim());
+            if (space) spacesDispatch({ type: 'DELETE_SPACE', payload: { spaceId: space.id } });
+        }
+        if (action.name === 'renombrar_space') {
+            const space = activeWS.espacios.find(s => s.nombre.toLowerCase().trim() === args.nombreActual.toLowerCase().trim());
+            if (space) spacesDispatch({ type: 'RENAME_SPACE', payload: { spaceId: space.id, nombre: args.nuevoNombre } });
+        }
+    }
+
+    // --- CARPETAS Y LISTAS ---
     if (activeWS) {
         const findSpace = (name: string) => activeWS.espacios.find(s => s.nombre.toLowerCase().trim() === name.toLowerCase().trim());
         

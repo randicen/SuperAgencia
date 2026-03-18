@@ -65,6 +65,8 @@ const App: React.FC = () => {
   const [isLoadingCloud, setIsLoadingCloud] = useState(false);
   const [hasCheckedCloud, setHasCheckedCloud] = useState(false); // Bloqueo de seguridad
   const [spacesSyncTrigger, setSpacesSyncTrigger] = useState(0);
+  const isInternalUpdate = React.useRef(false); // Ref para evitar bucles de subida tras descarga
+
 
   const updateLastMod = () => {
     localStorage.setItem('coo_last_local_mod', Date.now().toString());
@@ -77,14 +79,21 @@ const App: React.FC = () => {
         return;
     }
 
-    const envUrl = import.meta.env.VITE_SUPABASE_URL;
-    const envKey = import.meta.env.VITE_SUPABASE_KEY;
+    const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL;
+    const envKey = (import.meta as any).env?.VITE_SUPABASE_KEY;
     const supabaseUrl = envUrl || localStorage.getItem('coo_supabase_url');
     const supabaseKey = envKey || localStorage.getItem('coo_supabase_key');
 
     if (!supabaseUrl || !supabaseKey) return;
 
+    // --- SEGURIDAD: NO SUBIR SI EL CAMBIO VINO DE LA NUBE ---
+    if (isInternalUpdate.current) {
+        console.log("ℹ️ Saltando subida: El cambio es una actualización interna (descarga).");
+        return;
+    }
+
     setSyncStatus('syncing');
+
     const client = createClient(supabaseUrl, supabaseKey);
 
     try {
@@ -130,7 +139,12 @@ const App: React.FC = () => {
 
       console.log("Intentando UPSERT en Supabase...", fullState);
 
+      // CRITICAL FIX: Update the local timestamp BEFORE the network call
+      // so if the realtime listener fires instantly, localLastSync is already up-to-date.
+      localStorage.setItem('coo_last_local_mod', lastMod.toString());
+
       const { data: returnData, error } = await client
+
         .from('app_state_dump')
         .upsert(
           { 
@@ -151,14 +165,11 @@ const App: React.FC = () => {
       if (returnData && returnData.length > 0) {
           console.log("✅ CONFIRMADO POR SUPABASE:", returnData);
           setSyncStatus('synced');
-          
-          // Actualizamos el timestamp local para coincidir con lo que acabamos de subir
-          // Esto evita que el Real-time listener crea que hay data "más nueva" en la nube
-          localStorage.setItem('coo_last_local_mod', lastMod.toString());
       } else {
           console.error("⚠️ Supabase no devolvió datos tras el upsert.");
           setSyncStatus('error');
       }
+
     } catch (err: any) {
       console.error("Sync Catch Error:", err);
       setSyncStatus('error');
@@ -191,7 +202,10 @@ const App: React.FC = () => {
         
         // Solo descargar si la nube es estrictamente más nueva
         if (!cloudState.lastModified || cloudState.lastModified > localLastSync) {
+          isInternalUpdate.current = true; // Bloqueamos subidas temporales
+          
           if (cloudState.projects) setProjects(cloudState.projects);
+
           if (cloudState.clients) setClients(cloudState.clients);
           if (cloudState.transactions) setTransactions(cloudState.transactions);
           if (cloudState.rules) setRules(cloudState.rules);
@@ -205,7 +219,13 @@ const App: React.FC = () => {
           
           // Importante: Actualizar el timestamp local para evitar un re-upload inmediato
           localStorage.setItem('coo_last_local_mod', (cloudState.lastModified || Date.now()).toString());
+          
+          // Liberamos el bloqueo tras un breve delay para permitir que React termine de procesar los setStates
+          setTimeout(() => {
+              isInternalUpdate.current = false;
+          }, 1000);
         } else {
+
             if (!isSilent) console.log("ℹ️ El estado local es igual o más nuevo que la nube.");
         }
       } else {
@@ -237,8 +257,8 @@ const App: React.FC = () => {
     window.addEventListener('offline', handleOffline);
 
     // --- REAL-TIME LISTENER ---
-    const envUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('coo_supabase_url');
-    const envKey = import.meta.env.VITE_SUPABASE_KEY || localStorage.getItem('coo_supabase_key');
+    const envUrl = (import.meta as any).env?.VITE_SUPABASE_URL || localStorage.getItem('coo_supabase_url');
+    const envKey = (import.meta as any).env?.VITE_SUPABASE_KEY || localStorage.getItem('coo_supabase_key');
     
     let channel: any;
     if (envUrl && envKey) {
@@ -265,7 +285,8 @@ const App: React.FC = () => {
   // Sincronización automática debounced
   useEffect(() => {
     const handleTriggerSync = () => { 
-        console.log("🔔 Cambio detectado en Espacios, programando sync...");
+        console.log("🔔 Cambio detectado en Espacios, actualizando timestamp local...");
+        updateLastMod(); // CRÍTICO: El timestamp debe ser lo primero en cambiar
         setSpacesSyncTrigger(prev => prev + 1); 
     };
     window.addEventListener('coo_spaces_updated', handleTriggerSync);
@@ -451,6 +472,30 @@ const App: React.FC = () => {
     updateLastMod();
   };
 
+  const handleUpdateClients = (newClients: Client[]) => {
+    setClients(newClients);
+    updateLastMod();
+  };
+
+  const handleSaveNote = (n: Note) => {
+    setNotes(prev => {
+        const exists = prev.find(note => note.id === n.id);
+        if (exists) return prev.map(note => note.id === n.id ? n : note);
+        return [...prev, n];
+    });
+    updateLastMod();
+  };
+
+  const handleDeleteNote = (id: string) => {
+    setNotes(prev => prev.filter(n => n.id !== id));
+    updateLastMod();
+  };
+
+  const handleDeleteTransaction = (id: string) => {
+    setTransactions(prev => prev.filter(t => t.id !== id));
+    updateLastMod();
+  };
+
   const handleUpdateNotes = (newNotes: Note[]) => {
     setNotes(newNotes);
     updateLastMod();
@@ -565,9 +610,9 @@ const App: React.FC = () => {
                 rules={rules}
                 onAddProject={handleAddProject}
                 onUpdateProject={handleUpdateProject}
-                onAddTransaction={(t) => setTransactions(prev => [...prev, t])}
-                onDeleteTransaction={(id) => setTransactions(prev => prev.filter(t => t.id !== id))}
-                onUpdateClients={setClients}
+                onAddTransaction={handleAddTransaction}
+                onDeleteTransaction={handleDeleteTransaction}
+                onUpdateClients={handleUpdateClients}
                 onDeleteProject={handleDeleteProject}
                 onDeleteClient={handleDeleteClient}
                 chatSessions={chatSessions}
@@ -576,17 +621,11 @@ const App: React.FC = () => {
                 onSelectChat={setCurrentChatId}
                 onDeleteChat={handleDeleteChat}
                 notes={notes}
-                onSaveNote={(n) => {
-                  setNotes(prev => {
-                    const exists = prev.find(note => note.id === n.id);
-                    if (exists) return prev.map(note => note.id === n.id ? n : note);
-                    return [...prev, n];
-                  });
-                }}
-                onDeleteNote={(id) => setNotes(prev => prev.filter(n => n.id !== id))}
+                onSaveNote={handleSaveNote}
+                onDeleteNote={handleDeleteNote}
               />}
-              {activeTab === 'finance' && <FinanceView clients={clients} onUpdateSingleClient={(c) => setClients(prev => prev.map(cl => cl.id === c.id ? c : cl))} onAddProject={handleAddProject} onAddClient={(c) => setClients(prev => [...prev, c])} onDeleteService={(cId, sId, pId) => { if (pId) handleDeleteProject(pId); }} onDeleteClient={handleDeleteClient} />}
-              {activeTab === 'notebook' && <NotebookView notes={notes} onSaveNote={(n) => setNotes(prev => [...prev, n])} onDeleteNote={(id) => setNotes(prev => prev.filter(n => n.id !== id))} onDiscussNote={() => { }} />}
+              {activeTab === 'finance' && <FinanceView clients={clients} onUpdateSingleClient={(c) => handleUpdateClients(clients.map(cl => cl.id === c.id ? c : cl))} onAddProject={handleAddProject} onAddClient={(c) => handleUpdateClients([...clients, c])} onDeleteService={(cId, sId, pId) => { if (pId) handleDeleteProject(pId); }} onDeleteClient={handleDeleteClient} />}
+              {activeTab === 'notebook' && <NotebookView notes={notes} onSaveNote={handleSaveNote} onDeleteNote={handleDeleteNote} onDiscussNote={() => { }} />}
             </div>
           )}
         </main>

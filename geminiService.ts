@@ -193,8 +193,8 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
-      name: "crear_espacio",
-      description: "Crea un nuevo Workspace.",
+      name: "crear_workspace",
+      description: "Crea un nuevo Workspace de alto nivel (ej: Personal, Trabajo, Agencia).",
       parameters: {
         type: "object",
         properties: {
@@ -207,8 +207,8 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
-      name: "eliminar_espacio",
-      description: "Elimina un Workspace por nombre.",
+      name: "eliminar_workspace",
+      description: "Elimina un Workspace completo por su nombre.",
       parameters: {
         type: "object",
         properties: {
@@ -221,8 +221,52 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
-      name: "renombrar_espacio",
-      description: "Cambia el nombre de un Workspace.",
+      name: "renombrar_workspace",
+      description: "Cambia el nombre de un Workspace de alto nivel.",
+      parameters: {
+        type: "object",
+        properties: {
+          nombreActual: { type: "string" },
+          nuevoNombre: { type: "string" }
+        },
+        required: ["nombreActual", "nuevoNombre"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "crear_space",
+      description: "Crea una nueva sección (Espacio) con color dentro del Workspace activo.",
+      parameters: {
+        type: "object",
+        properties: {
+          nombre: { type: "string" },
+          color: { type: "string", description: "Color en HEX (opcional)" }
+        },
+        required: ["nombre"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "eliminar_space",
+      description: "Elimina un Espacio (sección coloreada) dentro del Workspace activo.",
+      parameters: {
+        type: "object",
+        properties: {
+          nombre: { type: "string" }
+        },
+        required: ["nombre"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "renombrar_space",
+      description: "Cambia el nombre de un Espacio (sección) dentro del Workspace activo.",
       parameters: {
         type: "object",
         properties: {

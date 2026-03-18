@@ -93,6 +93,7 @@ export type SpacesAction =
     // SPACE ACTIONS (operate on active workspace)
     | { type: 'ADD_SPACE'; payload: { id?: string; nombre: string; color: string } }
     | { type: 'DELETE_SPACE'; payload: { spaceId: string } }
+    | { type: 'RENAME_SPACE'; payload: { spaceId: string; nombre: string } }
     | { type: 'ADD_FOLDER'; payload: { spaceId: string; nombre: string } }
     | { type: 'DELETE_FOLDER'; payload: { spaceId: string; folderId: string } }
     | { type: 'RENAME_FOLDER'; payload: { spaceId: string; folderId: string; nombre: string } }
