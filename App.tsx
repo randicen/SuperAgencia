@@ -536,10 +536,12 @@ const App: React.FC = () => {
                 setMessages={handleSetMessages}
                 projects={projects}
                 clients={clients}
+                transactions={transactions}
                 rules={rules}
                 onAddProject={handleAddProject}
                 onUpdateProject={handleUpdateProject}
                 onAddTransaction={(t) => setTransactions(prev => [...prev, t])}
+                onDeleteTransaction={(id) => setTransactions(prev => prev.filter(t => t.id !== id))}
                 onUpdateClients={setClients}
                 onDeleteProject={handleDeleteProject}
                 onDeleteClient={handleDeleteClient}
@@ -549,7 +551,14 @@ const App: React.FC = () => {
                 onSelectChat={setCurrentChatId}
                 onDeleteChat={handleDeleteChat}
                 notes={notes}
-                onSaveNote={(n) => setNotes(prev => [...prev, n])}
+                onSaveNote={(n) => {
+                  setNotes(prev => {
+                    const exists = prev.find(note => note.id === n.id);
+                    if (exists) return prev.map(note => note.id === n.id ? n : note);
+                    return [...prev, n];
+                  });
+                }}
+                onDeleteNote={(id) => setNotes(prev => prev.filter(n => n.id !== id))}
               />}
               {activeTab === 'finance' && <FinanceView clients={clients} onUpdateSingleClient={(c) => setClients(prev => prev.map(cl => cl.id === c.id ? c : cl))} onAddProject={handleAddProject} onAddClient={(c) => setClients(prev => [...prev, c])} onDeleteService={(cId, sId, pId) => { if (pId) handleDeleteProject(pId); }} onDeleteClient={handleDeleteClient} />}
               {activeTab === 'notebook' && <NotebookView notes={notes} onSaveNote={(n) => setNotes(prev => [...prev, n])} onDeleteNote={(id) => setNotes(prev => prev.filter(n => n.id !== id))} onDiscussNote={() => { }} />}

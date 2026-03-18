@@ -2,16 +2,19 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, BusinessRules, Message, Transaction, Priority, Client, Service, Attachment, ChatSession, Note } from '../types';
 import { calculateQuote } from '../geminiService';
+import { useSpaces } from '../contexts/SpacesContext';
 
 interface AIChatProps {
   projects: Project[];
   clients: Client[];
+  transactions?: Transaction[];
   rules: BusinessRules;
   messages: Message[];
   setMessages: React.Dispatch<React.SetStateAction<Message[]>>;
   onAddProject: (p: Project) => void;
   onUpdateProject: (p: Project) => void;
   onAddTransaction: (t: Transaction) => void;
+  onDeleteTransaction?: (id: string) => void;
   onUpdateClients: (clients: Client[]) => void;
   onDeleteProject: (id: string) => void;
   onDeleteClient: (id: string) => void;
@@ -22,16 +25,18 @@ interface AIChatProps {
   onDeleteChat?: (id: string) => void;
   notes?: Note[];
   onSaveNote?: (note: Note) => void;
+  onDeleteNote?: (id: string) => void;
   incomingNote?: Note | null; 
 }
 
 const AIChat: React.FC<AIChatProps> = ({ 
-  projects, clients, rules, messages, setMessages, 
-  onAddProject, onUpdateProject, onAddTransaction, onUpdateClients,
+  projects, clients, transactions = [], rules, messages, setMessages, 
+  onAddProject, onUpdateProject, onAddTransaction, onDeleteTransaction, onUpdateClients,
   onDeleteProject, onDeleteClient,
   chatSessions, currentChatId, onNewChat, onSelectChat, onDeleteChat,
-  notes = [], onSaveNote, incomingNote
+  notes = [], onSaveNote, onDeleteNote, incomingNote
 }) => {
+  const { state: spacesState, dispatch: spacesDispatch } = useSpaces();
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [editingAction, setEditingAction] = useState<{msgIdx: number, actionIdx: number} | null>(null);
@@ -150,6 +155,8 @@ const AIChat: React.FC<AIChatProps> = ({
   const executeAction = (action: any) => {
     const args = action.args || {}; 
     if (action.name === 'abrir_calculadora') { setShowCalculator(true); }
+    
+    // --- PROYECTOS ---
     if (action.name === 'crear_proyecto') {
       const projectId = Math.random().toString(36).substr(2, 9);
       let existingClient = findClientByName(args.clientName);
@@ -175,14 +182,15 @@ const AIChat: React.FC<AIChatProps> = ({
       const newService: Service = { id: Math.random().toString(36).substr(2, 9), name: args.projectName, cost: args.totalValue, status: 'En Proceso', projectId: projectId, installments: [{ id: Math.random().toString(36).substr(2, 9), amount: args.totalValue, dueDate: args.endDate, status: 'PENDIENTE' }] };
       if (existingClient) { onUpdateClients(clients.map(c => c.id === existingClient!.id ? { ...c, services: [...c.services, newService] } : c)); } else { onUpdateClients([...clients, { id: clientId, name: args.clientName, email: '', phone: '', services: [newService] }]); }
     }
-    if (action.name === 'actualizar_proyecto') {
-        const { clientName, projectName, newProgress, newEndDate, newPriority, newTotalValue, newDuration, newDeadlineType, newDueDate, newAutoSchedule, newElasticity } = args;
+    if (action.name === 'actualizar_proyecto' || action.name === 'actualizar_estado_proyecto') {
+        const { clientName, projectName, newProgress, newEndDate, newPriority, newTotalValue, newDuration, newDeadlineType, newDueDate, newAutoSchedule, newElasticity, status } = args;
         const client = findClientByName(clientName);
         if (client) {
             const project = projects.find(p => p.clientId === client.id && p.projectName.toLowerCase().trim() === projectName.toLowerCase().trim());
             if (project) {
                 const updated = { ...project };
                 if (newProgress !== undefined) { updated.progress = newProgress; updated.status = getStatusFromProgress(newProgress); }
+                if (status) updated.status = status;
                 if (newEndDate) updated.endDate = newEndDate;
                 if (newPriority) updated.priority = newPriority as Priority;
                 if (newTotalValue !== undefined) updated.totalValue = newTotalValue;
@@ -203,10 +211,23 @@ const AIChat: React.FC<AIChatProps> = ({
         if (project) { onDeleteProject(project.id); }
       }
     }
+
+    // --- TRANSACCIONES ---
     if (action.name === 'registrar_transaccion') {
         const { description, amount, type, category, date } = args;
         onAddTransaction({ id: Math.random().toString(36).substr(2, 9), date: date || new Date().toISOString().split('T')[0], description, amount, type, category, isPredictive: false });
     }
+    if (action.name === 'eliminar_transaccion') {
+        const { id, description } = args;
+        if (id && onDeleteTransaction) {
+            onDeleteTransaction(id);
+        } else if (description && onDeleteTransaction) {
+            const t = transactions.find(tx => tx.description.toLowerCase().includes(description.toLowerCase()));
+            if (t) onDeleteTransaction(t.id);
+        }
+    }
+
+    // --- CLIENTES ---
     if (action.name === 'crear_cliente') {
         const { name, email, phone } = args;
         if (!findClientByName(name)) { onUpdateClients([...clients, { id: Math.random().toString(36).substr(2, 9), name, email: email || '', phone: phone || '', services: [] }]); }
@@ -216,6 +237,34 @@ const AIChat: React.FC<AIChatProps> = ({
         const { currentName, newName, newEmail, newPhone } = args;
         const client = findClientByName(currentName);
         if (client) { onUpdateClients(clients.map(c => c.id === client.id ? { ...c, name: newName || c.name, email: newEmail || c.email, phone: newPhone || c.phone } : c)); }
+    }
+
+    // --- NOTAS ---
+    if (action.name === 'crear_nota') {
+        if (onSaveNote) onSaveNote({ id: Math.random().toString(36).substr(2, 9), title: args.title, content: args.content, tags: args.tags || [], lastModified: Date.now() });
+    }
+    if (action.name === 'actualizar_nota') {
+        const note = notes.find(n => n.title.toLowerCase().trim() === args.title.toLowerCase().trim());
+        if (note && onSaveNote) {
+            onSaveNote({ ...note, title: args.newTitle || note.title, content: args.newContent || note.content, lastModified: Date.now() });
+        }
+    }
+    if (action.name === 'eliminar_nota') {
+        const note = notes.find(n => n.title.toLowerCase().trim() === args.title.toLowerCase().trim());
+        if (note && onDeleteNote) onDeleteNote(note.id);
+    }
+
+    // --- ESPACIOS (WORKSPACES) ---
+    if (action.name === 'crear_espacio') {
+        spacesDispatch({ type: 'ADD_WORKSPACE', payload: { nombre: args.nombre } });
+    }
+    if (action.name === 'eliminar_espacio') {
+        const ws = spacesState.workspaces.find(w => w.nombre.toLowerCase().trim() === args.nombre.toLowerCase().trim());
+        if (ws) spacesDispatch({ type: 'DELETE_WORKSPACE', payload: { workspaceId: ws.id } });
+    }
+    if (action.name === 'renombrar_espacio') {
+        const ws = spacesState.workspaces.find(w => w.nombre.toLowerCase().trim() === args.nombreActual.toLowerCase().trim());
+        if (ws) spacesDispatch({ type: 'RENAME_WORKSPACE', payload: { workspaceId: ws.id, nombre: args.nuevoNombre } });
     }
   };
 

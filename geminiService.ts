@@ -133,8 +133,127 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "eliminar_transaccion",
+      description: "Elimina un registro de ingreso o gasto.",
+      parameters: {
+        type: "object",
+        properties: {
+          id: { type: "string", description: "ID de la transacción" },
+          description: { type: "string", description: "Búsqueda por descripción si no hay ID" }
+        }
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "crear_nota",
+      description: "Crea una nueva nota en la libreta.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string" },
+          content: { type: "string" },
+          tags: { type: "array", items: { type: "string" } }
+        },
+        required: ["title", "content"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "actualizar_nota",
+      description: "Modifica una nota existente.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string", description: "Búsqueda por título" },
+          newContent: { type: "string" },
+          newTitle: { type: "string" }
+        },
+        required: ["title"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "eliminar_nota",
+      description: "Borra una nota.",
+      parameters: {
+        type: "object",
+        properties: {
+          title: { type: "string" }
+        },
+        required: ["title"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "crear_espacio",
+      description: "Crea un nuevo Workspace.",
+      parameters: {
+        type: "object",
+        properties: {
+          nombre: { type: "string" }
+        },
+        required: ["nombre"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "eliminar_espacio",
+      description: "Elimina un Workspace por nombre.",
+      parameters: {
+        type: "object",
+        properties: {
+          nombre: { type: "string" }
+        },
+        required: ["nombre"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "renombrar_espacio",
+      description: "Cambia el nombre de un Workspace.",
+      parameters: {
+        type: "object",
+        properties: {
+          nombreActual: { type: "string" },
+          nuevoNombre: { type: "string" }
+        },
+        required: ["nombreActual", "nuevoNombre"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "actualizar_estado_proyecto",
+      description: "Cambia el estado de un proyecto (active, completed, todo, proposal).",
+      parameters: {
+        type: "object",
+        properties: {
+          clientName: { type: "string" },
+          projectName: { type: "string" },
+          status: { type: "string", enum: ["active", "completed", "todo", "proposal"] }
+        },
+        required: ["clientName", "projectName", "status"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "abrir_calculadora",
-      description: "Abre una calculadora visual en la interfaz para que el usuario haga cuentas manuales.",
+      description: "Abre una calculadora visual en la interfaz.",
       parameters: {
         type: "object",
         properties: {},
@@ -234,7 +353,7 @@ export const calculateQuote = async (
       }
 
       return {
-        role: (m.role === 'assistant' || m.role === 'model') ? 'assistant' as const : 'user' as const,
+        role: m.role as 'user' | 'assistant',
         content: textContent || "."
       };
     });
@@ -254,8 +373,8 @@ export const calculateQuote = async (
     let functionCalls;
     if (messageResponse.tool_calls && messageResponse.tool_calls.length > 0) {
       functionCalls = messageResponse.tool_calls.map(tc => ({
-        name: tc.function.name,
-        args: JSON.parse(tc.function.arguments)
+        name: (tc as any).function.name,
+        args: JSON.parse((tc as any).function.arguments)
       }));
     }
 
