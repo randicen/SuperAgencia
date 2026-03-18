@@ -346,6 +346,51 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
                 return { ...s, listas: s.listas.map(updateList) };
             });
             break;
+        case 'MOVE_LIST': {
+            updatedEspacios = updatedEspacios.map(s => {
+                if (s.id !== action.payload.spaceId) return s;
+
+                // 1. Find and extract the list
+                let listToMove: SpaceList | undefined;
+
+                if (action.payload.sourceFolderId) {
+                    const sourceFolder = s.carpetas.find(f => f.id === action.payload.sourceFolderId);
+                    listToMove = sourceFolder?.listas.find(l => l.id === action.payload.listId);
+                } else {
+                    listToMove = s.listas.find(l => l.id === action.payload.listId);
+                }
+
+                if (!listToMove) return s;
+
+                // 2. Remove from source
+                let newEspacio = { ...s };
+                if (action.payload.sourceFolderId) {
+                    newEspacio = {
+                        ...newEspacio,
+                        carpetas: newEspacio.carpetas.map(f =>
+                            f.id === action.payload.sourceFolderId
+                                ? { ...f, listas: f.listas.filter(l => l.id !== action.payload.listId) }
+                                : f
+                        )
+                    };
+                } else {
+                    newEspacio = { ...newEspacio, listas: newEspacio.listas.filter(l => l.id !== action.payload.listId) };
+                }
+
+                // 3. Add to target folder
+                newEspacio = {
+                    ...newEspacio,
+                    carpetas: newEspacio.carpetas.map(f =>
+                        f.id === action.payload.targetFolderId
+                            ? { ...f, listas: [...f.listas, listToMove!] }
+                            : f
+                    )
+                };
+
+                return newEspacio;
+            });
+            break;
+        }
         case 'ADD_TASK': {
             const newTask: SpaceTask = { ...action.payload.task, id: generateId(), orden: Date.now() };
             const updateList = (l: SpaceList) => l.id === action.payload.listId ? { ...l, tareas: [...l.tareas, newTask] } : l;

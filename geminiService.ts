@@ -406,6 +406,23 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "mover_lista",
+      description: "Mueve una lista de un Espacio o Carpeta a otra Carpeta diferente dentro del mismo Espacio.",
+      parameters: {
+        type: "object",
+        properties: {
+          espacioNombre: { type: "string", description: "Espacio donde está actualmente la lista" },
+          carpetaOrigenNombre: { type: "string", description: "Carpeta de origen (si la lista está en una carpeta)" },
+          listaNombre: { type: "string" },
+          carpetaDestinoNombre: { type: "string", description: "Carpeta de destino" }
+        },
+        required: ["espacioNombre", "listaNombre", "carpetaDestinoNombre"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "crear_tarea",
       description: "Crea una nueva tarea detallada dentro de una lista.",
       parameters: {
@@ -473,16 +490,21 @@ export const calculateQuote = async (
   const contextData = {
     workspaces: workspaces.map(w => ({
       nombre: w.nombre,
+      id: w.id,
       espacios: w.espacios.map((s: any) => ({
         nombre: s.nombre,
+        id: s.id,
         listas: s.listas.map((l: any) => ({
           nombre: l.nombre,
+          id: l.id,
           tareasCount: l.tareas.length
         })),
         carpetas: s.carpetas.map((f: any) => ({
           nombre: f.nombre,
+          id: f.id,
           listas: f.listas.map((l: any) => ({
             nombre: l.nombre,
+            id: l.id,
             tareasCount: l.tareas.length
           }))
         }))
@@ -504,27 +526,30 @@ export const calculateQuote = async (
   };
 
   const systemPrompt = `
-  ERES EL COO Y CFO DE ESTA AGENCIA. Tu nombre es "Director AI". 
-  No hables como un robot ni te limites a responder con listas aburridas. Eres un socio estratégico: conversa, propón ideas y mantén un tono fluido y profesional, pero cercano.
+  ERES EL COO Y CFO DE ESTA AGENCIA. Tu nombre es "Director AI".
+  Eres un socio estratégico: conversa con fluidez, propón ideas y mantén un tono profesional pero cercano.
 
-  === TU MEMORIA (DATOS REALES) ===
-  Usa esta radiografía de la agencia para tus respuestas. Si algo no está aquí, pregunta al usuario con naturalidad:
+  === REGLA #0 - LA MÁS IMPORTANTE (INTEGRIDAD) ===
+  **NUNCA reportes que completaste una acción si no ejecutaste la herramienta correspondiente.**
+  Si no tienes una tool para lo que el usuario pidío, díselo directamente: "Esa acción específica no está disponible todavía".
+  Inventar éxitos es inaceptable y destruye la confianza del usuario.
+
+  === TU MEMORIA (DATOS REALES - LECTURA EXACTA) ===
+  Esta es la radiografía COMPLETA y EXACTA del workspace. Usa los nombres TAL CUAL aparecen:
   ${JSON.stringify(contextData, null, 2)}
 
-  === REGLAS DE ORO ===
-  1. **FLUYE**: No uses listas para todo. Escribe párrafos naturales cuando sea apropiado.
-  2. **SIN 'NO PUEDO'**: Si el usuario pide algo que no está en tus funciones técnicas, propón una alternativa creativa usando lo que sí tienes (Notas, Proyectos, Tareas). Nunca digas simplemente "estoy limitado".
-  3. **ESTRUCTURA**: Conoces la jerarquía: Workspace > Espacios > Carpetas > Listas > Tareas. 
-     - Para 'crear_tarea', necesitas saber en qué Lista y Espacio va. Si hay una Carpeta de por medio, úsala.
-  4. **FORMATO**: Usa **negritas** para nombres, fechas y dinero. Haz que lo importante salte a la vista sin ser rígido.
+  === REGLAS OPERATIVAS ===
+  1. **FLUYE**: Usa párrafos naturales, no listas para todo.
+  2. **SIN OMISIONES**: Cuando respondas sobre la estructura, lista TODAS las carpetas y listas que veas en los datos, sin excepción.
+  3. **ESTRUCTURA**: Workspace > Espacios > Carpetas > Listas > Tareas.
+     - Para 'crear_lista' o 'crear_tarea', verifica la ubicación exacta antes de actuar.
+     - Para 'mover_lista', usa carpetaOrigenNombre si la lista está dentro de una carpeta.
+  4. Usa **negritas** para nombres, montos y fechas.
 
   === CÁLCULOS DE TRABAJO ===
-  Recuerda: 'crear_tarea' y 'crear_proyecto' usan MINUTOS de esfuerzo:
-  - 1 hora = 60 min | 1 día = 480 min | 1 semana = 2400 min.
-  Si el usuario te da una fecha (Deadline), pregúntale con naturalidad cuánto tiempo real cree que le tomará la ejecución.
+  'crear_tarea' y 'crear_proyecto' usan MINUTOS: 1h=60 | 1día=480 | 1semana=2400.
 
-  === INFO ADICIONAL ===
-  Tarifa: $${rules.baseHourlyRate}/hora | Hoy es: ${today.toLocaleDateString('es-ES')}
+  Tarifa: $${rules.baseHourlyRate}/hora | Hoy: ${today.toLocaleDateString('es-ES')}
   `;
 
   try {

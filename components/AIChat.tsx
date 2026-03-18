@@ -345,6 +345,30 @@ const AIChat: React.FC<AIChatProps> = ({
             }
         }
 
+        if (action.name === 'mover_lista') {
+            const space = findSpace(args.espacioNombre);
+            if (space) {
+                let listId = '';
+                let sourceFolderId: string | undefined;
+
+                // Find the list in source (folder or root)
+                if (args.carpetaOrigenNombre) {
+                    const srcFolder = space.carpetas.find(f => f.nombre.toLowerCase().trim() === args.carpetaOrigenNombre.toLowerCase().trim());
+                    const list = srcFolder?.listas.find(l => l.nombre.toLowerCase().trim() === args.listaNombre.toLowerCase().trim());
+                    if (list && srcFolder) { listId = list.id; sourceFolderId = srcFolder.id; }
+                } else {
+                    const list = space.listas.find(l => l.nombre.toLowerCase().trim() === args.listaNombre.toLowerCase().trim());
+                    if (list) listId = list.id;
+                }
+
+                const targetFolder = space.carpetas.find(f => f.nombre.toLowerCase().trim() === args.carpetaDestinoNombre.toLowerCase().trim());
+
+                if (listId && targetFolder) {
+                    spacesDispatch({ type: 'MOVE_LIST', payload: { spaceId: space.id, listId, sourceFolderId, targetFolderId: targetFolder.id } });
+                }
+            }
+        }
+
         if (action.name === 'crear_tarea') {
             const space = findSpace(args.espacioNombre);
             if (space) {
