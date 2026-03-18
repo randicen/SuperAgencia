@@ -539,39 +539,55 @@ export const calculateQuote = async (
 
   const clientsList = clients.map(c => c.name).join(", ");
 
-  // CONTEXTO DE DATOS PARA LA IA (READ ACCESS)
-  // IMPORTANTE: No incluir IDs internos. El modelo los confunde con nombres.
-  const contextData = {
-    workspaces: workspaces.map(w => ({
-      nombre: w.nombre,
-      espacios: w.espacios.map((s: any) => ({
-        nombre: s.nombre,
-        listasRaiz: s.listas.map((l: any) => ({
-          nombre: l.nombre,
-          tareas: l.tareas.length
-        })),
-        carpetas: s.carpetas.map((f: any) => ({
-          nombre: f.nombre,
-          listas: f.listas.map((l: any) => ({
-            nombre: l.nombre,
-            tareas: l.tareas.length
-          }))
-        }))
-      }))
-    })),
-    proyectos: currentProjects.map(p => ({
-      nombre: p.projectName,
-      cliente: p.clientName,
-      valor: p.totalValue,
-      estado: p.status,
-      progreso: p.progress
-    })),
-    notas: notes.map(n => ({ titulo: n.title })),
-    flujoCaja: {
-      totalTransacciones: transactions.length,
-      balance: transactions.reduce((acc, t) => t.type === 'income' ? acc + t.amount : acc - t.amount, 0)
+  // CONTEXTO DE DATOS EN TEXTO PLANO (los LLMs lo parsean mejor que JSON anidado)
+  const buildPlainTextContext = () => {
+    let text = '';
+
+    // Workspaces
+    text += 'ESTRUCTURA DE WORKSPACES:\n';
+    workspaces.forEach((w: any) => {
+      text += `\n📦 ${w.nombre}\n`;
+      w.espacios.forEach((s: any) => {
+        text += `  📂 ${s.nombre}\n`;
+        // Listas raíz (sin carpeta)
+        s.listas.forEach((l: any) => {
+          text += `    • ${l.nombre} (${l.tareas.length} tareas)\n`;
+        });
+        // Carpetas con sus listas
+        s.carpetas.forEach((f: any) => {
+          text += `    📁 ${f.nombre}\n`;
+          f.listas.forEach((l: any) => {
+            text += `      • ${l.nombre} (${l.tareas.length} tareas)\n`;
+          });
+          if (f.listas.length === 0) {
+            text += `      (vacía)\n`;
+          }
+        });
+      });
+    });
+
+    // Proyectos
+    if (currentProjects.length > 0) {
+      text += '\nPROYECTOS:\n';
+      currentProjects.forEach(p => {
+        text += `  • ${p.projectName} | Cliente: ${p.clientName} | $${p.totalValue} | ${p.status} | ${p.progress}%\n`;
+      });
     }
+
+    // Notas
+    if (notes.length > 0) {
+      text += '\nNOTAS:\n';
+      notes.forEach(n => { text += `  • ${n.title}\n`; });
+    }
+
+    // Flujo de caja
+    const balance = transactions.reduce((acc, t) => t.type === 'income' ? acc + t.amount : acc - t.amount, 0);
+    text += `\nFLUJO DE CAJA: ${transactions.length} transacciones | Balance: $${balance.toLocaleString()}\n`;
+
+    return text;
   };
+
+  const plainTextContext = buildPlainTextContext();
 
   // --- SYSTEM PROMPTS BIFURCADOS ---
   const baseContext = `
@@ -582,12 +598,17 @@ export const calculateQuote = async (
   NUNCA reportes que completaste una acción si no ejecutaste la herramienta correspondiente.
   Si no tienes una tool para lo que se pidió, dilo honestamente.
 
-  === SIN DATOS NO SOLICITADOS ===
-  NUNCA menciones información que el usuario no preguntó: items eliminados, IDs internos, estados de espacios inactivos.
-  Responde SOLO lo que se preguntó.
+  === FUENTE ÚNICA DE VERDAD ===
+  Los datos listados abajo son el ESTADO ACTUAL Y REAL del sistema en este instante.
+  IGNORA cualquier dato diferente que aparezca en mensajes anteriores del chat.
+  Si un mensaje previo del asistente dice algo diferente, ESTÁ DESACTUALIZADO. Solo confía en estos datos:
 
-  === TU MEMORIA (DATOS REALES) ===
-  ${JSON.stringify(contextData, null, 2)}
+${plainTextContext}
+
+  === SIN DATOS NO SOLICITADOS ===
+  NUNCA menciones información que el usuario no preguntó.
+  Cuando el usuario pregunte por listas, reporta TODAS las listas de TODAS las carpetas.
+  Responde SOLO lo que se preguntó.
 
   Tarifa: $${rules.baseHourlyRate}/hora | Hoy: ${today.toLocaleDateString('es-ES')}
   `;
@@ -616,7 +637,10 @@ export const calculateQuote = async (
   `;
 
   try {
-    const formattedMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = messages.map(m => {
+    // TRUNCAR historial a últimos 10 mensajes para evitar que respuestas viejas envenen al modelo
+    const recentMessages = messages.slice(-10);
+
+    const formattedMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = recentMessages.map(m => {
       let textContent = m.content;
       
       if (m.attachments && m.attachments.length > 0) {
