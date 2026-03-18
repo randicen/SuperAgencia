@@ -73,6 +73,15 @@ const App: React.FC = () => {
     localStorage.setItem('coo_last_local_mod', Date.now().toString());
   };
 
+  const replicateToOtherTabs = (payload: string) => {
+    // Comunicar a otras pestañas que NO deben re-subir este estado específico
+    localStorage.setItem('coo_last_sync_fingerprint', payload);
+    window.dispatchEvent(new StorageEvent('storage', {
+        key: 'coo_last_sync_fingerprint',
+        newValue: payload
+    }));
+  };
+
   // --- CLOUD SYNC LOGIC (SUPABASE) ---
   const handleCloudSync = useCallback(async () => {
     if (!navigator.onLine) {
@@ -162,6 +171,14 @@ const App: React.FC = () => {
           return;
       }
       
+      const lastFingerprint = localStorage.getItem('coo_last_sync_fingerprint');
+      if (compareString === lastFingerprint) {
+          console.log("ℹ️ Saltando subida: Otra pestaña ya sincronizó este estado.");
+          lastUploadedState.current = compareString;
+          setSyncStatus('synced');
+          return;
+      }
+
       if (document.hidden) {
           console.log("ℹ️ Saltando subida: La pestaña está en segundo plano.");
           return;
@@ -194,6 +211,7 @@ const App: React.FC = () => {
       if (returnData && returnData.length > 0) {
           console.log("✅ CONFIRMADO POR SUPABASE:", returnData);
           lastUploadedState.current = compareString;
+          replicateToOtherTabs(compareString);
           setSyncStatus('synced');
       } else {
           console.error("⚠️ Supabase no devolvió datos tras el upsert.");
@@ -263,6 +281,7 @@ const App: React.FC = () => {
               }))
           };
           lastUploadedState.current = JSON.stringify(cloudStateForCompare);
+          localStorage.setItem('coo_last_sync_fingerprint', lastUploadedState.current);
 
           // Importante: Actualizar el timestamp local para evitar un re-upload inmediato
           localStorage.setItem('coo_last_local_mod', (cloudState.lastModified || Date.now()).toString());
@@ -324,9 +343,18 @@ const App: React.FC = () => {
             .subscribe();
     }
 
+    const handleFingerprintSync = (e: StorageEvent) => {
+        if (e.key === 'coo_last_sync_fingerprint' && e.newValue) {
+            console.log("📑 Sincronizando fingerprint con otra pestaña activa...");
+            lastUploadedState.current = e.newValue;
+        }
+    };
+    window.addEventListener('storage', handleFingerprintSync);
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
+      window.removeEventListener('storage', handleFingerprintSync);
       if (channel) channel.unsubscribe();
     };
   }, [handleCloudSync, handleInitialDownload]);
