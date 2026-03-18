@@ -252,6 +252,85 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
     function: {
+      name: "renombrar_lista",
+      description: "Cambia el nombre de una lista de tareas dentro de un Workspace.",
+      parameters: {
+        type: "object",
+        properties: {
+          espacioNombre: { type: "string", description: "Nombre del Espacio (Space) contenedor" },
+          carpetaNombre: { type: "string", description: "Nombre de la carpeta (opcional)" },
+          listaActualNombre: { type: "string" },
+          nuevoNombre: { type: "string" }
+        },
+        required: ["espacioNombre", "listaActualNombre", "nuevoNombre"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "eliminar_lista",
+      description: "Elimina una lista de tareas completa.",
+      parameters: {
+        type: "object",
+        properties: {
+          espacioNombre: { type: "string" },
+          carpetaNombre: { type: "string" },
+          listaNombre: { type: "string" }
+        },
+        required: ["espacioNombre", "listaNombre"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "renombrar_carpeta",
+      description: "Cambia el nombre de una carpeta (Folder) dentro de un Espacio.",
+      parameters: {
+        type: "object",
+        properties: {
+          espacioNombre: { type: "string" },
+          carpetaActualNombre: { type: "string" },
+          nuevoNombre: { type: "string" }
+        },
+        required: ["espacioNombre", "carpetaActualNombre", "nuevoNombre"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "eliminar_carpeta",
+      description: "Elimina una carpeta y todo su contenido.",
+      parameters: {
+        type: "object",
+        properties: {
+          espacioNombre: { type: "string" },
+          carpetaNombre: { type: "string" }
+        },
+        required: ["espacioNombre", "carpetaNombre"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
+      name: "proponer_reorganizacion",
+      description: "Sugiere una nueva estructura de espacios, carpetas o listas para mejorar la claridad.",
+      parameters: {
+        type: "object",
+        properties: {
+          justificacion: { type: "string" },
+          nuevaEstructura: { type: "string", description: "Descripción de cómo quedaría organizado" }
+        },
+        required: ["justificacion", "nuevaEstructura"]
+      }
+    }
+  },
+  {
+    type: "function",
+    function: {
       name: "abrir_calculadora",
       description: "Abre una calculadora visual en la interfaz.",
       parameters: {

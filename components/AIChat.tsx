@@ -266,6 +266,55 @@ const AIChat: React.FC<AIChatProps> = ({
         const ws = spacesState.workspaces.find(w => w.nombre.toLowerCase().trim() === args.nombreActual.toLowerCase().trim());
         if (ws) spacesDispatch({ type: 'RENAME_WORKSPACE', payload: { workspaceId: ws.id, nombre: args.nuevoNombre } });
     }
+
+    // --- CARPETAS Y LISTAS ---
+    const activeWS = spacesState.workspaces.find(w => w.id === spacesState.activeWorkspaceId);
+    if (activeWS) {
+        const findSpace = (name: string) => activeWS.espacios.find(s => s.nombre.toLowerCase().trim() === name.toLowerCase().trim());
+        
+        if (action.name === 'renombrar_carpeta') {
+            const space = findSpace(args.espacioNombre);
+            const folder = space?.carpetas.find(f => f.nombre.toLowerCase().trim() === args.carpetaActualNombre.toLowerCase().trim());
+            if (space && folder) spacesDispatch({ type: 'RENAME_FOLDER', payload: { spaceId: space.id, folderId: folder.id, nombre: args.nuevoNombre } });
+        }
+        if (action.name === 'eliminar_carpeta') {
+            const space = findSpace(args.espacioNombre);
+            const folder = space?.carpetas.find(f => f.nombre.toLowerCase().trim() === args.carpetaNombre.toLowerCase().trim());
+            if (space && folder) spacesDispatch({ type: 'DELETE_FOLDER', payload: { spaceId: space.id, folderId: folder.id } });
+        }
+        if (action.name === 'renombrar_lista') {
+            const space = findSpace(args.espacioNombre);
+            if (space) {
+                let listId = '';
+                let folderId = undefined;
+                if (args.carpetaNombre) {
+                    const folder = space.carpetas.find(f => f.nombre.toLowerCase().trim() === args.carpetaNombre.toLowerCase().trim());
+                    const list = folder?.listas.find(l => l.nombre.toLowerCase().trim() === args.listaActualNombre.toLowerCase().trim());
+                    if (list) { listId = list.id; folderId = folder!.id; }
+                } else {
+                    const list = space.listas.find(l => l.nombre.toLowerCase().trim() === args.listaActualNombre.toLowerCase().trim());
+                    if (list) listId = list.id;
+                }
+                if (listId) spacesDispatch({ type: 'RENAME_LIST', payload: { spaceId: space.id, folderId, listId, nombre: args.nuevoNombre } });
+            }
+        }
+        if (action.name === 'eliminar_lista') {
+            const space = findSpace(args.espacioNombre);
+            if (space) {
+                let listId = '';
+                let folderId = undefined;
+                if (args.carpetaNombre) {
+                    const folder = space.carpetas.find(f => f.nombre.toLowerCase().trim() === args.carpetaNombre.toLowerCase().trim());
+                    const list = folder?.listas.find(l => l.nombre.toLowerCase().trim() === args.listaNombre.toLowerCase().trim());
+                    if (list) { listId = list.id; folderId = folder!.id; }
+                } else {
+                    const list = space.listas.find(l => l.nombre.toLowerCase().trim() === args.listaNombre.toLowerCase().trim());
+                    if (list) listId = list.id;
+                }
+                if (listId) spacesDispatch({ type: 'DELETE_LIST', payload: { spaceId: space.id, folderId, listId } });
+            }
+        }
+    }
   };
 
   const handleConfirmActions = (msgIdx: number) => {

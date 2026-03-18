@@ -95,8 +95,10 @@ export type SpacesAction =
     | { type: 'DELETE_SPACE'; payload: { spaceId: string } }
     | { type: 'ADD_FOLDER'; payload: { spaceId: string; nombre: string } }
     | { type: 'DELETE_FOLDER'; payload: { spaceId: string; folderId: string } }
+    | { type: 'RENAME_FOLDER'; payload: { spaceId: string; folderId: string; nombre: string } }
     | { type: 'ADD_LIST'; payload: { id?: string; spaceId: string; folderId?: string; nombre: string } }
     | { type: 'DELETE_LIST'; payload: { spaceId: string; folderId?: string; listId: string } }
+    | { type: 'RENAME_LIST'; payload: { spaceId: string; folderId?: string; listId: string; nombre: string } }
     | { type: 'ADD_TASK'; payload: { spaceId: string; folderId?: string; listId: string; task: Omit<SpaceTask, 'id' | 'orden'> } }
     | { type: 'UPDATE_TASK'; payload: { spaceId: string; folderId?: string; listId: string; task: SpaceTask } }
     | { type: 'DELETE_TASK'; payload: { spaceId: string; folderId?: string; listId: string; taskId: string } }

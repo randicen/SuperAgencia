@@ -310,6 +310,9 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
         case 'DELETE_FOLDER':
             updatedEspacios = updatedEspacios.map(s => s.id === action.payload.spaceId ? { ...s, carpetas: s.carpetas.filter(f => f.id !== action.payload.folderId) } : s);
             break;
+        case 'RENAME_FOLDER':
+            updatedEspacios = updatedEspacios.map(s => s.id === action.payload.spaceId ? { ...s, carpetas: s.carpetas.map(f => f.id === action.payload.folderId ? { ...f, nombre: action.payload.nombre } : f) } : s);
+            break;
         case 'ADD_LIST': {
             const newList: SpaceList = { id: action.payload.id || generateId(), nombre: action.payload.nombre, tareas: [], eventos: [] };
             updatedEspacios = updatedEspacios.map(s => {
@@ -328,6 +331,16 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
                     return { ...s, carpetas: s.carpetas.map(f => f.id === action.payload.folderId ? { ...f, listas: f.listas.filter(l => l.id !== action.payload.listId) } : f) };
                 }
                 return { ...s, listas: s.listas.filter(l => l.id !== action.payload.listId) };
+            });
+            break;
+        case 'RENAME_LIST':
+            updatedEspacios = updatedEspacios.map(s => {
+                if (s.id !== action.payload.spaceId) return s;
+                const updateList = (l: SpaceList) => l.id === action.payload.listId ? { ...l, nombre: action.payload.nombre } : l;
+                if (action.payload.folderId) {
+                    return { ...s, carpetas: s.carpetas.map(f => f.id === action.payload.folderId ? { ...f, listas: f.listas.map(updateList) } : f) };
+                }
+                return { ...s, listas: s.listas.map(updateList) };
             });
             break;
         case 'ADD_TASK': {
