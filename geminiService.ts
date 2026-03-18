@@ -540,38 +540,33 @@ export const calculateQuote = async (
   const clientsList = clients.map(c => c.name).join(", ");
 
   // CONTEXTO DE DATOS PARA LA IA (READ ACCESS)
+  // IMPORTANTE: No incluir IDs internos. El modelo los confunde con nombres.
   const contextData = {
     workspaces: workspaces.map(w => ({
       nombre: w.nombre,
-      id: w.id,
       espacios: w.espacios.map((s: any) => ({
         nombre: s.nombre,
-        id: s.id,
-        listas: s.listas.map((l: any) => ({
+        listasRaiz: s.listas.map((l: any) => ({
           nombre: l.nombre,
-          id: l.id,
-          tareasCount: l.tareas.length
+          tareas: l.tareas.length
         })),
         carpetas: s.carpetas.map((f: any) => ({
           nombre: f.nombre,
-          id: f.id,
           listas: f.listas.map((l: any) => ({
             nombre: l.nombre,
-            id: l.id,
-            tareasCount: l.tareas.length
+            tareas: l.tareas.length
           }))
         }))
       }))
     })),
-    resumenProyectos: currentProjects.map(p => ({
-      id: p.id,
+    proyectos: currentProjects.map(p => ({
       nombre: p.projectName,
       cliente: p.clientName,
       valor: p.totalValue,
       estado: p.status,
       progreso: p.progress
     })),
-    resumenNotas: notes.map(n => ({ titulo: n.title, id: n.id })),
+    notas: notes.map(n => ({ titulo: n.title })),
     flujoCaja: {
       totalTransacciones: transactions.length,
       balance: transactions.reduce((acc, t) => t.type === 'income' ? acc + t.amount : acc - t.amount, 0)
