@@ -62,8 +62,8 @@ const App: React.FC = () => {
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error' | 'offline'>('idle');
-  const [isLoadingCloud, setIsLoadingCloud] = useState(false); // Start as false to avoid white screen
-  // Estado para disparar sync cuando cambian los espacios
+  const [isLoadingCloud, setIsLoadingCloud] = useState(false);
+  const [hasCheckedCloud, setHasCheckedCloud] = useState(false); // Bloqueo de seguridad
   const [spacesSyncTrigger, setSpacesSyncTrigger] = useState(0);
 
   // --- CLOUD SYNC LOGIC (SUPABASE) ---
@@ -84,6 +84,32 @@ const App: React.FC = () => {
     const client = createClient(supabaseUrl, supabaseKey);
 
     try {
+      // --- SEGURIDAD: NO SUBIR SI NO HEMOS DESCARGADO PRIMERO ---
+      if (!hasCheckedCloud) {
+          console.warn("Sincronización bloqueada: Aún no se ha verificado la nube.");
+          await handleInitialDownload(true);
+          return;
+      }
+
+      const client = createClient(supabaseUrl, supabaseKey);
+      
+      // --- SEGURIDAD: PREVISIÓN DE SOBRESCRITURA (Conflict Resolution) ---
+      const { data: cloudMetadata } = await client
+        .from('app_state_dump')
+        .select('data->lastModified')
+        .eq('id', 'coo_master_state')
+        .single();
+      
+      const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
+      const cloudLastModified = (cloudMetadata as any)?.lastModified || 0;
+
+      if (Number(cloudLastModified) > localLastSync) {
+          console.log("⚠️ Hay datos más nuevos en la nube. Abortando upload para proteger integridad.");
+          setSyncStatus('idle');
+          await handleInitialDownload(true);
+          return;
+      }
+
       const rawSpaces = localStorage.getItem('coo_spaces');
       const spacesData = rawSpaces ? JSON.parse(rawSpaces) : {};
       
@@ -178,10 +204,12 @@ const App: React.FC = () => {
           localStorage.setItem('coo_last_local_mod', (cloudState.lastModified || Date.now()).toString());
         }
       }
+      setHasCheckedCloud(true);
     } catch (err) {
       if (!isSilent) console.error("Download Error:", err);
     } finally {
       if (!isSilent) setIsLoadingCloud(false);
+      setHasCheckedCloud(true); // Incluso con error, permitimos intentar sync manual después
     }
   }, []); // Remove all state dependencies to avoid infinite loops and reversion
 
