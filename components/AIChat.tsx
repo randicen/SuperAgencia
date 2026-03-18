@@ -145,7 +145,7 @@ const AIChat: React.FC<AIChatProps> = ({
     setAttachments([]);
     setIsTyping(true);
     try {
-      const response = await calculateQuote(newMessages, rules, projects, clients);
+      const response = await calculateQuote(newMessages, rules, projects, clients, spacesState.workspaces, notes, transactions);
       const text = response.text || (response.functionCalls && response.functionCalls.length > 0 ? "🔄 Preparando acción..." : "");
       const assistantMessage: Message = { role: 'assistant', content: text, timestamp: new Date(), pendingActions: response.functionCalls };
       setMessages(prev => [...prev, assistantMessage]);

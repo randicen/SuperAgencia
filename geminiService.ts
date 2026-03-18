@@ -1,5 +1,5 @@
 import OpenAI from "openai";
-import { BusinessRules, Project, Message, Client, SeasonalityData } from "./types";
+import { BusinessRules, Project, Message, Client, SeasonalityData, Note, Transaction } from "./types";
 
 const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
@@ -267,7 +267,10 @@ export const calculateQuote = async (
   messages: Message[],
   rules: BusinessRules,
   currentProjects: Project[],
-  clients: Client[]
+  clients: Client[],
+  workspaces: any[] = [],
+  notes: Note[] = [],
+  transactions: Transaction[] = []
 ) => {
   const ai = new OpenAI({ 
     apiKey: import.meta.env.VITE_GROQ_API_KEY || '',
@@ -289,9 +292,40 @@ export const calculateQuote = async (
 
   const clientsList = clients.map(c => c.name).join(", ");
 
+  // CONTEXTO DE DATOS PARA LA IA (READ ACCESS)
+  const contextData = {
+    workspaces: workspaces.map(w => ({
+      nombre: w.nombre,
+      espacios: w.espacios.map((s: any) => ({
+        nombre: s.nombre,
+        listas: s.listas.map((l: any) => ({
+          nombre: l.nombre,
+          tareasCount: l.tareas.length
+        }))
+      }))
+    })),
+    resumenProyectos: currentProjects.map(p => ({
+      id: p.id,
+      nombre: p.projectName,
+      cliente: p.clientName,
+      valor: p.totalValue,
+      estado: p.status,
+      progreso: p.progress
+    })),
+    resumenNotas: notes.map(n => ({ titulo: n.title, id: n.id })),
+    flujoCaja: {
+      totalTransacciones: transactions.length,
+      balance: transactions.reduce((acc, t) => t.type === 'income' ? acc + t.amount : acc - t.amount, 0)
+    }
+  };
+
   const systemPrompt = `
   ERES EL COO (Director Operativo) Y CFO (Director Financiero) DE ESTA AGENCIA UNIPERSONAL.
   Tu nombre es "Director AI".
+
+  === BASE DE DATOS (LECTURA) ===
+  Tienes acceso en tiempo real a la información del usuario:
+  ${JSON.stringify(contextData, null, 2)}
 
   === PROTOCOLO DE COMUNICACIÓN Y PROFESIONALISMO ===
   1. **EXPLICA TUS ACCIONES**: SIEMPRE describe brevemente qué vas a hacer antes de llamar a una función. El usuario debe ver un mensaje claro (ej: "Perfecto, procedo a registrar este gasto de $500...") antes de ver el cuadro de confirmación técnica.
