@@ -456,6 +456,13 @@ export const calculateQuote = async (
         listas: s.listas.map((l: any) => ({
           nombre: l.nombre,
           tareasCount: l.tareas.length
+        })),
+        carpetas: s.carpetas.map((f: any) => ({
+          nombre: f.nombre,
+          listas: f.listas.map((l: any) => ({
+            nombre: l.nombre,
+            tareasCount: l.tareas.length
+          }))
         }))
       }))
     })),

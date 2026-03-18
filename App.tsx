@@ -122,7 +122,7 @@ const App: React.FC = () => {
       const { data: cloudRecord } = await client
         .from('app_state_dump')
         .select('data')
-        .eq('id', 'coo_master_state')
+        .eq('id', 'coo_master_state_v2')
         .maybeSingle();
       
       const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
@@ -197,7 +197,7 @@ const App: React.FC = () => {
         .from('app_state_dump')
         .upsert(
           { 
-            id: 'coo_master_state', 
+            id: 'coo_master_state_v2', 
             data: fullState,
             updated_at: new Date().toISOString()
           }, 
@@ -245,7 +245,7 @@ const App: React.FC = () => {
       const { data, error } = await client
         .from('app_state_dump')
         .select('data')
-        .eq('id', 'coo_master_state')
+        .eq('id', 'coo_master_state_v2')
         .single();
 
       if (data && data.data) {
@@ -339,7 +339,7 @@ const App: React.FC = () => {
         channel = client
             .channel('schema-db-changes')
             .on('postgres_changes', 
-                { event: '*', schema: 'public', table: 'app_state_dump', filter: 'id=eq.coo_master_state' },
+                { event: '*', schema: 'public', table: 'app_state_dump', filter: 'id=eq.coo_master_state_v2' },
                 () => {
                     console.log("☁️ Cambio detectado en otro dispositivo, descargando...");
                     handleInitialDownload(true);
