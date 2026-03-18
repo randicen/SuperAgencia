@@ -344,6 +344,48 @@ const AIChat: React.FC<AIChatProps> = ({
                 if (listId) spacesDispatch({ type: 'DELETE_LIST', payload: { spaceId: space.id, folderId, listId } });
             }
         }
+
+        if (action.name === 'crear_tarea') {
+            const space = findSpace(args.espacioNombre);
+            if (space) {
+                let listId = '';
+                let folderId = undefined;
+                
+                if (args.carpetaNombre) {
+                    const folder = space.carpetas.find(f => f.nombre.toLowerCase().trim() === args.carpetaNombre.toLowerCase().trim());
+                    if (folder) {
+                        folderId = folder.id;
+                        const list = folder.listas.find(l => l.nombre.toLowerCase().trim() === args.listaNombre.toLowerCase().trim());
+                        if (list) listId = list.id;
+                    }
+                } else {
+                    const list = space.listas.find(l => l.nombre.toLowerCase().trim() === args.listaNombre.toLowerCase().trim());
+                    if (list) listId = list.id;
+                }
+
+                if (listId) {
+                    spacesDispatch({
+                        type: 'ADD_TASK',
+                        payload: {
+                            spaceId: space.id,
+                            folderId,
+                            listId,
+                            task: {
+                                nombre: args.nombre,
+                                estado: 'TODO',
+                                progress: 0,
+                                priority: args.priority || 'Medium',
+                                duration: args.duration || 60,
+                                dueDate: args.dueDate || new Date().toISOString().split('T')[0],
+                                autoSchedule: args.autoSchedule !== undefined ? args.autoSchedule : true,
+                                elasticity: args.elasticity !== undefined ? args.elasticity : 1,
+                                deadlineType: 'Soft Deadline'
+                            }
+                        }
+                    });
+                }
+            }
+        }
     }
   };
 
