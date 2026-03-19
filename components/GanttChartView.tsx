@@ -315,7 +315,12 @@ const GanttChartView: React.FC<{
         return { left, width };
     };
 
-    const renderTaskRow = (task: SpaceTask, level: number = 0): React.ReactNode => {
+    const sortedTasks = useMemo(() => {
+        // Only sort top-level tasks for the table view
+        return [...tasks].sort((a, b) => (a.clientName || '').localeCompare(b.clientName || ''));
+    }, [tasks]);
+
+    const renderTaskRow = (task: SpaceTask, level: number = 0, showClientName: boolean = true): React.ReactNode => {
         const hasSubtasks = task.subtasks && task.subtasks.length > 0;
         const isExpanded = expandedTasks[task.id];
         const pos = getPosition(task.startDate, task.endDate || task.dueDate);
@@ -333,12 +338,14 @@ const GanttChartView: React.FC<{
                         <>
                             {showClientColumn && (
                                 <div 
-                                    className="w-48 shrink-0 p-2 border-r border-slate-100 bg-white sticky left-0 z-20 flex items-center shadow-[2px_0_8px_-4px_rgba(0,0,0,0.08)]"
+                                    className={`w-48 shrink-0 p-2 border-r border-slate-100 bg-white sticky left-0 z-20 flex items-start shadow-[2px_0_8px_-4px_rgba(0,0,0,0.08)] ${!showClientName ? 'border-t-0' : ''}`}
                                     onClick={() => onEditTask(task)}
                                 >
-                                    <span className="text-[10px] font-black uppercase text-slate-400 truncate px-2">
-                                        {task.clientName || '-'}
-                                    </span>
+                                    {showClientName && (
+                                        <span className="text-[10px] font-black uppercase text-slate-400 truncate px-2 mt-1">
+                                            {task.clientName || '-'}
+                                        </span>
+                                    )}
                                 </div>
                             )}
                             <div
@@ -449,7 +456,7 @@ const GanttChartView: React.FC<{
                 </div>
 
                 {hasSubtasks && isExpanded && (
-                    task.subtasks!.map(st => renderTaskRow(st, level + 1))
+                    task.subtasks!.map(st => renderTaskRow(st, level + 1, false))
                 )}
             </React.Fragment>
         );
@@ -617,8 +624,15 @@ const GanttChartView: React.FC<{
 
                     {/* TASKS BODY */}
                     <div className="bg-white pb-10">
-                        {tasks.length > 0 ? (
-                            tasks.map(task => renderTaskRow(task, 0))
+                        {sortedTasks.length > 0 ? (
+                            (() => {
+                                let lastClient = '';
+                                return sortedTasks.map((task) => {
+                                    const showName = (task.clientName || 'N/A') !== lastClient;
+                                    lastClient = task.clientName || 'N/A';
+                                    return renderTaskRow(task, 0, showName);
+                                });
+                            })()
                         ) : (
                             <div className="p-10 text-center text-slate-400 text-xs italic">
                                 No hay tareas para este periodo
