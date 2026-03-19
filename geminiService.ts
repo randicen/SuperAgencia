@@ -590,7 +590,9 @@ export const calculateQuote = async (
   EJEMPLOS DE COMANDOS:
   - "crea una carpeta" / "mueve la lista" / "registra un gasto" → LLAMA A LA HERRAMIENTA CORRECTA (ej. crear_carpeta)
 
-  === REGLAS DE FORMATO ===
+  === REGLAS DE FORMATO (CRÍTICO) ===
+  - NUNCA ESTUDIES O PIENSES EN VOZ ALTA. Prohibido escribir frases como "Wait", "Oops", "Let me check", "Ah", "I see", "Actually". Da directamente la respuesta final al usuario.
+  - El usuario es tu jefe. NUNCA le muestres tu proceso interno. Expresa todo directamente en español profesional.
   - Respuestas concisas. Usa **negritas** para nombres.
   - Tarifa de agencia: $${rules.baseHourlyRate}/hora | Hoy: ${today.toLocaleDateString('es-ES')}
   `;
@@ -684,7 +686,7 @@ export const calculateQuote = async (
       
       const cleanAssistantMessage = {
         role: messageResponse.role,
-        content: messageResponse.content || "",
+        content: "", // Se limpia el contenido (garbage CoT) para no contaminar el loop
         tool_calls: toolCalls.map(tc => ({
           id: tc.id,
           type: tc.type,
@@ -735,7 +737,10 @@ export const calculateQuote = async (
         }).filter(Boolean);
     }
 
-    return { text: messageResponse.content || "", functionCalls };
+    // Limpiamos posibles tags <think> si el modelo las filtra a pesar de todo
+    const finalText = (messageResponse.content || "").replace(/<think>[\s\S]*?<\/think>\n*/g, '').trim();
+
+    return { text: finalText, functionCalls };
   } catch (error: any) {
     const errorMsg = error?.error?.message || error?.message || "";
     const isRateLimit = errorMsg.toLowerCase().includes('rate limit') || error?.status === 429;
