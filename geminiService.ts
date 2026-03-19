@@ -1,6 +1,8 @@
 import OpenAI from "openai";
 import { BusinessRules, Project, Message, Client, SeasonalityData, Note, Transaction } from "./types";
 
+let currentGroqKeyIndex = 0;
+
 const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
   {
     type: "function",
@@ -578,10 +580,17 @@ export const calculateQuote = async (
   - Tarifa de agencia: $${rules.baseHourlyRate}/hora | Hoy: ${today.toLocaleDateString('es-ES')}
   `;
 
-  // --- BUCLE DE FAILOVER SILENCIOSO ---
-  for (let keyIndex = 0; keyIndex < GROQ_KEYS.length; keyIndex++) {
+  // --- BUCLE DE LOAD BALANCING (ROUND-ROBIN) + FAILOVER SILENCIOSO ---
+  const startingIndex = currentGroqKeyIndex;
+
+  for (let attempt = 0; attempt < GROQ_KEYS.length; attempt++) {
+    const keyIndex = (startingIndex + attempt) % GROQ_KEYS.length;
+    
+    // Avanzamos el índice global para que la *siguiente* petición use la siguiente llave
+    currentGroqKeyIndex = (keyIndex + 1) % GROQ_KEYS.length;
+
     const ai = createClient(GROQ_KEYS[keyIndex]);
-    console.log(`[ReAct] Intentando con API key #${keyIndex + 1}...`);
+    console.log(`[ReAct] Intentando con API key #${keyIndex + 1} (Intento ${attempt + 1}/${GROQ_KEYS.length})...`);
 
   try {
     // TRUNCAR historial a últimos 30 mensajes
@@ -716,9 +725,9 @@ export const calculateQuote = async (
     const errorMsg = error?.error?.message || error?.message || "";
     const isRateLimit = errorMsg.toLowerCase().includes('rate limit') || error?.status === 429;
 
-    // Si es rate-limit y aún quedan claves, reintentar silenciosamente con la siguiente
-    if (isRateLimit && keyIndex < GROQ_KEYS.length - 1) {
-      console.warn(`⚠️ [Failover] Rate limit en key #${keyIndex + 1}. Cambiando a key #${keyIndex + 2}...`);
+    // Si es rate-limit y aún nos quedan intentos en este bucle, reintentar silenciosamente con la siguiente
+    if (isRateLimit && attempt < GROQ_KEYS.length - 1) {
+      console.warn(`⚠️ [Failover] Rate limit en key #${keyIndex + 1}. Cambiando a la siguiente API key...`);
       continue; // Saltar al siguiente ciclo del for con la siguiente API key
     }
 
