@@ -158,56 +158,100 @@ const AIChat: React.FC<AIChatProps> = ({
     
     // --- PROYECTOS ---
     if (action.name === 'crear_proyecto') {
-      const projectId = Math.random().toString(36).substr(2, 9);
+      const taskId = Math.random().toString(36).substr(2, 9);
       let existingClient = findClientByName(args.clientName);
       const clientId = existingClient ? existingClient.id : Math.random().toString(36).substr(2, 9);
-      onAddProject({ 
-          id: projectId, 
-          clientId, 
-          clientName: existingClient?.name || args.clientName, 
-          projectName: args.projectName, 
-          startDate: args.startDate, 
-          endDate: args.endDate, 
-          priority: (args.priority || Priority.MEDIUM) as Priority, 
-          progress: 0, 
-          totalValue: args.totalValue, 
-          paidValue: 0, 
-          status: 'proposal', 
-          duration: args.duration || 60, 
-          deadlineType: args.deadlineType || 'Soft Deadline', 
-          dueDate: args.dueDate || args.endDate, 
-          autoSchedule: args.autoSchedule || false,
-          elasticity: args.elasticity !== undefined ? args.elasticity : 1
-      });
+      
+      // Auto-assign to first available Space and List (or a fallback space needs to be created, ideally already exists)
+      const workspace = spacesState.workspaces[0];
+      if (workspace && workspace.espacios.length > 0) {
+          const space = workspace.espacios[0];
+          const list = space.listas[0] || (space.carpetas[0]?.listas[0]);
+          if (list) {
+              spacesDispatch({
+                  type: 'ADD_TASK',
+                  payload: {
+                      spaceId: space.id,
+                      listId: list.id,
+                      folderId: space.carpetas[0]?.listas[0] ? space.carpetas[0].id : undefined,
+                      task: {
+                          id: taskId,
+                          clientId,
+                          clientName: existingClient?.name || args.clientName,
+                          nombre: args.projectName,
+                          startDate: args.startDate || new Date().toISOString().split('T')[0],
+                          endDate: args.endDate || new Date().toISOString().split('T')[0],
+                          priority: args.priority || 'Medium',
+                          progress: 0,
+                          totalValue: args.totalValue || 0,
+                          estado: 'TODO',
+                          duration: args.duration || 60,
+                          deadlineType: args.deadlineType || 'Soft Deadline',
+                          dueDate: args.dueDate || args.endDate || new Date().toISOString().split('T')[0],
+                          autoSchedule: args.autoSchedule !== undefined ? args.autoSchedule : false,
+                          elasticity: args.elasticity !== undefined ? args.elasticity : 1,
+                          orden: Date.now()
+                      }
+                  }
+              });
+          }
+      }
+      
       if (!existingClient) { onUpdateClients([...clients, { id: clientId, name: args.clientName, email: '', phone: '' }]); }
     }
+    
+    // Find task helper for actions
+    const findTaskLocationByClientAndName = (clientName: string, taskName: string) => {
+        let foundLoc: any = null;
+        spacesState.workspaces.forEach(ws => {
+            ws.espacios.forEach(space => {
+                space.listas.forEach(list => {
+                    const t = list.tareas.find(t => t.clientName?.toLowerCase() === clientName.toLowerCase() && t.nombre.toLowerCase().includes(taskName.toLowerCase()));
+                    if (t) foundLoc = { spaceId: space.id, listId: list.id, task: t };
+                });
+                space.carpetas.forEach(folder => {
+                    folder.listas.forEach(list => {
+                        const t = list.tareas.find(t => t.clientName?.toLowerCase() === clientName.toLowerCase() && t.nombre.toLowerCase().includes(taskName.toLowerCase()));
+                        if (t) foundLoc = { spaceId: space.id, folderId: folder.id, listId: list.id, task: t };
+                    });
+                });
+            });
+        });
+        return foundLoc;
+    };
+
     if (action.name === 'actualizar_proyecto' || action.name === 'actualizar_estado_proyecto') {
         const { clientName, projectName, newProgress, newEndDate, newPriority, newTotalValue, newDuration, newDeadlineType, newDueDate, newAutoSchedule, newElasticity, status } = args;
-        const client = findClientByName(clientName);
-        if (client) {
-            const project = projects.find(p => p.clientId === client.id && p.projectName.toLowerCase().trim() === projectName.toLowerCase().trim());
-            if (project) {
-                const updated = { ...project };
-                if (newProgress !== undefined) { updated.progress = newProgress; updated.status = getStatusFromProgress(newProgress); }
-                if (status) updated.status = status;
-                if (newEndDate) updated.endDate = newEndDate;
-                if (newPriority) updated.priority = newPriority as Priority;
-                if (newTotalValue !== undefined) updated.totalValue = newTotalValue;
-                if (newDuration !== undefined) updated.duration = newDuration;
-                if (newDeadlineType) updated.deadlineType = newDeadlineType;
-                if (newDueDate) updated.dueDate = newDueDate;
-                if (newAutoSchedule !== undefined) updated.autoSchedule = newAutoSchedule;
-                if (newElasticity !== undefined) updated.elasticity = newElasticity;
-                onUpdateProject(updated);
-            }
+        const loc = findTaskLocationByClientAndName(clientName, projectName);
+        
+        if (loc) {
+            const updated = { ...loc.task };
+            if (newProgress !== undefined) { updated.progress = newProgress; updated.estado = getStatusFromProgress(newProgress) === 'completed' ? 'DONE' : 'ACTIVE'; }
+            if (status) updated.estado = status === 'completed' ? 'DONE' : status === 'active' ? 'ACTIVE' : 'TODO';
+            if (newEndDate) updated.endDate = newEndDate;
+            if (newPriority) updated.priority = newPriority;
+            if (newTotalValue !== undefined) updated.totalValue = newTotalValue;
+            if (newDuration !== undefined) updated.duration = newDuration;
+            if (newDeadlineType) updated.deadlineType = newDeadlineType;
+            if (newDueDate) updated.dueDate = newDueDate;
+            if (newAutoSchedule !== undefined) updated.autoSchedule = newAutoSchedule;
+            if (newElasticity !== undefined) updated.elasticity = newElasticity;
+            
+            spacesDispatch({
+                type: 'UPDATE_TASK',
+                payload: { spaceId: loc.spaceId, folderId: loc.folderId, listId: loc.listId, task: updated }
+            });
         }
     }
+    
     if (action.name === 'eliminar_proyecto') {
       const { clientName, projectName } = args;
-      const client = findClientByName(clientName);
-      if (client) {
-        const project = projects.find(p => p.clientId === client.id && p.projectName.toLowerCase().trim() === projectName.toLowerCase().trim());
-        if (project) { onDeleteProject(project.id); }
+      const loc = findTaskLocationByClientAndName(clientName, projectName);
+      if (loc) { 
+          spacesDispatch({
+              type: 'DELETE_TASK',
+              payload: { spaceId: loc.spaceId, folderId: loc.folderId, listId: loc.listId, task: loc.task }
+          });
       }
     }
 

@@ -1,5 +1,7 @@
 import OpenAI from "openai";
 import { BusinessRules, Project, Message, Client, SeasonalityData, Note, Transaction } from "./types";
+import { getAllTasks } from "./contexts/SpacesContext";
+import { SpacesState } from "./spacesTypes";
 
 let currentGroqKeyIndex = 0;
 
@@ -497,16 +499,20 @@ export const calculateQuote = async (
   });
 
   const today = new Date();
-  const activeProjects = currentProjects.filter(p => p.status === 'active');
+  const allAppTasks = getAllTasks({ workspaces } as SpacesState).map(t => t.task);
+  const activeTasks = allAppTasks.filter(t => t.estado === 'ACTIVE');
 
-  const capacityPercent = Math.round((activeProjects.length / rules.maxProjectsCapacity) * 100);
+  const capacityPercent = Math.round((activeTasks.length / rules.maxProjectsCapacity) * 100);
   const isOverloaded = capacityPercent >= 80;
 
-  const sortedEndDates = activeProjects.map(p => new Date(p.endDate).getTime()).sort((a, b) => a - b);
-  const nextFreeDate = sortedEndDates.length > 0 ? new Date(sortedEndDates[0]).toLocaleDateString() : 'HOY';
-
   let totalReceivables = 0;
-  clients.forEach(c => c.services.forEach(s => s.installments.forEach(i => { if (i.status === 'PENDIENTE') totalReceivables += i.amount })));
+  allAppTasks.forEach(t => {
+      if (t.installments) {
+          t.installments.forEach(i => {
+              if (i.status === 'PENDIENTE') totalReceivables += i.amount;
+          });
+      }
+  });
 
   const clientsList = clients.map(c => c.name).join(", ");
 
@@ -534,11 +540,20 @@ export const calculateQuote = async (
       });
     });
 
-    // Proyectos
-    if (currentProjects.length > 0) {
-      text += '\nPROYECTOS:\n';
-      currentProjects.forEach(p => {
-        text += `  • ${p.projectName} | Cliente: ${p.clientName} | $${p.totalValue} | ${p.status} | ${p.progress}%\n`;
+    // Clientes
+    if (clients.length > 0) {
+      text += '\nCLIENTES:\n';
+      clients.forEach(c => {
+         const clientTasks = allAppTasks.filter(t => t.clientId === c.id || (t.clientName && t.clientName.toLowerCase() === c.name.toLowerCase()));
+         text += `  • ${c.name} (${clientTasks.length} proyectos asociados)\n`;
+      });
+    }
+
+    // Proyectos (Tareas en los Espacios)
+    if (allAppTasks.length > 0) {
+      text += '\nPROYECTOS / TAREAS EN ESPACIOS:\n';
+      allAppTasks.forEach(p => {
+        text += `  • ${p.nombre} | Cliente: ${p.clientName || 'Sin cliente'} | $${p.totalValue || 0} | Estado: ${p.estado} | Progreso: ${p.progress}%\n`;
       });
     }
 
