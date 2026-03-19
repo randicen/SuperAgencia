@@ -1759,7 +1759,7 @@ const SpacesView: React.FC = () => {
                                         </div>
                                         <div className="space-y-1">
                                             <p className="text-[10px] font-black uppercase tracking-widest text-red-600">Conflicto de Agendamiento</p>
-                                            <p className="text-xs font-bold text-red-900 leading-snug">
+                                            <p className="text-xs font-bold text-red-900 leading-snug whitespace-pre-line">
                                                 {editingTask.conflictDescription || "Esta tarea no se puede completar en el tiempo previsto debido a restricciones de agenda."}
                                             </p>
                                         </div>
@@ -1829,9 +1829,9 @@ const SpacesView: React.FC = () => {
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                     {editingTask.scheduledSlots.map((s, idx) => (
                                                         <div key={idx} className="text-[10px] font-bold text-slate-700 bg-slate-50 p-2 rounded-lg border flex justify-between items-center">
-                                                            <span>{new Date(s.start).toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                                                            <span>{new Date(s.start).toLocaleString('es', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}</span>
                                                             <i className="fa-solid fa-arrow-right text-[8px] text-slate-300"></i>
-                                                            <span>{new Date(s.end).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                            <span>{new Date(s.end).toLocaleString('es', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
                                                         </div>
                                                     ))}
                                                 </div>

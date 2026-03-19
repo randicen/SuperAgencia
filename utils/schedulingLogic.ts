@@ -402,7 +402,12 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
           ? `No hay espacio suficiente. Bloqueado por "${blockingAnchor.label}".`
           : "No hay espacio suficiente en la jornada laboral para completar el esfuerzo pedido antes del plazo.";
       } else if (endAfterDue) {
-        conflictDescription = `La planificación automática se excede de la fecha límite (${project.dueDate || ''}).`;
+        let parsedDue = project.dueDate || '';
+        try {
+            parsedDue = new Date(project.dueDate.includes('T') ? project.dueDate : `${project.dueDate}T23:59`).toLocaleString('es', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true });
+        } catch(e) {}
+        
+        conflictDescription = `⏳ Desplazada por la Cola: Debido a otras tareas bloqueando la agenda o con mayor prioridad, la IA tuvo que empujar el término de esta tarea hasta después de tu límite pactado (${parsedDue}).\n\n💡 Soluciones:\n1. Aumenta su 'Prioridad' o ponla 'Urgente' para que adelante a las demás.\n2. Extiende su Fecha Límite para darle más oxígeno.\n3. Reduce las horas de esfuerzo de esta tarea o las anteriores.`;
       }
       console.log(`[Scheduler] AUTO task conflict: ${project.projectName} -> ${conflictDescription}`, { remainingMinutes, endAfterDue });
     }
