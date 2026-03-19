@@ -88,6 +88,14 @@ const SpacesSidebar: React.FC = () => {
         dispatch({ type: 'SET_ACTIVE', payload: { spaceId, folderId: folderId || null, listId } });
     };
 
+    const handleSpaceClick = (spaceId: string) => {
+        dispatch({ type: 'SET_ACTIVE', payload: { spaceId, folderId: null, listId: null } });
+    };
+
+    const handleFolderClick = (spaceId: string, folderId: string) => {
+        dispatch({ type: 'SET_ACTIVE', payload: { spaceId, folderId, listId: null } });
+    };
+
     const handleCreateWorkspace = () => {
         if (!newWorkspaceName.trim()) return;
         dispatch({ type: 'ADD_WORKSPACE', payload: { nombre: newWorkspaceName.trim() } });
@@ -242,16 +250,18 @@ const SpacesSidebar: React.FC = () => {
                     espacios.map((space) => {
                         const isSpaceExpanded = state.expandedIds.includes(space.id);
                         const isActive = state.activeSpaceId === space.id;
+                        const isSpaceStrictlyActive = isActive && !state.activeFolderId && !state.activeListId;
 
                         return (
                             <div key={space.id} className="mb-1">
                                 {/* Space Item */}
                                 <div
-                                    className={`group flex items-center gap-2 px-3 py-1.5 mx-2 rounded cursor-pointer transition-colors ${isActive ? 'bg-[#1E293B]' : 'hover:bg-[#1A1C23]'
+                                    onClick={() => handleSpaceClick(space.id)}
+                                    className={`group flex items-center gap-2 px-3 py-1.5 mx-2 rounded cursor-pointer transition-colors ${isSpaceStrictlyActive ? 'bg-[#1E293B] ring-1 ring-[#3A57E8]/50' : isActive ? 'bg-[#1E293B]/50' : 'hover:bg-[#1A1C23]'
                                         }`}
                                 >
                                     <button
-                                        onClick={() => dispatch({ type: 'TOGGLE_EXPAND', payload: { id: space.id } })}
+                                        onClick={(e) => { e.stopPropagation(); dispatch({ type: 'TOGGLE_EXPAND', payload: { id: space.id } }); }}
                                         className="w-4 h-4 flex items-center justify-center text-slate-500"
                                     >
                                         <i className={`fa-solid fa-chevron-right text-[8px] transition-transform ${isSpaceExpanded ? 'rotate-90' : ''}`}></i>
@@ -259,7 +269,7 @@ const SpacesSidebar: React.FC = () => {
                                     <div className="w-3 h-3 rounded" style={{ backgroundColor: space.color }}></div>
                                     <div 
                                         className="flex-1 overflow-hidden"
-                                        onDoubleClick={() => { setEditingSpaceId(space.id); setEditName(space.nombre); }}
+                                        onDoubleClick={(e) => { e.stopPropagation(); setEditingSpaceId(space.id); setEditName(space.nombre); }}
                                     >
                                         {editingSpaceId === space.id ? (
                                             <input
@@ -331,11 +341,15 @@ const SpacesSidebar: React.FC = () => {
                                         {/* Folders */}
                                         {space.carpetas.map((folder) => {
                                             const isFolderExpanded = state.expandedIds.includes(folder.id);
+                                            const isFolderStrictlyActive = state.activeFolderId === folder.id && !state.activeListId;
                                             return (
                                                 <div key={folder.id}>
-                                                    <div className="group flex items-center gap-2 px-2 py-1 mx-2 rounded hover:bg-[#1A1C23] cursor-pointer">
+                                                    <div 
+                                                        onClick={() => handleFolderClick(space.id, folder.id)}
+                                                        className={`group flex items-center gap-2 px-2 py-1 mx-2 rounded cursor-pointer transition-colors ${isFolderStrictlyActive ? 'bg-[#2A2D35] ring-1 ring-yellow-500/50' : 'hover:bg-[#1A1C23]'}`}
+                                                    >
                                                         <button
-                                                            onClick={() => dispatch({ type: 'TOGGLE_EXPAND', payload: { id: folder.id } })}
+                                                            onClick={(e) => { e.stopPropagation(); dispatch({ type: 'TOGGLE_EXPAND', payload: { id: folder.id } }); }}
                                                             className="w-3 h-3 flex items-center justify-center text-slate-500"
                                                         >
                                                             <i className={`fa-solid fa-chevron-right text-[7px] transition-transform ${isFolderExpanded ? 'rotate-90' : ''}`}></i>
@@ -343,7 +357,7 @@ const SpacesSidebar: React.FC = () => {
                                                         <i className="fa-solid fa-folder text-yellow-500 text-[10px]"></i>
                                                         <div 
                                                             className="flex-1 overflow-hidden"
-                                                            onDoubleClick={() => { setEditingFolderId(folder.id); setEditName(folder.nombre); }}
+                                                            onDoubleClick={(e) => { e.stopPropagation(); setEditingFolderId(folder.id); setEditName(folder.nombre); }}
                                                         >
                                                             {editingFolderId === folder.id ? (
                                                                 <input
