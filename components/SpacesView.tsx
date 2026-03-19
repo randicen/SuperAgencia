@@ -1,11 +1,19 @@
 
 import React, { useState, useMemo, useEffect } from 'react';
-import { useSpaces } from '../contexts/SpacesContext';
+import { useSpaces, getAllTasks } from '../contexts/SpacesContext';
 import { Space, SpaceFolder, SpaceList, SpaceTask, SpaceEvent, TaskPriority, TaskStatus, DeadlineType } from '../spacesTypes';
-import { getPriorityBadgeStyle } from '../utils/schedulingUtils';
-import { getFormattedSlack } from '../utils/schedulingLogic';
+import { Client } from '../types';
+import { getPriorityBadgeStyle, getFormattedSlack } from '../utils/schedulingUtils';
+import { getFormattedSlack as getFormattedSlackProject } from '../utils/schedulingLogic';
 import GanttChartView from './GanttChartView';
 import SettingsView from './SettingsView';
+
+// Helper: Calculate financial progress from installments
+const getFinancialProgress = (task: SpaceTask): number => {
+    if (!task.installments || task.installments.length === 0 || !task.totalValue || task.totalValue <= 0) return -1; // -1 means N/A
+    const paid = task.installments.filter(i => i.status === 'PAGADO').reduce((sum, i) => sum + i.amount, 0);
+    return Math.round((paid / task.totalValue) * 100);
+};
 
 type ViewMode = 'lista' | 'kanban' | 'gantt' | 'calendar' | 'settings';
 type GroupBy = 'estado' | 'prioridad' | 'fecha';
@@ -123,9 +131,12 @@ const formatFriendlyDate = (dateStr: string) => {
 
 // ==================== LISTA VIEW (TABLE-BASED) ====================
 // Column definitions
-type ColumnId = 'nombre' | 'startDate' | 'dueDate' | 'priority' | 'estado' | 'duration' | 'progress' | 'slack';
+type ColumnId = 'nombre' | 'startDate' | 'dueDate' | 'priority' | 'estado' | 'duration' | 'progress' | 'slack' | 'clientName' | 'totalValue' | 'financialProgress';
 const ALL_COLUMNS: { id: ColumnId; label: string; width: string }[] = [
     { id: 'nombre', label: 'Nombre', width: 'flex-1 min-w-[200px]' },
+    { id: 'clientName', label: 'Cliente', width: 'w-28' },
+    { id: 'totalValue', label: 'Valor', width: 'w-24' },
+    { id: 'financialProgress', label: 'Pago', width: 'w-24' },
     { id: 'startDate', label: 'Fecha inicio', width: 'w-28' },
     { id: 'dueDate', label: 'Fecha límite', width: 'w-28' },
     { id: 'priority', label: 'Prioridad', width: 'w-24' },
@@ -269,12 +280,24 @@ const ListaView: React.FC<{
             case 'dueDate': return <span className="text-xs text-slate-500 whitespace-nowrap">{formatFriendlyDate(task.dueDate)}</span>;
             case 'priority': return <span className={`text-[9px] font-black uppercase px-2 py-1 rounded ${getPriorityStyle(task.priority)}`}>{PRIORITY_LABELS[task.priority]}</span>;
             case 'slack': {
-                const slack = getFormattedSlack(task as any, rules);
+                const slack = getFormattedSlack({ dueDate: task.dueDate, duration: task.duration });
                 return <span className={`text-[9px] font-bold ${slack.isOverdue ? 'text-red-500 bg-red-50' : 'text-emerald-600 bg-emerald-50'} px-2 py-1 rounded border border-current opacity-80`}>{slack.text}</span>;
             }
             case 'estado': return <span className={`text-[9px] font-black uppercase px-2 py-1 rounded ${task.estado === 'TODO' ? 'bg-orange-100 text-orange-700' : task.estado === 'ACTIVE' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>{STATUS_LABELS[task.estado]}</span>;
             case 'duration': return <span className="text-xs text-slate-500">{formatDuration(task.duration)}</span>;
             case 'progress': return <span className="text-xs text-slate-500">{task.progress}%</span>;
+            case 'clientName': return <span className="text-xs text-slate-500 truncate">{task.clientName || '-'}</span>;
+            case 'totalValue': return <span className="text-xs text-slate-500">{task.totalValue > 0 ? `$${task.totalValue.toLocaleString()}` : '-'}</span>;
+            case 'financialProgress': {
+                const fp = getFinancialProgress(task);
+                if (fp < 0) return <span className="text-xs text-slate-300">-</span>;
+                return (
+                    <div className="flex items-center gap-1.5">
+                        <div className="w-12 bg-slate-100 h-1.5 rounded-full overflow-hidden"><div className="bg-emerald-500 h-full" style={{width: `${fp}%`}}></div></div>
+                        <span className="text-[9px] font-bold text-emerald-600">{fp}%</span>
+                    </div>
+                );
+            }
             default: return null;
         }
     };
@@ -504,7 +527,7 @@ const KanbanView: React.FC<{
                                         <div className="pl-2 space-y-3">
                                             {task.clientName && (
                                                 <p className="text-[10px] font-black text-slate-400 uppercase tracking-tighter">
-                                                    {task.clientName}
+                                                    <i className="fa-solid fa-user mr-1 text-[8px]"></i>{task.clientName}
                                                 </p>
                                             )}
 
@@ -539,6 +562,21 @@ const KanbanView: React.FC<{
                                                         {formatFriendlyDate(task.dueDate)}
                                                     </span>
                                                 </div>
+                                                {task.totalValue > 0 && (
+                                                    <div className="flex justify-between items-center pt-2 border-t border-slate-200/50">
+                                                        <span className="text-[9px] font-black text-slate-400 uppercase">Valor</span>
+                                                        <span className="text-[9px] font-bold text-blue-600">${task.totalValue.toLocaleString()}</span>
+                                                    </div>
+                                                )}
+                                                {(() => { const fp = getFinancialProgress(task); return fp >= 0 ? (
+                                                    <div className="flex justify-between items-center">
+                                                        <span className="text-[9px] font-black text-slate-400 uppercase">Pago</span>
+                                                        <div className="flex items-center gap-1.5">
+                                                            <div className="w-10 bg-slate-200 h-1 rounded-full overflow-hidden"><div className="bg-emerald-500 h-full" style={{width: `${fp}%`}}></div></div>
+                                                            <span className="text-[9px] font-bold text-emerald-600">{fp}%</span>
+                                                        </div>
+                                                    </div>
+                                                ) : null; })()}
                                             </div>
 
                                             {/* Progress Bar */}
@@ -776,6 +814,119 @@ const CalendarViewComponent: React.FC<{
 };
 
 // ==================== MAIN COMPONENT ====================
+// ==================== CLIENT SELECTOR ====================
+const ClientSelector: React.FC<{
+    clients: Client[];
+    selectedId: string;
+    onSelect: (id: string | null, name: string | null) => void;
+    onCreateClient: (name: string) => void;
+}> = ({ clients, selectedId, onSelect, onCreateClient }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [search, setSearch] = useState('');
+    const [creating, setCreating] = useState(false);
+    const [newName, setNewName] = useState('');
+
+    const filtered = clients.filter(c => c.name.toLowerCase().includes(search.toLowerCase()));
+    const selectedClient = clients.find(c => c.id === selectedId);
+
+    return (
+        <div className="space-y-1.5 flex-1 relative">
+            <label className="text-[9px] font-black uppercase text-slate-400 ml-1 tracking-widest">Cliente (Opcional)</label>
+            <div className="relative">
+                <button
+                    type="button"
+                    onClick={() => setIsOpen(!isOpen)}
+                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none text-left flex justify-between items-center hover:border-blue-300 transition-colors"
+                >
+                    <span className={selectedClient ? 'text-slate-700' : 'text-slate-400'}>
+                        {selectedClient ? selectedClient.name : 'Sin cliente'}
+                    </span>
+                    <div className="flex items-center gap-2">
+                        {selectedClient && (
+                            <span
+                                onClick={(e) => { e.stopPropagation(); onSelect(null, null); }}
+                                className="text-[9px] text-slate-400 hover:text-red-500 cursor-pointer"
+                            >
+                                <i className="fa-solid fa-xmark"></i>
+                            </span>
+                        )}
+                        <i className={`fa-solid fa-chevron-${isOpen ? 'up' : 'down'} text-[9px] text-slate-400`}></i>
+                    </div>
+                </button>
+
+                {isOpen && (
+                    <>
+                        <div className="fixed inset-0 z-40" onClick={() => { setIsOpen(false); setCreating(false); }}></div>
+                        <div className="absolute top-full left-0 right-0 mt-1 bg-white border border-slate-200 rounded-2xl shadow-xl z-50 overflow-hidden animate-in slide-in-from-top-2">
+                            <div className="p-2 border-b border-slate-100">
+                                <input
+                                    type="text"
+                                    placeholder="Buscar cliente..."
+                                    value={search}
+                                    onChange={e => setSearch(e.target.value)}
+                                    className="w-full p-2 bg-slate-50 rounded-lg text-xs outline-none"
+                                    autoFocus
+                                />
+                            </div>
+                            <div className="max-h-40 overflow-y-auto">
+                                {filtered.map(c => (
+                                    <button
+                                        key={c.id}
+                                        type="button"
+                                        onClick={() => { onSelect(c.id, c.name); setIsOpen(false); setSearch(''); }}
+                                        className={`w-full text-left px-4 py-2.5 text-xs font-bold hover:bg-blue-50 transition-colors ${c.id === selectedId ? 'bg-blue-50 text-blue-600' : 'text-slate-700'}`}
+                                    >
+                                        {c.name}
+                                    </button>
+                                ))}
+                                {filtered.length === 0 && !creating && (
+                                    <p className="text-center text-xs text-slate-400 py-3">Sin resultados</p>
+                                )}
+                            </div>
+                            <div className="p-2 border-t border-slate-100">
+                                {creating ? (
+                                    <div className="flex gap-2">
+                                        <input
+                                            type="text"
+                                            placeholder="Nombre del nuevo cliente"
+                                            value={newName}
+                                            onChange={e => setNewName(e.target.value)}
+                                            className="flex-1 p-2 bg-slate-50 rounded-lg text-xs outline-none border border-slate-200"
+                                            autoFocus
+                                        />
+                                        <button
+                                            type="button"
+                                            onClick={() => {
+                                                if (newName.trim()) {
+                                                    onCreateClient(newName.trim());
+                                                    setNewName('');
+                                                    setCreating(false);
+                                                    setIsOpen(false);
+                                                }
+                                            }}
+                                            className="px-3 py-2 bg-blue-600 text-white rounded-lg text-[9px] font-black uppercase"
+                                        >
+                                            Crear
+                                        </button>
+                                    </div>
+                                ) : (
+                                    <button
+                                        type="button"
+                                        onClick={() => setCreating(true)}
+                                        className="w-full text-left px-4 py-2 text-[10px] font-black text-blue-600 uppercase hover:bg-blue-50 rounded-lg transition-colors"
+                                    >
+                                        <i className="fa-solid fa-plus mr-1"></i>Crear Nuevo Cliente
+                                    </button>
+                                )}
+                            </div>
+                        </div>
+                    </>
+                )}
+            </div>
+        </div>
+    );
+};
+
 const SpacesView: React.FC = () => {
     const { state, dispatch } = useSpaces();
     const [viewMode, setViewMode] = useState<ViewMode>('lista');
@@ -787,6 +938,49 @@ const SpacesView: React.FC = () => {
     const [groupBy, setGroupBy] = useState<GroupBy>('estado');
     const [taskToDelete, setTaskToDelete] = useState<SpaceTask | null>(null);
     const [subtaskWarning, setSubtaskWarning] = useState<{ task: SpaceTask, missingCount: number } | null>(null);
+
+    // CLIENTS STATE (read from localStorage, synced with App.tsx)
+    const [clients, setClients] = useState<Client[]>(() => {
+        try {
+            const raw = localStorage.getItem('coo_clients');
+            return raw ? JSON.parse(raw) : [];
+        } catch { return []; }
+    });
+
+    // Sync clients from localStorage when it changes
+    useEffect(() => {
+        const handleStorage = (e: StorageEvent) => {
+            if (e.key === 'coo_clients' && e.newValue) {
+                try { setClients(JSON.parse(e.newValue)); } catch {}
+            }
+        };
+        window.addEventListener('storage', handleStorage);
+        return () => window.removeEventListener('storage', handleStorage);
+    }, []);
+
+    // Also refresh on focus (same tab updates)
+    useEffect(() => {
+        const refreshClients = () => {
+            try {
+                const raw = localStorage.getItem('coo_clients');
+                if (raw) setClients(JSON.parse(raw));
+            } catch {}
+        };
+        window.addEventListener('focus', refreshClients);
+        return () => window.removeEventListener('focus', refreshClients);
+    }, []);
+
+    const handleCreateClientInline = (name: string) => {
+        const newClient: Client = {
+            id: Math.random().toString(36).substr(2, 9),
+            name,
+            email: '',
+            phone: ''
+        };
+        const updated = [...clients, newClient];
+        setClients(updated);
+        localStorage.setItem('coo_clients', JSON.stringify(updated));
+    };
 
     // EVENT STATES
     const [showEventModal, setShowEventModal] = useState(false);
@@ -1350,7 +1544,12 @@ const SpacesView: React.FC = () => {
 
                         <div className="space-y-4">
                             <Input label="Nombre de la Tarea" value={newTask.nombre} onChange={(v: string) => setNewTask({ ...newTask, nombre: v })} />
-                            <Input label="Cliente (opcional)" value={newTask.clientName || ''} onChange={(v: string) => setNewTask({ ...newTask, clientName: v })} />
+                            <ClientSelector
+                                clients={clients}
+                                selectedId={newTask.clientId || ''}
+                                onSelect={(id, name) => setNewTask({ ...newTask, clientId: id || undefined, clientName: name || undefined })}
+                                onCreateClient={handleCreateClientInline}
+                            />
 
                             {/* Auto-schedule section */}
                             <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
@@ -1467,7 +1666,12 @@ const SpacesView: React.FC = () => {
 
                         <div className="space-y-4">
                             <Input label="Nombre de la Tarea" value={editingTask.nombre} onChange={(v: string) => setEditingTask({ ...editingTask, nombre: v })} />
-                            <Input label="Cliente (opcional)" value={editingTask.clientName || ''} onChange={(v: string) => setEditingTask({ ...editingTask, clientName: v })} />
+                            <ClientSelector
+                                clients={clients}
+                                selectedId={editingTask.clientId || ''}
+                                onSelect={(id, name) => setEditingTask({ ...editingTask, clientId: id || undefined, clientName: name || undefined })}
+                                onCreateClient={handleCreateClientInline}
+                            />
 
                             {editingTask.hasConflict && (
                                 <div className="bg-red-50 border-2 border-red-100 rounded-3xl p-5 animate-in fade-in slide-in-from-top-2">

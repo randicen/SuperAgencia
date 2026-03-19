@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Project, Transaction, BusinessRules, Message, Client, Priority, Service, ChatSession, Note } from './types';
+import { Project, Transaction, BusinessRules, Message, Client, Priority, ChatSession, Note } from './types';
 import { TEMPLATE_PROJECTS, TEMPLATE_TRANSACTIONS, DEFAULT_RULES, TEMPLATE_CLIENTS } from './mockData';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -417,9 +417,26 @@ const App: React.FC = () => {
         return diffDays <= 2 && dueDate >= now && p.status !== 'completed';
       });
 
-      const pendingIncome = clients.reduce((acc, client) => {
-        return acc + client.services.reduce((sAcc, s) => sAcc + s.installments.filter(i => i.status === 'PENDIENTE').reduce((iAcc, i) => iAcc + i.amount, 0), 0);
-      }, 0);
+      // Calculate pending income from tasks in spaces
+      let pendingIncome = 0;
+      try {
+        const rawSpaces = localStorage.getItem('coo_spaces');
+        if (rawSpaces) {
+          const spacesData = JSON.parse(rawSpaces);
+          const extractInstallments = (tasks: any[]) => {
+            tasks?.forEach((t: any) => {
+              t.installments?.forEach((i: any) => { if (i.status === 'PENDIENTE') pendingIncome += i.amount; });
+              if (t.subtasks) extractInstallments(t.subtasks);
+            });
+          };
+          spacesData.workspaces?.forEach((ws: any) => {
+            ws.espacios?.forEach((s: any) => {
+              s.listas?.forEach((l: any) => extractInstallments(l.tareas || []));
+              s.carpetas?.forEach((f: any) => f.listas?.forEach((l: any) => extractInstallments(l.tareas || [])));
+            });
+          });
+        }
+      } catch(e) { /* ignore parse errors */ }
 
       if (overdue.length > 0 || upcoming.length > 0) {
         setBriefingData({ overdue, upcoming, income: pendingIncome });
@@ -550,10 +567,6 @@ const App: React.FC = () => {
       const filtered = prev.filter(p => p.id !== projectId);
       return runAutoScheduling(filtered, rules);
     });
-    setClients(prev => prev.map(c => ({
-      ...c,
-      services: c.services.filter(s => s.projectId !== projectId)
-    })));
     updateLastMod();
   };
 
@@ -724,7 +737,7 @@ const App: React.FC = () => {
                 onSaveNote={handleSaveNote}
                 onDeleteNote={handleDeleteNote}
               />}
-              {activeTab === 'finance' && <FinanceView clients={clients} onUpdateSingleClient={(c) => handleUpdateClients(clients.map(cl => cl.id === c.id ? c : cl))} onAddProject={handleAddProject} onAddClient={(c) => handleUpdateClients([...clients, c])} onDeleteService={(cId, sId, pId) => { if (pId) handleDeleteProject(pId); }} onDeleteClient={handleDeleteClient} />}
+              {activeTab === 'finance' && <FinanceView clients={clients} onUpdateClients={handleUpdateClients} onAddClient={(c) => handleUpdateClients([...clients, c])} onDeleteClient={handleDeleteClient} />}
               {activeTab === 'notebook' && <NotebookView notes={notes} onSaveNote={handleSaveNote} onDeleteNote={handleDeleteNote} onDiscussNote={() => { }} />}
             </div>
           )}

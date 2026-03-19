@@ -1,4 +1,4 @@
-import { BusinessRules } from './types';
+import { BusinessRules, Installment } from './types';
 
 export type TaskPriority = 'ASAP' | 'High' | 'Medium' | 'Low';
 export type TaskStatus = 'TODO' | 'ACTIVE' | 'DONE';
@@ -31,6 +31,8 @@ export interface SpaceTask {
     totalValue: number;
     // OPTIONAL
     clientName?: string;
+    clientId?: string;
+    installments?: Installment[];
     scheduledSlots?: ScheduledSlot[];
     hasConflict?: boolean;
     conflictDescription?: string;

@@ -1,6 +1,7 @@
 
 import React, { useMemo } from 'react';
 import { Project, Transaction, SeasonalityData, Priority, Client } from '../types';
+import { useSpaces, getAllTasks } from '../contexts/SpacesContext';
 import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, LineChart, Line, ComposedChart } from 'recharts';
 
 interface DashboardProps {
@@ -12,15 +13,20 @@ interface DashboardProps {
 }
 
 const Dashboard: React.FC<DashboardProps> = ({ projects, transactions, clients, seasonality, setActiveTab }) => {
+  const { state } = useSpaces();
+  const allTasks = useMemo(() => getAllTasks(state), [state]);
+
   const currentBalance = useMemo(() => 
     transactions.reduce((acc, t) => acc + (t.type === 'income' ? t.amount : -t.amount), 0)
   , [transactions]);
 
   const totalReceivable = useMemo(() => {
     let pending = 0;
-    clients.forEach(c => c.services.forEach(s => s.installments.forEach(inst => { if (inst.status === 'PENDIENTE') pending += inst.amount; })));
+    allTasks.forEach(({ task }) => {
+      (task.installments || []).forEach(inst => { if (inst.status === 'PENDIENTE') pending += inst.amount; });
+    });
     return pending;
-  }, [clients]);
+  }, [allTasks]);
 
   // --- LÓGICA PREDICTIVA DE CFO ---
   const financialProjection = useMemo(() => {
@@ -35,11 +41,13 @@ const Dashboard: React.FC<DashboardProps> = ({ projects, transactions, clients, 
         data.push({ date: t.date, balance: tempBalance, type: 'actual' });
     });
 
-    // Futuro (Cuotas pendientes)
+    // Futuro (Cuotas pendientes from tasks)
     const futureIncomes: {date: string, amount: number}[] = [];
-    clients.forEach(c => c.services.forEach(s => s.installments.forEach(inst => {
+    allTasks.forEach(({ task }) => {
+      (task.installments || []).forEach(inst => {
         if (inst.status === 'PENDIENTE') futureIncomes.push({ date: inst.dueDate, amount: inst.amount });
-    })));
+      });
+    });
     
     futureIncomes.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
     
@@ -49,7 +57,7 @@ const Dashboard: React.FC<DashboardProps> = ({ projects, transactions, clients, 
     });
 
     return data.length > 0 ? data : [{ date: 'Hoy', balance: 0, type: 'actual' }];
-  }, [transactions, clients, currentBalance]);
+  }, [transactions, allTasks, currentBalance]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-7xl mx-auto">

@@ -1,6 +1,6 @@
 
 import React, { useState, useRef, useEffect } from 'react';
-import { Project, BusinessRules, Message, Transaction, Priority, Client, Service, Attachment, ChatSession, Note } from '../types';
+import { Project, BusinessRules, Message, Transaction, Priority, Client, Attachment, ChatSession, Note } from '../types';
 import { calculateQuote } from '../geminiService';
 import { useSpaces } from '../contexts/SpacesContext';
 
@@ -179,8 +179,7 @@ const AIChat: React.FC<AIChatProps> = ({
           autoSchedule: args.autoSchedule || false,
           elasticity: args.elasticity !== undefined ? args.elasticity : 1
       });
-      const newService: Service = { id: Math.random().toString(36).substr(2, 9), name: args.projectName, cost: args.totalValue, status: 'En Proceso', projectId: projectId, installments: [{ id: Math.random().toString(36).substr(2, 9), amount: args.totalValue, dueDate: args.endDate, status: 'PENDIENTE' }] };
-      if (existingClient) { onUpdateClients(clients.map(c => c.id === existingClient!.id ? { ...c, services: [...c.services, newService] } : c)); } else { onUpdateClients([...clients, { id: clientId, name: args.clientName, email: '', phone: '', services: [newService] }]); }
+      if (!existingClient) { onUpdateClients([...clients, { id: clientId, name: args.clientName, email: '', phone: '' }]); }
     }
     if (action.name === 'actualizar_proyecto' || action.name === 'actualizar_estado_proyecto') {
         const { clientName, projectName, newProgress, newEndDate, newPriority, newTotalValue, newDuration, newDeadlineType, newDueDate, newAutoSchedule, newElasticity, status } = args;
@@ -230,7 +229,7 @@ const AIChat: React.FC<AIChatProps> = ({
     // --- CLIENTES ---
     if (action.name === 'crear_cliente') {
         const { name, email, phone } = args;
-        if (!findClientByName(name)) { onUpdateClients([...clients, { id: Math.random().toString(36).substr(2, 9), name, email: email || '', phone: phone || '', services: [] }]); }
+        if (!findClientByName(name)) { onUpdateClients([...clients, { id: Math.random().toString(36).substr(2, 9), name, email: email || '', phone: phone || '' }]); }
     }
     if (action.name === 'eliminar_cliente') { const client = findClientByName(args.name); if (client) onDeleteClient(client.id); }
     if (action.name === 'actualizar_cliente') {
@@ -479,8 +478,7 @@ const AIChat: React.FC<AIChatProps> = ({
         elasticity: manualData.elasticity
     });
     
-    const newService: Service = { id: Math.random().toString(36).substr(2, 9), name: manualData.projectName, cost: manualData.totalValue, status: 'En Proceso', projectId: projectId, installments: [{ id: Math.random().toString(36).substr(2, 9), amount: manualData.totalValue, dueDate: manualData.dueDate, status: 'PENDIENTE' }] };
-    if (existingClient) { onUpdateClients(clients.map(c => c.id === existingClient!.id ? { ...c, services: [...c.services, newService] } : c)); } else { onUpdateClients([...clients, { id: clientId, name: manualData.clientName, email: '', phone: '', services: [newService] }]); }
+    if (!existingClient) { onUpdateClients([...clients, { id: clientId, name: manualData.clientName, email: '', phone: '' }]); }
     setMessages(prev => [...prev, { role: 'assistant', content: `✅ **Registro Manual Exitoso**\nHe creado el ${manualData.autoSchedule ? 'Proyecto Inteligente' : 'Evento Fijo'} "${manualData.projectName}".`, timestamp: new Date() }]);
     setShowManualForm(false);
   };

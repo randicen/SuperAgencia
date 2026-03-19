@@ -1,7 +1,8 @@
 
 import React, { useState, useMemo } from 'react';
-import { Project, Priority, Client, Service } from '../types';
-import { getSortedSchedulingQueue, getFormattedSlack } from '../utils/schedulingLogic';
+import { Project, Priority, Client } from '../types';
+import { getSortedSchedulingQueue } from '../utils/schedulingLogic';
+import { getFormattedSlack } from '../utils/schedulingUtils';
 
 interface GanttViewProps {
     projects: Project[];
@@ -55,8 +56,9 @@ const SchedulingQueue = ({ projects, onEditTask }: { projects: Project[], onEdit
                     </div>
                 )}
                 {sortedQueue.map((p, idx) => {
-                    const slackText = getFormattedSlack(p);
-                    const isOverdue = slackText.includes('Vencido');
+                    const slackInfo = getFormattedSlack(p);
+                    const slackText = slackInfo.text;
+                    const isOverdue = slackInfo.isOverdue;
                     const isStarted = p.progress > 0;
                     const isRigid = p.elasticity === 0;
 
@@ -515,13 +517,7 @@ const GanttView: React.FC<GanttViewProps> = ({
                             elasticity: newTask.elasticity
                         };
 
-                        const serviceObj: Service = {
-                            id: Math.random().toString(36).substr(2, 9), name: trimmedProjectName, cost: newTask.totalValue,
-                            status: 'En Proceso', projectId: projectId,
-                            installments: [{ id: Math.random().toString(36).substr(2, 9), amount: newTask.totalValue, dueDate: newTask.dueDate, status: 'PENDIENTE' }]
-                        };
-
-                        if (existingClient) { onUpdateClients(clients.map(c => c.id === existingClient.id ? { ...c, services: [...c.services, serviceObj] } : c)); } else { onAddClient({ id: clientId, name: finalClientName, email: '', phone: '', services: [serviceObj] }); }
+                        if (existingClient) { /* client already exists, no action needed */ } else { onAddClient({ id: clientId, name: finalClientName, email: '', phone: '' }); }
                         onAddProject(projectObj); setShowModal(false);
                         setNewTask({ clientName: '', projectName: '', startDate: '', endDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], priority: Priority.MEDIUM, totalValue: 0, duration: 60, deadlineType: 'Soft Deadline' as any, dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], autoSchedule: true, elasticity: 1 });
                     }} className="bg-white w-full max-w-2xl rounded-[2.5rem] p-10 space-y-6 shadow-2xl animate-in zoom-in-95 overflow-y-auto max-h-[90vh] custom-scrollbar">

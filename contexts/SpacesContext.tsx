@@ -601,3 +601,40 @@ export function useSpaces() {
     }
     return context;
 }
+
+// --- HELPER: Flatten ALL tasks from ALL workspaces ---
+export interface TaskWithLocation {
+    task: SpaceTask;
+    spaceId: string;
+    folderId?: string;
+    listId: string;
+    workspaceId: string;
+}
+
+export function getAllTasks(state: SpacesState): TaskWithLocation[] {
+    const result: TaskWithLocation[] = [];
+
+    const extractTasks = (tasks: SpaceTask[], loc: Omit<TaskWithLocation, 'task'>) => {
+        tasks.forEach(t => {
+            result.push({ task: t, ...loc });
+            if (t.subtasks && t.subtasks.length > 0) {
+                extractTasks(t.subtasks, loc);
+            }
+        });
+    };
+
+    state.workspaces.forEach(ws => {
+        ws.espacios.forEach(space => {
+            space.listas.forEach(list => {
+                extractTasks(list.tareas, { spaceId: space.id, listId: list.id, workspaceId: ws.id });
+            });
+            space.carpetas.forEach(folder => {
+                folder.listas.forEach(list => {
+                    extractTasks(list.tareas, { spaceId: space.id, folderId: folder.id, listId: list.id, workspaceId: ws.id });
+                });
+            });
+        });
+    });
+
+    return result;
+}

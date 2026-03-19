@@ -14,21 +14,11 @@ export interface Installment {
   status: 'PENDIENTE' | 'PAGADO';
 }
 
-export interface Service {
-  id: string;
-  name: string;
-  cost: number;
-  status: 'Pendiente' | 'En Proceso' | 'Completado';
-  installments: Installment[];
-  projectId?: string;
-}
-
 export interface Client {
   id: string;
   name: string;
   email: string;
   phone: string;
-  services: Service[];
 }
 
 export interface ScheduledSlot {
