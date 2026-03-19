@@ -562,19 +562,11 @@ const KanbanView: React.FC<{
                                                     </span>
                                                 </div>
                                                 <div className="flex justify-between items-center pt-2 border-t border-slate-200/50">
-                                                    <span className="text-[9px] font-black text-slate-400 uppercase">Entrega (Límite)</span>
+                                                    <span className="text-[9px] font-black text-slate-400 uppercase">Entrega</span>
                                                     <span className="text-[9px] font-bold text-slate-600">
                                                         {formatFriendlyDate(task.dueDate)}
                                                     </span>
                                                 </div>
-                                                {task.startDate && task.endDate && (
-                                                    <div className="flex justify-between items-center pt-2 border-t border-slate-200/50">
-                                                        <span className="text-[9px] font-black text-indigo-400 uppercase">Planificado (IA)</span>
-                                                        <span className="text-[9px] font-bold text-indigo-600">
-                                                            {formatFriendlyDate(task.startDate)} - {formatFriendlyDate(task.endDate)}
-                                                        </span>
-                                                    </div>
-                                                )}
                                                 {task.totalValue > 0 && (
                                                     <div className="flex justify-between items-center pt-2 border-t border-slate-200/50">
                                                         <span className="text-[9px] font-black text-slate-400 uppercase">Valor</span>
@@ -1306,13 +1298,30 @@ const SpacesView: React.FC = () => {
     };
 
     const handleDeleteTask = (taskId: string) => {
-        if (!state.activeSpaceId || !state.activeListId) return;
+        if (!state.activeSpaceId) return;
+        
+        let foundListId = state.activeListId;
+        let foundFolderId = state.activeFolderId;
+        
+        const taskExistsNested = (tasks: SpaceTask[], idSearch: string): boolean => {
+            return tasks.some(t => t.id === idSearch || (t.subtasks && taskExistsNested(t.subtasks, idSearch)));
+        };
+        
+        if (!foundListId && activeSpace) {
+            activeSpace.listas.forEach(l => { if (taskExistsNested(l.tareas, taskId)) foundListId = l.id; });
+            if (!foundListId) {
+                activeSpace.carpetas.forEach(f => { f.listas.forEach(l => { if (taskExistsNested(l.tareas, taskId)) { foundListId = l.id; foundFolderId = f.id; } }); });
+            }
+        }
+        
+        if (!foundListId) return;
+
         dispatch({
             type: 'DELETE_TASK',
             payload: {
                 spaceId: state.activeSpaceId,
-                folderId: state.activeFolderId || undefined,
-                listId: state.activeListId,
+                folderId: foundFolderId || undefined,
+                listId: foundListId,
                 taskId,
             },
         });
@@ -1320,7 +1329,10 @@ const SpacesView: React.FC = () => {
 
     // EVENT HANDLERS
     const handleAddEvent = () => {
-        if (!newEvent.nombre.trim() || !state.activeSpaceId || !state.activeListId) return;
+        if (!newEvent.nombre.trim() || !state.activeSpaceId || !state.activeListId) {
+            alert('Debes seleccionar una lista específica en el panel izquierdo para crear eventos.');
+            return;
+        }
 
         // CHECK EVENT OVERLAPS
         // 1. Flatten all existing events
@@ -1374,13 +1386,26 @@ const SpacesView: React.FC = () => {
     };
 
     const handleDeleteEvent = (eventId: string) => {
-        if (!state.activeSpaceId || !state.activeListId) return;
+        if (!state.activeSpaceId) return;
+        
+        let foundListId = state.activeListId;
+        let foundFolderId = state.activeFolderId;
+        
+        if (!foundListId && activeSpace) {
+            activeSpace.listas.forEach(l => { if (l.eventos?.some(e => e.id === eventId)) foundListId = l.id; });
+            if (!foundListId) {
+                activeSpace.carpetas.forEach(f => { f.listas.forEach(l => { if (l.eventos?.some(e => e.id === eventId)) { foundListId = l.id; foundFolderId = f.id; } }); });
+            }
+        }
+        
+        if (!foundListId) return;
+
         dispatch({
             type: 'DELETE_EVENT',
             payload: {
                 spaceId: state.activeSpaceId,
-                folderId: state.activeFolderId || undefined,
-                listId: state.activeListId,
+                folderId: foundFolderId || undefined,
+                listId: foundListId,
                 eventId,
             },
         });
@@ -1422,21 +1447,43 @@ const SpacesView: React.FC = () => {
         );
     }
 
-    if (!activeList) {
+    if (!activeSpace) {
         return (
             <div className="flex-1 flex items-center justify-center bg-[#F4F5F8]">
                 <div className="text-center max-w-sm p-8">
                     <div className="w-16 h-16 bg-slate-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
                         <i className="fa-solid fa-hand-pointer text-2xl text-slate-400"></i>
                     </div>
-                    <h3 className="text-lg font-bold text-slate-700 mb-2">Selecciona una Lista</h3>
-                    <p className="text-xs text-slate-500">Haz clic en una lista del panel lateral para ver y gestionar sus tareas.</p>
+                    <h3 className="text-lg font-bold text-slate-700 mb-2">Selecciona un Espacio</h3>
+                    <p className="text-xs text-slate-500">Haz clic en un espacio, carpeta o lista para visualizar sus tareas.</p>
                 </div>
             </div>
         );
     }
 
-    const tasks = activeList.tareas;
+    let tasks: SpaceTask[] = [];
+    let events: SpaceEvent[] = [];
+
+    if (activeList) {
+        tasks = activeList.tareas;
+        events = activeList.eventos || [];
+    } else if (activeFolder) {
+        activeFolder.listas.forEach(l => {
+            tasks = [...tasks, ...l.tareas];
+            events = [...events, ...(l.eventos || [])];
+        });
+    } else if (activeSpace) {
+        activeSpace.listas.forEach(l => {
+            tasks = [...tasks, ...l.tareas];
+            events = [...events, ...(l.eventos || [])];
+        });
+        activeSpace.carpetas.forEach(f => {
+            f.listas.forEach(l => {
+                tasks = [...tasks, ...l.tareas];
+                events = [...events, ...(l.eventos || [])];
+            });
+        });
+    }
 
     return (
         <div className="flex-1 flex flex-col bg-[#F4F5F8] overflow-hidden">
@@ -1444,15 +1491,19 @@ const SpacesView: React.FC = () => {
             <div className="bg-white border-b border-gray-200 px-6 py-4 shrink-0">
                 <div className="flex items-center gap-2 text-sm mb-3">
                     <div className="w-3 h-3 rounded" style={{ backgroundColor: activeSpace?.color || '#3A57E8' }}></div>
-                    <span className="font-semibold text-slate-700">{activeSpace?.nombre}</span>
+                    <span className={`font-semibold ${!activeFolder && !activeList ? 'text-slate-800' : 'text-slate-700'}`}>{activeSpace?.nombre}</span>
                     {activeFolder && (
                         <>
                             <i className="fa-solid fa-chevron-right text-[8px] text-slate-400"></i>
-                            <span className="text-slate-500">{activeFolder.nombre}</span>
+                            <span className={`${!activeList ? 'font-bold text-slate-800' : 'text-slate-500'}`}>{activeFolder.nombre}</span>
                         </>
                     )}
-                    <i className="fa-solid fa-chevron-right text-[8px] text-slate-400"></i>
-                    <span className="font-bold text-slate-800">{activeList.nombre}</span>
+                    {activeList && (
+                        <>
+                            <i className="fa-solid fa-chevron-right text-[8px] text-slate-400"></i>
+                            <span className="font-bold text-slate-800">{activeList.nombre}</span>
+                        </>
+                    )}
                 </div>
 
                 {/* View switcher + Add button */}
@@ -1492,13 +1543,19 @@ const SpacesView: React.FC = () => {
                     </div>
                     <div className="flex gap-2">
                         <button
-                            onClick={() => { setNewEvent({ nombre: '', startDate: '', endDate: '', description: '' }); setShowEventModal(true); }}
+                            onClick={() => { 
+                                if (!activeList) { alert('Debes seleccionar una lista específica en el panel izquierdo para crear un evento.'); return; }
+                                setNewEvent({ nombre: '', startDate: '', endDate: '', description: '' }); setShowEventModal(true); 
+                            }}
                             className="px-4 py-2 bg-orange-500 text-white rounded-xl text-[10px] font-black uppercase shadow-lg shadow-orange-200 hover:bg-orange-600 transition-colors"
                         >
                             <i className="fa-solid fa-calendar-plus mr-2"></i>Evento
                         </button>
                         <button
-                            onClick={() => { setNewTask(getDefaultTask()); setShowModal(true); }}
+                            onClick={() => { 
+                                if (!activeList) { alert('Debes seleccionar una lista específica en el panel izquierdo para crear una tarea.'); return; }
+                                setNewTask(getDefaultTask()); setShowModal(true); 
+                            }}
                             className="px-6 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase shadow-lg shadow-blue-200 hover:bg-blue-700 transition-colors"
                         >
                             <i className="fa-solid fa-plus mr-2"></i>Nueva Tarea
@@ -1532,16 +1589,24 @@ const SpacesView: React.FC = () => {
                     }}
                     />}
                     {viewMode === 'kanban' && <KanbanView tasks={tasks} groupBy={groupBy} onEditTask={openEditModal} onUpdateTask={(id, updates) => {
-                        const taskPayload = tasks.find(t => t.id === id);
-                        if (taskPayload) {
+                        // FIX: Aggregated tasks update needs to locate the correct list of the task
+                        const taskToUpdate = tasks.find(t => t.id === id);
+                        if (!taskToUpdate) return;
+                        // Find which list it belongs to
+                        let foundListId: string | undefined;
+                        let foundFolderId: string | undefined;
+                        activeSpace?.listas.forEach(l => { if (l.tareas.some(t => t.id === id)) foundListId = l.id; });
+                        activeSpace?.carpetas.forEach(f => { f.listas.forEach(l => { if (l.tareas.some(t => t.id === id)) { foundListId = l.id; foundFolderId = f.id; } }); });
+
+                        if (foundListId) {
                             dispatch({
                                 type: 'UPDATE_TASK',
-                                payload: { spaceId: state.activeSpaceId!, folderId: state.activeFolderId || undefined, listId: state.activeListId!, task: { ...taskPayload, ...updates } }
+                                payload: { spaceId: activeSpace!.id, folderId: foundFolderId, listId: foundListId, task: { ...taskToUpdate, ...updates } }
                             });
                         }
                     }} />}
                     {viewMode === 'gantt' && <GanttChartView tasks={tasks} rules={state.rules} groupBy={groupBy} onEditTask={openEditModal} />}
-                    {viewMode === 'calendar' && <CalendarViewComponent tasks={tasks} events={activeList.eventos || []} rules={state.rules} onEditTask={openEditModal} onEditEvent={(e) => {
+                    {viewMode === 'calendar' && <CalendarViewComponent tasks={tasks} events={events} rules={state.rules} onEditTask={openEditModal} onEditEvent={(e) => {
                         setNewEvent({ ...e });
                         setShowEventModal(true);
                     }} />}
