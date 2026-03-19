@@ -25,6 +25,9 @@ const SpacesSidebar: React.FC = () => {
     const [editingListId, setEditingListId] = useState<string | null>(null);
     const [editName, setEditName] = useState('');
 
+    // State for Custom Delete Modal
+    const [deleteModal, setDeleteModal] = useState<{ type: string; payload: any; message: string; subMessage: string } | null>(null);
+
     const activeWorkspace = state.workspaces.find(w => w.id === state.activeWorkspaceId);
     const espacios = activeWorkspace?.espacios || [];
 
@@ -102,9 +105,12 @@ const SpacesSidebar: React.FC = () => {
     const handleDeleteWorkspace = (e: React.MouseEvent, id: string, name: string) => {
         e.preventDefault();
         e.stopPropagation();
-        if (window.confirm(`¿Estás seguro de que deseas eliminar el workspace "${name}" y todo su contenido?`)) {
-            dispatch({ type: 'DELETE_WORKSPACE', payload: { workspaceId: id } });
-        }
+        setDeleteModal({
+            type: 'DELETE_WORKSPACE',
+            payload: { workspaceId: id },
+            message: `Eliminar "${name}"`,
+            subMessage: 'Esta acción eliminará el workspace y todo su contenido. No se puede deshacer.'
+        });
     };
 
     return (
@@ -292,7 +298,7 @@ const SpacesSidebar: React.FC = () => {
                                             <i className="fa-solid fa-list text-[10px]"></i>
                                         </button>
                                         <button
-                                            onClick={(e) => { e.stopPropagation(); if (window.confirm(`¿Eliminar el espacio "${space.nombre}" y todo su contenido?`)) dispatch({ type: 'DELETE_SPACE', payload: { spaceId: space.id } }); }}
+                                            onClick={(e) => { e.stopPropagation(); setDeleteModal({ type: 'DELETE_SPACE', payload: { spaceId: space.id }, message: `Eliminar Espacio: ${space.nombre}`, subMessage: 'Se eliminarán todas las carpetas y listas que contiene. Esta acción no se puede deshacer.' }); }}
                                             className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-red-500 hover:bg-slate-600 rounded"
                                             title="Eliminar"
                                         >
@@ -368,7 +374,7 @@ const SpacesSidebar: React.FC = () => {
                                                                 <i className="fa-solid fa-plus text-[10px]"></i>
                                                             </button>
                                                             <button
-                                                                onClick={(e) => { e.stopPropagation(); if (window.confirm(`¿Eliminar la carpeta "${folder.nombre}" y todas sus listas?`)) dispatch({ type: 'DELETE_FOLDER', payload: { spaceId: space.id, folderId: folder.id } }); }}
+                                                                onClick={(e) => { e.stopPropagation(); setDeleteModal({ type: 'DELETE_FOLDER', payload: { spaceId: space.id, folderId: folder.id }, message: `Eliminar Carpeta: ${folder.nombre}`, subMessage: 'Se eliminarán todas las listas dentro de ella. Esta acción no se puede deshacer.' }); }}
                                                                 className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-red-500"
                                                             >
                                                                 <i className="fa-solid fa-trash text-[10px]"></i>
@@ -430,7 +436,7 @@ const SpacesSidebar: React.FC = () => {
                                                                             <i className="fa-solid fa-pen-to-square text-[10px]"></i>
                                                                         </button>
                                                                         <button
-                                                                            onClick={(e) => { e.stopPropagation(); if (window.confirm(`¿Eliminar la lista "${list.nombre}"?`)) dispatch({ type: 'DELETE_LIST', payload: { spaceId: space.id, folderId: folder.id, listId: list.id } }); }}
+                                                                            onClick={(e) => { e.stopPropagation(); setDeleteModal({ type: 'DELETE_LIST', payload: { spaceId: space.id, folderId: folder.id, listId: list.id }, message: `Eliminar Lista: ${list.nombre}`, subMessage: 'Las tareas de esta lista se perderán permanentemente.' }); }}
                                                                             className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-red-500"
                                                                             title="Eliminar"
                                                                         >
@@ -498,7 +504,7 @@ const SpacesSidebar: React.FC = () => {
                                                          <i className="fa-solid fa-pen-to-square text-[10px]"></i>
                                                      </button>
                                                      <button
-                                                         onClick={(e) => { e.stopPropagation(); if (window.confirm(`¿Eliminar la lista "${list.nombre}"?`)) dispatch({ type: 'DELETE_LIST', payload: { spaceId: space.id, listId: list.id } }); }}
+                                                         onClick={(e) => { e.stopPropagation(); setDeleteModal({ type: 'DELETE_LIST', payload: { spaceId: space.id, listId: list.id }, message: `Eliminar Lista: ${list.nombre}`, subMessage: 'Las tareas de esta lista se perderán permanentemente.' }); }}
                                                          className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-red-500"
                                                          title="Eliminar"
                                                      >
@@ -515,6 +521,40 @@ const SpacesSidebar: React.FC = () => {
                     })
                 )}
             </div>
+
+            {/* CUSTOM DELETE CONFIRMATION MODAL */}
+            {deleteModal && (
+                <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-[#1A1C23] border border-[#2A2D35] rounded-xl shadow-2xl p-6 w-80 animate-in zoom-in-95 duration-200">
+                        <div className="flex justify-center mb-4">
+                            <div className="w-12 h-12 bg-red-500/10 rounded-full flex items-center justify-center">
+                                <i className="fa-solid fa-triangle-exclamation text-red-500 text-xl"></i>
+                            </div>
+                        </div>
+                        <h3 className="text-white text-center font-bold mb-2">{deleteModal.message}</h3>
+                        <p className="text-slate-400 text-xs text-center mb-6 leading-relaxed">
+                            {deleteModal.subMessage}
+                        </p>
+                        <div className="flex gap-3">
+                            <button
+                                onClick={() => setDeleteModal(null)}
+                                className="flex-1 px-4 py-2 bg-[#2A2D35] hover:bg-[#343841] text-slate-300 text-xs font-bold rounded-lg transition-colors"
+                            >
+                                Cancelar
+                            </button>
+                            <button
+                                onClick={() => {
+                                    dispatch({ type: deleteModal.type as any, payload: deleteModal.payload });
+                                    setDeleteModal(null);
+                                }}
+                                className="flex-1 px-4 py-2 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors shadow-lg shadow-red-500/20"
+                            >
+                                Eliminar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
