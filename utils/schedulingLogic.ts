@@ -143,9 +143,18 @@ export const getFormattedSlack = (p: Project, rules: BusinessRules): { text: str
   if (isNaN(deadline.getTime())) return { text: 'Error fecha', isOverdue: true };
 
   const now = new Date();
+  let expectedFinish: Date;
 
-  // Calculate when it would be finished if started NOW
-  const expectedFinish = addWorkingMinutes(now, workRemainingMinutes, rules);
+  if (p.endDate && p.autoSchedule) {
+    const parsedEnd = new Date(p.endDate);
+    if (!isNaN(parsedEnd.getTime())) {
+      expectedFinish = parsedEnd;
+    } else {
+      expectedFinish = addWorkingMinutes(now, workRemainingMinutes, rules);
+    }
+  } else {
+    expectedFinish = addWorkingMinutes(now, workRemainingMinutes, rules);
+  }
 
   // Slack is the WORKING time between expectedFinish and deadline
   let slackMinutes = 0;

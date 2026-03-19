@@ -562,11 +562,19 @@ const KanbanView: React.FC<{
                                                     </span>
                                                 </div>
                                                 <div className="flex justify-between items-center pt-2 border-t border-slate-200/50">
-                                                    <span className="text-[9px] font-black text-slate-400 uppercase">Entrega</span>
+                                                    <span className="text-[9px] font-black text-slate-400 uppercase">Entrega (Límite)</span>
                                                     <span className="text-[9px] font-bold text-slate-600">
                                                         {formatFriendlyDate(task.dueDate)}
                                                     </span>
                                                 </div>
+                                                {task.startDate && task.endDate && (
+                                                    <div className="flex justify-between items-center pt-2 border-t border-slate-200/50">
+                                                        <span className="text-[9px] font-black text-indigo-400 uppercase">Planificado (IA)</span>
+                                                        <span className="text-[9px] font-bold text-indigo-600">
+                                                            {formatFriendlyDate(task.startDate)} - {formatFriendlyDate(task.endDate)}
+                                                        </span>
+                                                    </div>
+                                                )}
                                                 {task.totalValue > 0 && (
                                                     <div className="flex justify-between items-center pt-2 border-t border-slate-200/50">
                                                         <span className="text-[9px] font-black text-slate-400 uppercase">Valor</span>
