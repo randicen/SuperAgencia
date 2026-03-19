@@ -14,6 +14,7 @@ const GanttChartView: React.FC<{
     const [expandedTasks, setExpandedTasks] = useState<Record<string, boolean>>({});
     const [timeRange, setTimeRange] = useState<TimeRange>('Semana');
     const [showTable, setShowTable] = useState(true);
+    const [showClientColumn, setShowClientColumn] = useState(true);
     const [showRangeSelector, setShowRangeSelector] = useState(false);
 
     const toggleExpand = (taskId: string) => {
@@ -327,28 +328,40 @@ const GanttChartView: React.FC<{
         return (
             <React.Fragment key={task.id}>
                 <div className="flex border-b border-slate-50 hover:bg-slate-50/50 transition-colors w-fit group">
-                    {/* LEFT PANE - TASK NAMES */}
+                    {/* LEFT PANE - CLIENT & TASK NAMES */}
                     {showTable && (
-                        <div
-                            className="w-64 shrink-0 p-2 border-r border-slate-100 bg-white sticky left-0 z-20 flex items-center gap-2 shadow-[2px_0_8px_-4px_rgba(0,0,0,0.08)]"
-                            style={{ paddingLeft: (level * 16) + 8 }}
-                        >
-                            {hasSubtasks ? (
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); toggleExpand(task.id); }}
-                                    className="w-4 h-4 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"
+                        <>
+                            {showClientColumn && (
+                                <div 
+                                    className="w-48 shrink-0 p-2 border-r border-slate-100 bg-white sticky left-0 z-20 flex items-center shadow-[2px_0_8px_-4px_rgba(0,0,0,0.08)]"
+                                    onClick={() => onEditTask(task)}
                                 >
-                                    <i className={`fa-solid fa-chevron-${isExpanded ? 'down' : 'right'} text-[9px]`}></i>
-                                </button>
-                            ) : (
-                                <div className="w-4"></div>
+                                    <span className="text-[10px] font-black uppercase text-slate-400 truncate px-2">
+                                        {task.clientName || '-'}
+                                    </span>
+                                </div>
                             )}
-                            <div className={`w-2 h-2 rounded-full ${barColor.replace('bg-', 'bg-opacity-20 ')} border ${barColor.replace('bg-', 'border-').replace('400', '600')}`}></div>
-                            <span className="text-[11px] font-medium text-slate-700 truncate cursor-pointer hover:text-blue-600 flex items-center gap-1" title={task.nombre} onClick={() => onEditTask(task)}>
-                                {task.hasConflict && <i className="fa-solid fa-triangle-exclamation text-red-500 text-[9px]" title="Conflicto de agenda"></i>}
-                                {task.nombre}
-                            </span>
-                        </div>
+                            <div
+                                className={`w-64 shrink-0 p-2 border-r border-slate-100 bg-white sticky z-20 flex items-center gap-2 shadow-[2px_0_8px_-4px_rgba(0,0,0,0.08)] ${showClientColumn ? 'left-[192px]' : 'left-0'}`}
+                                style={{ paddingLeft: (level * 16) + 8 }}
+                            >
+                                {hasSubtasks ? (
+                                    <button
+                                        onClick={(e) => { e.stopPropagation(); toggleExpand(task.id); }}
+                                        className="w-4 h-4 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded transition-colors"
+                                    >
+                                        <i className={`fa-solid fa-chevron-${isExpanded ? 'down' : 'right'} text-[9px]`}></i>
+                                    </button>
+                                ) : (
+                                    <div className="w-4"></div>
+                                )}
+                                <div className={`w-2 h-2 rounded-full ${barColor.replace('bg-', 'bg-opacity-20 ')} border ${barColor.replace('bg-', 'border-').replace('400', '600')}`}></div>
+                                <span className="text-[11px] font-medium text-slate-700 truncate cursor-pointer hover:text-blue-600 flex items-center gap-1" title={task.nombre} onClick={() => onEditTask(task)}>
+                                    {task.hasConflict && <i className="fa-solid fa-triangle-exclamation text-red-500 text-[9px]" title="Conflicto de agenda"></i>}
+                                    {task.nombre}
+                                </span>
+                            </div>
+                        </>
                     )}
 
                     {/* RIGHT PANE - TIMELINE BARS */}
@@ -498,10 +511,21 @@ const GanttChartView: React.FC<{
                     <button
                         onClick={() => setShowTable(!showTable)}
                         className={`w-8 h-8 rounded-lg border flex items-center justify-center transition-colors ${!showTable ? 'bg-slate-800 border-slate-800 text-white' : 'bg-white border-slate-200 text-slate-400 hover:text-slate-600'}`}
-                        title={showTable ? 'Ocultar tabla de tareas' : 'Mostrar tabla de tareas'}
+                        title={showTable ? 'Ocultar tabla lateral' : 'Mostrar tabla lateral'}
                     >
                         <i className={`fa-solid fa-${showTable ? 'table' : 'table-columns'}`}></i>
                     </button>
+
+                    {showTable && (
+                        <button
+                            onClick={() => setShowClientColumn(!showClientColumn)}
+                            className={`px-3 h-8 rounded-lg border flex items-center gap-2 transition-colors text-[10px] font-black uppercase tracking-widest ${showClientColumn ? 'bg-blue-600 border-blue-600 text-white' : 'bg-white border-slate-200 text-slate-400 hover:text-slate-600'}`}
+                            title={showClientColumn ? 'Ocultar columna cliente' : 'Mostrar columna cliente'}
+                        >
+                            <i className="fa-solid fa-user-tie"></i>
+                            <span>Cliente</span>
+                        </button>
+                    )}
 
                     <div className="relative">
                         <button
@@ -542,7 +566,12 @@ const GanttChartView: React.FC<{
                     <div className="sticky top-0 z-30 bg-slate-50 shadow-sm border-b border-slate-200">
                         {/* ROW 1: GROUPS (Years / Months) */}
                         <div className="flex">
-                            {showTable && <div className="w-64 shrink-0 bg-slate-50 border-r border-slate-200"></div>}
+                            {showTable && (
+                                <>
+                                    {showClientColumn && <div className="w-48 shrink-0 bg-slate-50 border-r border-slate-200"></div>}
+                                    <div className="w-64 shrink-0 bg-slate-50 border-r border-slate-200"></div>
+                                </>
+                            )}
                             <div className="flex border-b border-slate-200/50">
                                 {groups.map((group, idx) => (
                                     <div
@@ -559,10 +588,17 @@ const GanttChartView: React.FC<{
                         {/* ROW 2: TICKS (Days / Weeks / etc) */}
                         <div className="flex">
                             {showTable && (
-                                <div className="w-64 shrink-0 px-4 h-8 flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase border-r border-slate-200 bg-slate-50 sticky left-0 z-40 shadow-[4px_0_12px_-6px_rgba(0,0,0,0.1)]">
-                                    <span>Tarea</span>
-                                    <i className="fa-solid fa-sort text-slate-300"></i>
-                                </div>
+                                <>
+                                    {showClientColumn && (
+                                        <div className="w-48 shrink-0 px-4 h-8 flex items-center justify-between text-[10px] font-black text-slate-500 uppercase border-r border-slate-200 bg-slate-50 sticky left-0 z-40 shadow-[4px_0_12px_-6px_rgba(0,0,0,0.1)]">
+                                            <span>Cliente</span>
+                                        </div>
+                                    )}
+                                    <div className={`w-64 shrink-0 px-4 h-8 flex items-center justify-between text-[10px] font-bold text-slate-500 uppercase border-r border-slate-200 bg-slate-50 sticky z-40 shadow-[4px_0_12px_-6px_rgba(0,0,0,0.1)] ${showClientColumn ? 'left-[192px]' : 'left-0'}`}>
+                                        <span>Tarea</span>
+                                        <i className="fa-solid fa-sort text-slate-300"></i>
+                                    </div>
+                                </>
                             )}
                             <div className="flex">
                                 {ticks.map((t, i) => (

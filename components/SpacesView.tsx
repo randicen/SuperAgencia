@@ -159,21 +159,26 @@ const ListaView: React.FC<{
     const [columnOrder, setColumnOrder] = useState<ColumnId[]>(() => {
         try {
             const saved = localStorage.getItem('lista_column_order');
-            const defaultOrder: ColumnId[] = ['nombre', 'startDate', 'dueDate', 'priority', 'slack', 'estado', 'duration', 'progress'];
+            const defaultOrder: ColumnId[] = ['nombre', 'clientName', 'totalValue', 'financialProgress', 'startDate', 'dueDate', 'priority', 'slack', 'estado', 'duration', 'progress'];
             if (saved) {
                 const parsed = JSON.parse(saved);
-                // Merge missing columns into saved order (append at end or specific position)
                 const missing = defaultOrder.filter(id => !parsed.includes(id));
                 return [...parsed, ...missing];
             }
             return defaultOrder;
-        } catch { return ['nombre', 'startDate', 'dueDate', 'priority', 'slack', 'estado', 'duration', 'progress']; }
+        } catch { return ['nombre', 'clientName', 'totalValue', 'financialProgress', 'startDate', 'dueDate', 'priority', 'slack', 'estado', 'duration', 'progress']; }
     });
     const [visibleColumns, setVisibleColumns] = useState<ColumnId[]>(() => {
         try {
             const saved = localStorage.getItem('lista_columns');
-            return saved ? JSON.parse(saved) : ['nombre', 'startDate', 'dueDate', 'priority', 'slack', 'estado'];
-        } catch { return ['nombre', 'startDate', 'dueDate', 'priority', 'slack', 'estado']; }
+            if (saved) {
+                 const parsed = JSON.parse(saved);
+                 // If we find that the newly added mandatory columns were missed from a previous save, we add them at the front?
+                 // Or just trust the current toggle. 
+                 return parsed;
+            }
+            return ['nombre', 'clientName', 'totalValue', 'financialProgress', 'startDate', 'dueDate', 'priority', 'slack', 'estado'];
+        } catch { return ['nombre', 'clientName', 'totalValue', 'financialProgress', 'startDate', 'dueDate', 'priority', 'slack', 'estado']; }
     });
     const [showColumnSelector, setShowColumnSelector] = useState(false);
     const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
