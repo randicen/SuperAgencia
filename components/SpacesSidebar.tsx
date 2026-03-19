@@ -102,9 +102,9 @@ const SpacesSidebar: React.FC = () => {
     const handleDeleteWorkspace = (e: React.MouseEvent, id: string, name: string) => {
         e.preventDefault();
         e.stopPropagation();
-        // TEMPORALMENTE sin confirm para probar si el botón responde
-        console.log('Solicitando eliminar:', name, id);
-        dispatch({ type: 'DELETE_WORKSPACE', payload: { workspaceId: id } });
+        if (window.confirm(`¿Estás seguro de que deseas eliminar el workspace "${name}" y todo su contenido?`)) {
+            dispatch({ type: 'DELETE_WORKSPACE', payload: { workspaceId: id } });
+        }
     };
 
     return (
@@ -292,7 +292,7 @@ const SpacesSidebar: React.FC = () => {
                                             <i className="fa-solid fa-list text-[10px]"></i>
                                         </button>
                                         <button
-                                            onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_SPACE', payload: { spaceId: space.id } }); }}
+                                            onClick={(e) => { e.stopPropagation(); if (window.confirm(`¿Eliminar el espacio "${space.nombre}" y todo su contenido?`)) dispatch({ type: 'DELETE_SPACE', payload: { spaceId: space.id } }); }}
                                             className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-red-500 hover:bg-slate-600 rounded"
                                             title="Eliminar"
                                         >
@@ -368,7 +368,7 @@ const SpacesSidebar: React.FC = () => {
                                                                 <i className="fa-solid fa-plus text-[10px]"></i>
                                                             </button>
                                                             <button
-                                                                onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_FOLDER', payload: { spaceId: space.id, folderId: folder.id } }); }}
+                                                                onClick={(e) => { e.stopPropagation(); if (window.confirm(`¿Eliminar la carpeta "${folder.nombre}" y todas sus listas?`)) dispatch({ type: 'DELETE_FOLDER', payload: { spaceId: space.id, folderId: folder.id } }); }}
                                                                 className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-red-500"
                                                             >
                                                                 <i className="fa-solid fa-trash text-[10px]"></i>
@@ -430,7 +430,7 @@ const SpacesSidebar: React.FC = () => {
                                                                             <i className="fa-solid fa-pen-to-square text-[10px]"></i>
                                                                         </button>
                                                                         <button
-                                                                            onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_LIST', payload: { spaceId: space.id, folderId: folder.id, listId: list.id } }); }}
+                                                                            onClick={(e) => { e.stopPropagation(); if (window.confirm(`¿Eliminar la lista "${list.nombre}"?`)) dispatch({ type: 'DELETE_LIST', payload: { spaceId: space.id, folderId: folder.id, listId: list.id } }); }}
                                                                             className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-red-500"
                                                                             title="Eliminar"
                                                                         >
@@ -498,7 +498,7 @@ const SpacesSidebar: React.FC = () => {
                                                          <i className="fa-solid fa-pen-to-square text-[10px]"></i>
                                                      </button>
                                                      <button
-                                                         onClick={(e) => { e.stopPropagation(); dispatch({ type: 'DELETE_LIST', payload: { spaceId: space.id, listId: list.id } }); }}
+                                                         onClick={(e) => { e.stopPropagation(); if (window.confirm(`¿Eliminar la lista "${list.nombre}"?`)) dispatch({ type: 'DELETE_LIST', payload: { spaceId: space.id, listId: list.id } }); }}
                                                          className="w-5 h-5 flex items-center justify-center text-slate-500 hover:text-red-500"
                                                          title="Eliminar"
                                                      >
