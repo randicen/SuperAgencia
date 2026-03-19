@@ -479,11 +479,19 @@ export const calculateQuote = async (
   notes: Note[] = [],
   transactions: Transaction[] = []
 ) => {
-  const ai = new OpenAI({ 
+  // --- MODELO Y CLAVES CON FAILOVER SILENCIOSO ---
+  const MODEL = 'openai/gpt-oss-120b';
+  const GROQ_KEYS = [
     // @ts-ignore
-    apiKey: import.meta.env.VITE_GROQ_API_KEY || '',
+    import.meta.env.VITE_GROQ_API_KEY || '',
+    // @ts-ignore
+    import.meta.env.VITE_GROQ_API_KEY_BACKUP || ''
+  ].filter(Boolean);
+
+  const createClient = (apiKey: string) => new OpenAI({
+    apiKey,
     baseURL: 'https://api.groq.com/openai/v1',
-    dangerouslyAllowBrowser: true 
+    dangerouslyAllowBrowser: true
   });
 
   const today = new Date();
@@ -569,6 +577,11 @@ export const calculateQuote = async (
   - Tarifa de agencia: $${rules.baseHourlyRate}/hora | Hoy: ${today.toLocaleDateString('es-ES')}
   `;
 
+  // --- BUCLE DE FAILOVER SILENCIOSO ---
+  for (let keyIndex = 0; keyIndex < GROQ_KEYS.length; keyIndex++) {
+    const ai = createClient(GROQ_KEYS[keyIndex]);
+    console.log(`[ReAct] Intentando con API key #${keyIndex + 1}...`);
+
   try {
     // TRUNCAR historial a últimos 30 mensajes
     const recentMessages = messages.slice(-30);
@@ -610,7 +623,6 @@ export const calculateQuote = async (
     });
 
     // --- FILTRADO DINÁMICO DE HERRAMIENTAS (ANTI-AUTODESTRUCCIÓN) ---
-    // Mathematically prevent the LLM from deleting stuff if not explicitly requested
     const lastUserMsg = [...messages].reverse().find(m => m.role === 'user');
     const userMessageContent = lastUserMsg ? lastUserMsg.content.toLowerCase() : "";
     const isDestructiveIntent = /(elimina|borra|quita|suprime|delete|remove|destruye|limpia)/.test(userMessageContent);
@@ -625,7 +637,7 @@ export const calculateQuote = async (
     // --- LLAMADA PRINCIPAL A LA API ---
     console.log('[ReAct] Iniciando Primera Llamada a Groq... (SafeTools:', safeTools.length, ')');
     let response = await ai.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: MODEL,
       messages: [
         { role: 'system', content: systemPrompt },
         ...formattedMessages
@@ -645,7 +657,6 @@ export const calculateQuote = async (
     if (hasConsultarEstado) {
       console.log('🔄 [ReAct] Agente solicitó consultar estado. Interceptando internamente...');
       
-      // Limpiar el mensaje de respuesta de clases SDK internas para evitar cuelgues de serialización
       const cleanAssistantMessage = {
         role: messageResponse.role,
         content: messageResponse.content || "",
@@ -664,22 +675,18 @@ export const calculateQuote = async (
 
       toolCalls.forEach(tc => {
         if ((tc as any).function.name === 'consultar_estado_app') {
-          // Proveemos el estado fresco como una observación
           const estadoApp = buildPlainTextContext();
           reactMessages.push({ role: 'tool', tool_call_id: tc.id, name: "consultar_estado_app", content: estadoApp });
         } else {
-          // Herramientas adicionales
           reactMessages.push({ role: 'tool', tool_call_id: tc.id, name: (tc as any).function.name, content: "Delegado. Continúa redactando." });
         }
       });
 
       console.log('[ReAct] Iniciando Segunda Llamada Silenciosa...');
       response = await ai.chat.completions.create({
-        model: 'llama-3.3-70b-versatile',
+        model: MODEL,
         messages: reactMessages,
         temperature: 0.1
-        // SIN 'tools': Obligamos al modelo a generar TEXTO con la información que le acabamos de inyectar.
-        // Si no hacemos esto, Llama puede atascarse pidiendo la herramienta una y otra vez.
       });
       messageResponse = response.choices[0].message;
       console.log('[ReAct] Segunda Respuesta Groq:', messageResponse);
@@ -689,7 +696,6 @@ export const calculateQuote = async (
     let functionCalls;
     if (messageResponse.tool_calls && messageResponse.tool_calls.length > 0) {
       functionCalls = messageResponse.tool_calls
-        // Filtrar herramientas internas asegurando que no exploten el frontend
         .filter(tc => (tc as any).function.name !== 'consultar_estado_app')
         .map(tc => {
           try {
@@ -706,10 +712,20 @@ export const calculateQuote = async (
 
     return { text: messageResponse.content || "", functionCalls };
   } catch (error: any) {
+    const errorMsg = error?.error?.message || error?.message || "";
+    const isRateLimit = errorMsg.toLowerCase().includes('rate limit') || error?.status === 429;
+
+    // Si es rate-limit y aún quedan claves, reintentar silenciosamente con la siguiente
+    if (isRateLimit && keyIndex < GROQ_KEYS.length - 1) {
+      console.warn(`⚠️ [Failover] Rate limit en key #${keyIndex + 1}. Cambiando a key #${keyIndex + 2}...`);
+      continue; // Saltar al siguiente ciclo del for con la siguiente API key
+    }
+
     console.error("Groq API Error:", error);
-    const apiError = error?.error?.message || error?.message || "Error desconocido";
-    return { text: `⚠️ **Error de Groq**\n\nEl servidor respondió: *${apiError}*` };
+    return { text: `⚠️ **Error de Groq**\n\nEl servidor respondió: *${errorMsg || 'Error desconocido'}*` };
   }
+  } // fin del for de failover
+  return { text: '⚠️ Todas las claves API alcanzaron su límite. Intenta más tarde.' };
 };
 
 export const analyzeSeasonality = async (s: SeasonalityData[], p: Project[]) => {
@@ -722,7 +738,7 @@ export const analyzeSeasonality = async (s: SeasonalityData[], p: Project[]) => 
 
   try {
     const response = await ai.chat.completions.create({
-      model: 'llama-3.3-70b-versatile',
+      model: 'openai/gpt-oss-120b',
       messages: [{ role: 'user', content: `Analiza estacionalidad y dame 3 consejos cortos: ${JSON.stringify(s)}` }]
     });
     return response.choices[0].message.content || "Análisis completado sin texto.";
