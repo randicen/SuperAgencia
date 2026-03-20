@@ -496,7 +496,16 @@ const App: React.FC = () => {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const rawData = JSON.parse(e.target?.result as string);
+        let rawData = JSON.parse(e.target?.result as string);
+
+        // --- COMPATIBILIDAD CON BACKUPS ANTIGUOS DIRECTOS DE SUPABASE ---
+        // Si el usuario sube el backup_app_state_dump.json original (que es un array de registros SQL)
+        if (Array.isArray(rawData)) {
+            const v2_record = rawData.find((r: any) => r.id === 'coo_master_state_v2') || rawData[0];
+            if (v2_record && v2_record.data) {
+                rawData = v2_record.data;
+            }
+        }
 
         // --- SANITIZACIÓN Y MIGRACIÓN DE DATOS (AUTO-HEALING) ---
         // Esto asegura que backups viejos funcionen en versiones nuevas rellenando datos faltantes
