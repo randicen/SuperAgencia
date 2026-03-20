@@ -3,7 +3,7 @@ import { createClient, User, Session, SupabaseClient } from '@supabase/supabase-
 
 // Inicializar cliente
 const envUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('coo_supabase_url');
-const envKey = import.meta.env.VITE_SUPABASE_KEY || localStorage.getItem('coo_supabase_key');
+const envKey = import.meta.env.VITE_SUPABASE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || localStorage.getItem('coo_supabase_key');
 
 export const isUsingDummyKeys = !envUrl || !envKey;
 
