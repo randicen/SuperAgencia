@@ -4,7 +4,7 @@ import { useSpaces, getAllTasks } from '../contexts/SpacesContext';
 import { Space, SpaceFolder, SpaceList, SpaceTask, SpaceEvent, TaskPriority, TaskStatus, DeadlineType } from '../spacesTypes';
 import { Client } from '../types';
 import { getPriorityBadgeStyle, getFormattedSlack } from '../utils/schedulingUtils';
-import { getFormattedSlack as getFormattedSlackProject } from '../utils/schedulingLogic';
+import { getFormattedSlack as getFormattedSlackProject, runAutoScheduling } from '../utils/schedulingLogic';
 import GanttChartView from './GanttChartView';
 import SettingsView from './SettingsView';
 
@@ -1000,6 +1000,86 @@ const SpacesView: React.FC = () => {
             return () => clearTimeout(timer);
         }
     }, [notification]);
+
+    // LIVE PREVIEW: Recalculate scheduledSlots when user changes scheduling fields
+    useEffect(() => {
+        if (!editingTask || !editingTask.autoSchedule) return;
+        
+        const timer = setTimeout(() => {
+            try {
+                // Collect all tasks from the workspace to respect the global queue
+                const allProjects: any[] = [];
+                const allEvents: { nombre: string, startDate: string, endDate: string }[] = [];
+                
+                const ws = state.workspaces.find(w => w.id === state.activeWorkspaceId);
+                if (!ws) return;
+                
+                const extractTasks = (tasks: SpaceTask[]) => {
+                    tasks.forEach(t => {
+                        // Use the editingTask's live values if this is the task being edited
+                        const src = t.id === editingTask.id ? editingTask : t;
+                        allProjects.push({
+                            id: src.id,
+                            clientId: '',
+                            clientName: src.clientName || '',
+                            projectName: src.nombre,
+                            startDate: src.startDate || new Date().toISOString().split('T')[0],
+                            endDate: src.endDate || new Date().toISOString().split('T')[0],
+                            priority: src.priority === 'ASAP' ? 'ASAP' : src.priority === 'High' ? 'High' : src.priority === 'Medium' ? 'Medium' : 'Low',
+                            progress: src.progress,
+                            totalValue: src.totalValue,
+                            paidValue: 0,
+                            status: src.estado === 'TODO' ? 'todo' : src.estado === 'DONE' ? 'completed' : 'active',
+                            duration: src.duration,
+                            deadlineType: src.deadlineType,
+                            dueDate: src.dueDate,
+                            autoSchedule: src.autoSchedule,
+                            elasticity: src.elasticity,
+                            scheduledSlots: src.scheduledSlots || [],
+                            hasConflict: src.hasConflict,
+                            conflictDescription: src.conflictDescription
+                        });
+                        if (t.subtasks) extractTasks(t.subtasks);
+                    });
+                };
+                
+                ws.espacios.forEach(s => {
+                    s.listas.forEach(l => {
+                        extractTasks(l.tareas);
+                        l.eventos?.forEach(e => allEvents.push({ nombre: e.nombre, startDate: e.startDate, endDate: e.endDate }));
+                    });
+                    s.carpetas.forEach(f => f.listas.forEach(l => {
+                        extractTasks(l.tareas);
+                        l.eventos?.forEach(e => allEvents.push({ nombre: e.nombre, startDate: e.startDate, endDate: e.endDate }));
+                    }));
+                });
+                
+                const scheduled = runAutoScheduling(allProjects, state.rules, allEvents);
+                const updated = scheduled.find(p => p.id === editingTask.id);
+                
+                if (updated) {
+                    setEditingTask(prev => prev ? {
+                        ...prev,
+                        scheduledSlots: updated.scheduledSlots,
+                        hasConflict: updated.hasConflict,
+                        conflictDescription: updated.conflictDescription,
+                    } : prev);
+                }
+            } catch (e) {
+                console.error('[LivePreview] Error recalculating slots:', e);
+            }
+        }, 300); // 300ms debounce
+        
+        return () => clearTimeout(timer);
+    }, [
+        editingTask?.startDate, 
+        editingTask?.dueDate, 
+        editingTask?.duration, 
+        editingTask?.elasticity, 
+        editingTask?.priority, 
+        editingTask?.autoSchedule,
+        editingTask?.deadlineType,
+    ]);
 
     // DERIVE ACTIVE WORKSPACE
     const activeWorkspace = state.workspaces.find(w => w.id === state.activeWorkspaceId);
