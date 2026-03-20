@@ -454,7 +454,11 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
           conflictDescription = `🚫 Desplazada por "${blocker.label}" (${fmtDate(blocker.start)} → ${fmtDate(blocker.end)}).\n\nLa tarea terminaría a las ${fmtDate(lastSlotEnd.toISOString())}, excediendo tu deadline por ${fmtMins(overflowMins)}.\n\n💡 Soluciones:\n1. Aumenta la prioridad para que pase antes de "${blocker.label}".\n2. Extiende la Fecha Límite.\n3. Mueve o reduce "${blocker.label}".`;
         } else {
           // Pure math: effort doesn't fit in the window
-          conflictDescription = `⏱️ Margen insuficiente: La tarea requiere ${fmtMins(effortMinutes)} de esfuerzo, pero entre el inicio (${fmtDate(project.startDate)}) y el deadline (${fmtDate(project.dueDate)}) solo hay ${fmtMins(windowMinutes)} disponibles.\n\nTerminaría a las ${fmtDate(lastSlotEnd.toISOString())}, excediendo el plazo por ${fmtMins(overflowMins)}.\n\n💡 Soluciones:\n1. Extiende la Fecha Límite para dar más margen.\n2. Reduce las horas de esfuerzo de ${fmtMins(effortMinutes)} a ≤${fmtMins(windowMinutes)}.`;
+          if (parseLocal(calculatedStart) > projectDueDate) {
+            conflictDescription = `⏳ Límite Vencido: Esta tarea no se completó a tiempo. La IA propone empezarla ahora mismo (${fmtDate(calculatedStart)}), pero supera la Fecha Límite original (${fmtDate(project.dueDate)}).\n\nTerminaría a las ${fmtDate(lastSlotEnd.toISOString())}, retrasada por ${fmtMins(overflowMins)}.\n\n💡 Soluciones:\n1. Extiende la Fecha Límite.\n2. Marca progreso si ya la empezaste.`;
+          } else {
+            conflictDescription = `⏱️ Margen insuficiente: La tarea requiere ${fmtMins(effortMinutes)} de esfuerzo, pero entre el inicio (${fmtDate(calculatedStart)}) y el límite (${fmtDate(project.dueDate)}) solo hay ${fmtMins(windowMinutes)} disponibles.\n\nTerminaría a las ${fmtDate(lastSlotEnd.toISOString())}, excediendo por ${fmtMins(overflowMins)}.\n\n💡 Soluciones:\n1. Extiende la Fecha Límite.\n2. Reduce el esfuerzo a ≤${fmtMins(windowMinutes)}.`;
+          }
         }
       }
       console.log(`[Scheduler] AUTO task conflict: ${project.projectName} -> ${conflictDescription}`, { remainingMinutes, endAfterDue });
