@@ -2,6 +2,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 
 import { useSpaces } from '../contexts/SpacesContext';
+import { useAuth } from '../contexts/AuthContext';
 
 interface SidebarProps {
     activeTab: string;
@@ -18,6 +19,7 @@ interface SidebarProps {
 
 const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onExport, onImport, onCloudSync, syncStatus = 'idle', isOnline = true, capacity, mobileOpen = false, setMobileOpen }) => {
     const { state: spacesState, dispatch } = useSpaces();
+    const { user, signOut } = useAuth();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [showCloudModal, setShowCloudModal] = useState(false);
     const [showInstallHelp, setShowInstallHelp] = useState(false);
@@ -364,6 +366,21 @@ alter publication supabase_realtime add table app_state_dump;
                             <i className="fa-solid fa-download text-blue-500 group-hover:text-blue-400"></i>
                             Descargar App
                         </button>
+                    )}
+
+                    {user && (
+                        <div className="flex items-center gap-3 bg-[#1A1C23] p-3 rounded-lg border border-[#2A2D35] mt-2 mb-2">
+                            <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold text-xs ring-2 ring-indigo-500/30">
+                                {user.email?.charAt(0).toUpperCase() || <i className="fa-solid fa-user"></i>}
+                            </div>
+                            <div className="flex-1 min-w-0">
+                                <p className="text-xs text-white font-bold truncate">{user.email || 'Usuario SaaS'}</p>
+                                <p className="text-[9px] text-emerald-500 font-bold uppercase tracking-wider">Premium Plan</p>
+                            </div>
+                            <button onClick={() => { localStorage.clear(); signOut(); location.reload(); }} className="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-white hover:bg-red-500/20 rounded-md transition-all group-logout">
+                                <i className="fa-solid fa-power-off group-hover-logout:scale-110 transition-transform"></i>
+                            </button>
+                        </div>
                     )}
 
                     <div className="grid grid-cols-1 gap-2">

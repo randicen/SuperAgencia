@@ -284,11 +284,22 @@ const App: React.FC = () => {
               isInternalUpdate.current = false;
           }, 2500);
         } else {
-
             if (!isSilent) console.log("ℹ️ El estado local es igual o más nuevo que la nube.");
         }
       } else {
-          if (!isSilent) console.log("ℹ️ No se encontró estado en la nube (Base de datos vacía).");
+          // BUGFIX: Si el usuario es nuevo y la nube está vacía, debemos LIMPIAR el estado local persistente
+          // para que no vea los datos del perfil anterior cacheado en el navegador.
+          if (!isSilent) console.log("⚠️ Nuevo usuario detectado: limpiando caché local...");
+          setProjects([]);
+          setClients([]);
+          setTransactions([]);
+          setNotes([]);
+          setChatSessions([{ id: 'default', title: 'Nuevo Chat', messages: [], lastModified: Date.now() }]);
+          localStorage.removeItem('coo_spaces');
+          window.dispatchEvent(new Event('coo_cloud_data_received')); // Esto disparará que SpacesContext se reinicie
+          localStorage.setItem('coo_last_local_mod', Date.now().toString());
+          isInternalUpdate.current = true;
+          setTimeout(() => isInternalUpdate.current = false, 1500);
       }
       setHasCheckedCloud(true);
     } catch (err) {
@@ -642,6 +653,12 @@ const App: React.FC = () => {
       </div>
     );
   }
+
+  const handleSignOutWrapper = async () => {
+    // Al cerrar sesión, garantizamos que el local storage se limpie para evitar fugas.
+    localStorage.clear();
+    location.reload(); 
+  };
 
   if (!session) {
     return <LoginView onLoginSuccess={() => {}} />;
