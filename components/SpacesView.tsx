@@ -136,17 +136,17 @@ const formatFriendlyDate = (dateStr: string) => {
 // Column definitions
 type ColumnId = 'nombre' | 'startDate' | 'dueDate' | 'priority' | 'estado' | 'duration' | 'progress' | 'slack' | 'clientName' | 'totalValue' | 'financialProgress';
 const ALL_COLUMNS: { id: ColumnId; label: string; width: string }[] = [
-    { id: 'nombre', label: 'Nombre', width: 'flex-1 min-w-[200px]' },
-    { id: 'clientName', label: 'Cliente', width: 'w-28' },
-    { id: 'totalValue', label: 'Valor', width: 'w-24' },
-    { id: 'financialProgress', label: 'Pago', width: 'w-24' },
-    { id: 'startDate', label: 'Fecha inicio', width: 'w-28' },
-    { id: 'dueDate', label: 'Fecha límite', width: 'w-28' },
-    { id: 'priority', label: 'Prioridad', width: 'w-24' },
-    { id: 'slack', label: 'Margen', width: 'w-24' },
-    { id: 'estado', label: 'Estado', width: 'w-28' },
-    { id: 'duration', label: 'Esfuerzo', width: 'w-20' },
-    { id: 'progress', label: 'Progreso', width: 'w-20' },
+    { id: 'nombre', label: 'Nombre', width: 'w-[300px] shrink-0' },
+    { id: 'clientName', label: 'Cliente', width: 'w-32 shrink-0' },
+    { id: 'totalValue', label: 'Valor', width: 'w-28 shrink-0' },
+    { id: 'financialProgress', label: 'Pago', width: 'w-28 shrink-0' },
+    { id: 'startDate', label: 'Fecha inicio', width: 'w-36 shrink-0' },
+    { id: 'dueDate', label: 'Fecha límite', width: 'w-36 shrink-0' },
+    { id: 'priority', label: 'Prioridad', width: 'w-28 shrink-0' },
+    { id: 'slack', label: 'Margen', width: 'w-28 shrink-0' },
+    { id: 'estado', label: 'Estado', width: 'w-32 shrink-0' },
+    { id: 'duration', label: 'Esfuerzo', width: 'w-24 shrink-0' },
+    { id: 'progress', label: 'Progreso', width: 'w-24 shrink-0' },
 ];
 
 const ListaView: React.FC<{
