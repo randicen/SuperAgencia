@@ -395,19 +395,55 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
 
     let conflictDescription = '';
     if (hasConflict) {
-      if (remainingMinutes > 0) {
-        // ¿Qué bloqueó el avance?
-        const blockingAnchor = anchors.find(a => a.id !== project.id && a.start < projectDueDate && a.end > currentTime.getTime());
-        conflictDescription = blockingAnchor
-          ? `No hay espacio suficiente. Bloqueado por "${blockingAnchor.label}".`
-          : "No hay espacio suficiente en la jornada laboral para completar el esfuerzo pedido antes del plazo.";
-      } else if (endAfterDue) {
-        let parsedDue = project.dueDate || '';
+      const fmtDate = (d: string | number) => {
         try {
-            parsedDue = new Date(project.dueDate.includes('T') ? project.dueDate : `${project.dueDate}T23:59`).toLocaleString('es', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true });
-        } catch(e) {}
-        
-        conflictDescription = `⏳ Desplazada por la Cola: Debido a otras tareas bloqueando la agenda o con mayor prioridad, la IA tuvo que empujar el término de esta tarea hasta después de tu límite pactado (${parsedDue}).\n\n💡 Soluciones:\n1. Aumenta su 'Prioridad' o ponla 'Urgente' para que adelante a las demás.\n2. Extiende su Fecha Límite para darle más oxígeno.\n3. Reduce las horas de esfuerzo de esta tarea o las anteriores.`;
+          const date = typeof d === 'number' ? new Date(d) : new Date(d.includes('T') ? d : `${d}T23:59`);
+          return date.toLocaleString('es', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true });
+        } catch { return String(d); }
+      };
+
+      const fmtMins = (mins: number) => {
+        const h = Math.floor(Math.abs(mins) / 60);
+        const m = Math.round(Math.abs(mins) % 60);
+        return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+      };
+
+      // Determine: did any other task/event actually block us?
+      const blockingAnchors = anchors
+        .filter(a => a.id !== project.id)
+        .filter(a => {
+          // Anchors that overlap with our scheduling window (startDate -> dueDate)
+          const taskWindowStart = parseLocal(project.startDate) || currentTime.getTime();
+          return a.start < projectDueDate && a.end > taskWindowStart;
+        });
+
+      // Calculate pure time window
+      const windowStart = parseLocal(project.startDate) || currentTime.getTime();
+      const windowMinutes = Math.max(0, Math.floor((projectDueDate - windowStart) / 60000));
+      const effortMinutes = Math.round(project.duration * ((100 - project.progress) / 100));
+
+      if (remainingMinutes > 0) {
+        // Could not fit all effort
+        if (blockingAnchors.length > 0) {
+          const blocker = blockingAnchors[0];
+          conflictDescription = `🚫 Bloqueado por "${blocker.label}" (${fmtDate(blocker.start)} → ${fmtDate(blocker.end)}).\n\nEsta tarea necesita ${fmtMins(effortMinutes)} de esfuerzo, pero "${blocker.label}" ocupa parte del tiempo disponible antes del deadline.\n\n💡 Soluciones:\n1. Mueve o acorta "${blocker.label}" para liberar espacio.\n2. Extiende la Fecha Límite de esta tarea.\n3. Reduce las horas de esfuerzo.`;
+        } else {
+          conflictDescription = `⏱️ Ventana insuficiente: Esta tarea necesita ${fmtMins(effortMinutes)} de esfuerzo, pero tu jornada laboral no tiene suficiente tiempo disponible antes del deadline (${fmtDate(project.dueDate)}).\n\n💡 Soluciones:\n1. Extiende la Fecha Límite.\n2. Reduce las horas de esfuerzo.\n3. Amplía tu horario laboral en Configuración.`;
+        }
+      } else if (endAfterDue) {
+        // All effort fits, but finishes after deadline
+        const lastSlotEnd = new Date(slots[slots.length - 1].end);
+        const overflowMs = lastSlotEnd.getTime() - projectDueDate;
+        const overflowMins = Math.ceil(overflowMs / 60000);
+
+        if (blockingAnchors.length > 0 && effortMinutes <= windowMinutes) {
+          // There WAS enough raw time window, but a blocker pushed us out
+          const blocker = blockingAnchors.sort((a, b) => b.end - a.end)[0];
+          conflictDescription = `🚫 Desplazada por "${blocker.label}" (${fmtDate(blocker.start)} → ${fmtDate(blocker.end)}).\n\nLa tarea terminaría a las ${fmtDate(lastSlotEnd.toISOString())}, excediendo tu deadline por ${fmtMins(overflowMins)}.\n\n💡 Soluciones:\n1. Aumenta la prioridad para que pase antes de "${blocker.label}".\n2. Extiende la Fecha Límite.\n3. Mueve o reduce "${blocker.label}".`;
+        } else {
+          // Pure math: effort doesn't fit in the window
+          conflictDescription = `⏱️ Margen insuficiente: La tarea requiere ${fmtMins(effortMinutes)} de esfuerzo, pero entre el inicio (${fmtDate(project.startDate)}) y el deadline (${fmtDate(project.dueDate)}) solo hay ${fmtMins(windowMinutes)} disponibles.\n\nTerminaría a las ${fmtDate(lastSlotEnd.toISOString())}, excediendo el plazo por ${fmtMins(overflowMins)}.\n\n💡 Soluciones:\n1. Extiende la Fecha Límite para dar más margen.\n2. Reduce las horas de esfuerzo de ${fmtMins(effortMinutes)} a ≤${fmtMins(windowMinutes)}.`;
+        }
       }
       console.log(`[Scheduler] AUTO task conflict: ${project.projectName} -> ${conflictDescription}`, { remainingMinutes, endAfterDue });
     }
