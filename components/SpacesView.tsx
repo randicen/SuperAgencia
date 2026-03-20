@@ -1890,6 +1890,33 @@ const SpacesView: React.FC = () => {
                                             <p className="text-xs font-bold text-red-900 leading-snug whitespace-pre-line">
                                                 {editingTask.conflictDescription || "Esta tarea no se puede completar en el tiempo previsto debido a restricciones de agenda."}
                                             </p>
+                                            <div className="mt-4 pt-4 border-t border-red-200/60">
+                                                <p className="text-[9px] font-black uppercase text-red-700 tracking-widest mb-2 flex items-center gap-1.5">
+                                                    <i className="fa-solid fa-wand-magic-sparkles"></i> Resolución Rápida
+                                                </p>
+                                                <div className="flex flex-wrap gap-2">
+                                                    <button type="button" onClick={() => {
+                                                        const currentDue = new Date(editingTask.dueDate);
+                                                        currentDue.setDate(currentDue.getDate() + 1);
+                                                        setEditingTask({ ...editingTask, dueDate: currentDue.toISOString().split('T')[0] });
+                                                    }} className="px-3 py-1.5 bg-white/60 rounded-lg text-[9px] font-black uppercase text-red-700 border border-red-200 hover:bg-white hover:border-red-400 transition-all shadow-sm">
+                                                        <i className="fa-regular fa-calendar-plus mr-1"></i> +1 Día Límite
+                                                    </button>
+                                                    {editingTask.elasticity === 0 && (
+                                                        <button type="button" onClick={() => setEditingTask({ ...editingTask, elasticity: 1 })} className="px-3 py-1.5 bg-white/60 rounded-lg text-[9px] font-black uppercase text-red-700 border border-red-200 hover:bg-white hover:border-red-400 transition-all shadow-sm">
+                                                            <i className="fa-solid fa-puzzle-piece mr-1"></i> Hacer Flexible
+                                                        </button>
+                                                    )}
+                                                    {editingTask.priority !== 'ASAP' && (
+                                                        <button type="button" onClick={() => setEditingTask({ ...editingTask, priority: 'ASAP' })} className="px-3 py-1.5 bg-white/60 rounded-lg text-[9px] font-black uppercase text-red-700 border border-red-200 hover:bg-white hover:border-red-400 transition-all shadow-sm">
+                                                            <i className="fa-solid fa-bolt mr-1"></i> Subir a ASAP
+                                                        </button>
+                                                    )}
+                                                    <button type="button" onClick={() => setEditingTask({ ...editingTask, duration: Math.max(30, Math.round(editingTask.duration * 0.75)) })} className="px-3 py-1.5 bg-white/60 rounded-lg text-[9px] font-black uppercase text-red-700 border border-red-200 hover:bg-white hover:border-red-400 transition-all shadow-sm">
+                                                        <i className="fa-solid fa-compress mr-1"></i> -25% Esfuerzo
+                                                    </button>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
