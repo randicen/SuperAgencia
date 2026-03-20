@@ -273,7 +273,7 @@ const ListaView: React.FC<{
                             {task.estado === 'DONE' && <i className="fa-solid fa-check text-[8px]"></i>}
                         </button>
                         <span className={`text-sm font-medium truncate ${task.estado === 'DONE' ? 'line-through text-slate-400' : 'text-slate-700'}`}>{task.nombre}</span>
-                        {task.hasConflict && (
+                        {task.hasConflict && task.estado !== 'DONE' && (
                             <span className="text-[10px] text-red-500 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 flex items-center gap-1">
                                 <i className="fa-solid fa-triangle-exclamation"></i>
                                 Conflicto
@@ -289,6 +289,9 @@ const ListaView: React.FC<{
             case 'priority': return <span className={`text-[9px] font-black uppercase px-2 py-1 rounded ${getPriorityStyle(task.priority)}`}>{PRIORITY_LABELS[task.priority]}</span>;
             case 'slack': {
                 const slack = getFormattedSlack({ dueDate: task.dueDate, duration: task.duration });
+                if (task.estado === 'DONE') {
+                    return <span className="text-[9px] font-bold text-slate-400 bg-slate-100 px-2 py-1 rounded border border-slate-200 opacity-80">Completado</span>;
+                }
                 return <span className={`text-[9px] font-bold ${slack.isOverdue ? 'text-red-500 bg-red-50' : 'text-emerald-600 bg-emerald-50'} px-2 py-1 rounded border border-current opacity-80`}>{slack.text}</span>;
             }
             case 'estado': return <span className={`text-[9px] font-black uppercase px-2 py-1 rounded ${task.estado === 'TODO' ? 'bg-orange-100 text-orange-700' : task.estado === 'ACTIVE' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>{STATUS_LABELS[task.estado]}</span>;
@@ -518,7 +521,7 @@ const KanbanView: React.FC<{
                                         draggable
                                         onDragStart={(e) => handleDragStart(e, task.id)}
                                         onClick={() => onEditTask(task)}
-                                        className={`bg-white p-5 rounded-2xl border shadow-sm hover:shadow-md transition-all cursor-pointer group relative overflow-hidden ${task.hasConflict ? 'border-red-400 ring-1 ring-red-400 hover:border-red-500 hover:ring-red-500' : 'border-slate-200 hover:border-blue-200'}`}
+                                        className={`bg-white p-5 rounded-2xl border shadow-sm hover:shadow-md transition-all cursor-pointer group relative overflow-hidden ${task.hasConflict && task.estado !== 'DONE' ? 'border-red-400 ring-1 ring-red-400 hover:border-red-500 hover:ring-red-500' : 'border-slate-200 hover:border-blue-200'}`}
                                     >
                                         {/* Priority Indicator Line */}
                                         <div className={`absolute top-0 left-0 w-1 h-full ${task.priority === 'ASAP' ? 'bg-purple-500' :
@@ -554,8 +557,8 @@ const KanbanView: React.FC<{
                                             <div className="bg-slate-50 rounded-xl p-3 border border-slate-100/50 space-y-2">
                                                 <div className="flex justify-between items-center">
                                                     <span className="text-[9px] font-black text-slate-400 uppercase">Margen</span>
-                                                    <span className={`text-[9px] font-black ${slack.isOverdue ? 'text-red-500' : 'text-emerald-500'}`}>
-                                                        {slack.text}
+                                                    <span className={`text-[9px] font-black ${task.estado === 'DONE' ? 'text-slate-400' : slack.isOverdue ? 'text-red-500' : 'text-emerald-500'}`}>
+                                                        {task.estado === 'DONE' ? 'Completado' : slack.text}
                                                     </span>
                                                 </div>
                                                 <div className="flex justify-between items-center">
