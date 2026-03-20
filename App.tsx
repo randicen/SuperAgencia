@@ -14,9 +14,12 @@ import SpacesView from './components/SpacesView';
 import { SpacesProvider } from './contexts/SpacesContext';
 import { runAutoScheduling } from './utils/schedulingLogic';
 import ActiveWorkspaceName from './components/ActiveWorkspaceName';
-import { createClient } from '@supabase/supabase-js';
+import { supabase } from './contexts/AuthContext';
+import { useAuth } from './contexts/AuthContext';
+import LoginView from './components/LoginView';
 
 const App: React.FC = () => {
+  const { session, isLoading: isAuthLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'chat' | 'spaces' | 'finance' | 'notebook'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -90,14 +93,7 @@ const App: React.FC = () => {
         return;
     }
 
-    // @ts-ignore
-    const envUrl = import.meta.env.VITE_SUPABASE_URL;
-    // @ts-ignore
-    const envKey = import.meta.env.VITE_SUPABASE_KEY;
-    const supabaseUrl = envUrl || localStorage.getItem('coo_supabase_url');
-    const supabaseKey = envKey || localStorage.getItem('coo_supabase_key');
-
-    if (!supabaseUrl || !supabaseKey) return;
+    if (!session?.user?.id) return;
 
     // --- SEGURIDAD: NO SUBIR SI EL CAMBIO VINO DE LA NUBE ---
     if (isInternalUpdate.current) {
@@ -106,8 +102,6 @@ const App: React.FC = () => {
     }
 
     setSyncStatus('syncing');
-
-    const client = createClient(supabaseUrl, supabaseKey);
 
     try {
       // --- SEGURIDAD: NO SUBIR SI NO HEMOS DESCARGADO PRIMERO ---
@@ -119,10 +113,11 @@ const App: React.FC = () => {
       }
 
       // --- SEGURIDAD: PREVISIÓN DE SOBRESCRITURA (Conflict Resolution) ---
-      const { data: cloudRecord } = await client
+      const { data: cloudRecord } = await supabase
         .from('app_state_dump')
         .select('data')
         .eq('id', 'coo_master_state_v2')
+        .eq('user_id', session?.user?.id)
         .maybeSingle();
       
       const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
@@ -192,16 +187,16 @@ const App: React.FC = () => {
       // so if the realtime listener fires instantly, localLastSync is already up-to-date.
       localStorage.setItem('coo_last_local_mod', lastMod.toString());
 
-      const { data: returnData, error } = await client
-
+      const { data: returnData, error } = await supabase
         .from('app_state_dump')
         .upsert(
           { 
             id: 'coo_master_state_v2', 
+            user_id: session?.user?.id,
             data: fullState,
             updated_at: new Date().toISOString()
           }, 
-          { onConflict: 'id' }
+          { onConflict: 'id,user_id' }
         )
         .select();
 
@@ -224,29 +219,22 @@ const App: React.FC = () => {
       console.error("Sync Catch Error:", err);
       setSyncStatus('error');
     }
-  }, [projects, clients, transactions, rules, notes, chatSessions, spacesSyncTrigger]);
+  }, [projects, clients, transactions, rules, notes, chatSessions, spacesSyncTrigger, session]);
 
   // --- CLOUD DOWNLOAD LOGIC (INITIAL LOAD) ---
   const handleInitialDownload = useCallback(async (isSilent = false) => {
-    // @ts-ignore
-    const envUrl = import.meta.env.VITE_SUPABASE_URL;
-    // @ts-ignore
-    const envKey = import.meta.env.VITE_SUPABASE_KEY;
-    const supabaseUrl = envUrl || localStorage.getItem('coo_supabase_url');
-    const supabaseKey = envKey || localStorage.getItem('coo_supabase_key');
-
-    if (!supabaseUrl || !supabaseKey) {
+    if (!session?.user?.id) {
       setIsLoadingCloud(false);
       return;
     }
 
     try {
-      const client = createClient(supabaseUrl, supabaseKey);
-      const { data, error } = await client
+      const { data, error } = await supabase
         .from('app_state_dump')
         .select('data')
         .eq('id', 'coo_master_state_v2')
-        .single();
+        .eq('user_id', session?.user?.id)
+        .maybeSingle();
 
       if (data && data.data) {
         const cloudState = data.data;
@@ -328,18 +316,12 @@ const App: React.FC = () => {
     window.addEventListener('offline', handleOffline);
 
     // --- REAL-TIME LISTENER ---
-    // @ts-ignore
-    const envUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('coo_supabase_url');
-    // @ts-ignore
-    const envKey = import.meta.env.VITE_SUPABASE_KEY || localStorage.getItem('coo_supabase_key');
-    
     let channel: any;
-    if (envUrl && envKey) {
-        const client = createClient(envUrl, envKey);
-        channel = client
+    if (session?.user?.id) {
+        channel = supabase
             .channel('schema-db-changes')
             .on('postgres_changes', 
-                { event: '*', schema: 'public', table: 'app_state_dump', filter: 'id=eq.coo_master_state_v2' },
+                { event: '*', schema: 'public', table: 'app_state_dump', filter: `id=eq.coo_master_state_v2` },
                 () => {
                     console.log("☁️ Cambio detectado en otro dispositivo, descargando...");
                     handleInitialDownload(true);
@@ -650,13 +632,19 @@ const App: React.FC = () => {
 
   const activeMessages = chatSessions.find(s => s.id === currentChatId)?.messages || [];
 
-  if (isLoadingCloud) {
+  if (isLoadingCloud || isAuthLoading) {
     return (
       <div className="h-screen w-screen bg-[#F4F5F8] flex flex-col items-center justify-center font-sans">
         <div className="w-12 h-12 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mb-4"></div>
-        <p className="text-slate-600 font-black uppercase tracking-widest text-xs animate-pulse">Sincronizando con la nube...</p>
+        <p className="text-slate-600 font-black uppercase tracking-widest text-xs animate-pulse">
+          {isAuthLoading ? 'Autenticando...' : 'Sincronizando con la nube...'}
+        </p>
       </div>
     );
+  }
+
+  if (!session) {
+    return <LoginView onLoginSuccess={() => {}} />;
   }
 
   return (
