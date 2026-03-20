@@ -1,6 +1,7 @@
 
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { useSpaces } from '../contexts/SpacesContext';
+import { SpaceTask } from '../spacesTypes';
 
 const COLORS = ['#7C3AED', '#2563EB', '#059669', '#DC2626', '#F59E0B', '#EC4899'];
 
@@ -30,6 +31,52 @@ const SpacesSidebar: React.FC = () => {
 
     const activeWorkspace = state.workspaces.find(w => w.id === state.activeWorkspaceId);
     const espacios = activeWorkspace?.espacios || [];
+
+    // Compute upcoming tasks from the selected scope
+    const upcomingTasks = useMemo(() => {
+        const flattenTasks = (tasks: SpaceTask[]): SpaceTask[] => {
+            const result: SpaceTask[] = [];
+            for (const t of tasks) {
+                result.push(t);
+                if (t.subtasks) result.push(...flattenTasks(t.subtasks));
+            }
+            return result;
+        };
+
+        let collected: SpaceTask[] = [];
+        const activeSpace = espacios.find(s => s.id === state.activeSpaceId);
+        
+        if (state.activeListId && activeSpace) {
+            // Specific list selected
+            const findList = () => {
+                const directList = activeSpace.listas.find(l => l.id === state.activeListId);
+                if (directList) return directList;
+                for (const f of activeSpace.carpetas) {
+                    const fl = f.listas.find(l => l.id === state.activeListId);
+                    if (fl) return fl;
+                }
+                return null;
+            };
+            const list = findList();
+            if (list) collected = flattenTasks(list.tareas);
+        } else if (state.activeFolderId && activeSpace) {
+            // Folder selected
+            const folder = activeSpace.carpetas.find(f => f.id === state.activeFolderId);
+            if (folder) {
+                folder.listas.forEach(l => { collected.push(...flattenTasks(l.tareas)); });
+            }
+        } else if (activeSpace) {
+            // Space selected
+            activeSpace.listas.forEach(l => { collected.push(...flattenTasks(l.tareas)); });
+            activeSpace.carpetas.forEach(f => { f.listas.forEach(l => { collected.push(...flattenTasks(l.tareas)); }); });
+        }
+
+        // Filter out DONE and tasks without dueDate, then sort by dueDate ascending
+        return collected
+            .filter(t => t.estado !== 'DONE' && t.dueDate)
+            .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
+            .slice(0, 5);
+    }, [espacios, state.activeSpaceId, state.activeFolderId, state.activeListId]);
 
     const handleRenameSpace = (id: string) => {
         if (!editName.trim()) return;
@@ -535,6 +582,49 @@ const SpacesSidebar: React.FC = () => {
                     })
                 )}
             </div>
+
+            {/* UPCOMING TASKS MINI-TABLE */}
+            {upcomingTasks.length > 0 && (
+                <div className="border-t border-[#1E293B] px-3 py-3 shrink-0">
+                    <div className="flex items-center gap-2 mb-2">
+                        <i className="fa-solid fa-clock text-blue-400 text-[10px]"></i>
+                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Próximas Tareas</span>
+                    </div>
+                    <div className="space-y-1">
+                        {upcomingTasks.map((t) => {
+                            const due = new Date(t.dueDate);
+                            const now = new Date();
+                            const diffMs = due.getTime() - now.getTime();
+                            const isOverdue = diffMs < 0;
+                            const absDiff = Math.abs(diffMs);
+                            const daysLeft = Math.floor(absDiff / (1000 * 3600 * 24));
+                            const hoursLeft = Math.floor((absDiff % (1000 * 3600 * 24)) / (1000 * 3600));
+
+                            let timeLabel = '';
+                            if (daysLeft > 0) timeLabel = `${daysLeft}d ${hoursLeft}h`;
+                            else if (hoursLeft > 0) timeLabel = `${hoursLeft}h`;
+                            else timeLabel = '<1h';
+
+                            const priorityColor = t.priority === 'ASAP' ? 'bg-purple-500' : t.priority === 'High' ? 'bg-red-500' : t.priority === 'Medium' ? 'bg-orange-400' : 'bg-emerald-500';
+
+                            return (
+                                <div
+                                    key={t.id}
+                                    className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-[#1A1C23] transition-colors group cursor-default"
+                                >
+                                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityColor}`}></div>
+                                    <span className="text-[10px] text-slate-300 truncate flex-1 font-medium" title={t.nombre}>
+                                        {t.nombre}
+                                    </span>
+                                    <span className={`text-[9px] font-bold shrink-0 ${isOverdue ? 'text-red-400' : daysLeft === 0 ? 'text-amber-400' : 'text-slate-500'}`}>
+                                        {isOverdue ? `-${timeLabel}` : timeLabel}
+                                    </span>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            )}
 
             {/* CUSTOM DELETE CONFIRMATION MODAL */}
             {deleteModal && (
