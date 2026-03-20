@@ -3,6 +3,7 @@ import React, { useRef, useState, useEffect } from 'react';
 
 import { useSpaces } from '../contexts/SpacesContext';
 import { useAuth } from '../contexts/AuthContext';
+import UserProfileMenu from './UserProfileMenu';
 
 interface SidebarProps {
     activeTab: string;
@@ -369,21 +370,10 @@ alter publication supabase_realtime add table app_state_dump;
                     )}
 
                     {user && (
-                        <div className="flex items-center gap-3 bg-[#1A1C23] p-3 rounded-lg border border-[#2A2D35] mt-2 mb-2">
-                            <div className="w-8 h-8 rounded-full bg-indigo-600 flex items-center justify-center text-white font-bold text-xs ring-2 ring-indigo-500/30">
-                                {user.email?.charAt(0).toUpperCase() || <i className="fa-solid fa-user"></i>}
-                            </div>
-                            <div className="flex-1 min-w-0">
-                                <p className="text-xs text-white font-bold truncate">{user.email || 'Usuario SaaS'}</p>
-                                <p className="text-[9px] text-emerald-500 font-bold uppercase tracking-wider">Premium Plan</p>
-                            </div>
-                            <button onClick={() => { localStorage.clear(); signOut(); location.reload(); }} className="w-8 h-8 flex items-center justify-center text-slate-500 hover:text-white hover:bg-red-500/20 rounded-md transition-all group-logout">
-                                <i className="fa-solid fa-power-off group-hover-logout:scale-110 transition-transform"></i>
-                            </button>
-                        </div>
+                        <UserProfileMenu />
                     )}
 
-                    <div className="grid grid-cols-1 gap-2">
+                    <div className="grid grid-cols-1 gap-2 mt-2">
                         <button onClick={onExport} className="w-full flex items-center justify-center gap-2 bg-[#1A1C23] hover:bg-[#252833] py-2.5 rounded-md border border-[#2A2D35] transition-colors group">
                             <i className="fa-solid fa-cloud-arrow-down text-slate-500 group-hover:text-white transition-colors"></i>
                             <span className="text-[10px] font-bold text-slate-500 group-hover:text-white uppercase tracking-wider">Descargar Backup .JSON</span>

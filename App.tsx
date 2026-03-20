@@ -655,8 +655,9 @@ const App: React.FC = () => {
   }
 
   const handleSignOutWrapper = async () => {
-    // Al cerrar sesión, garantizamos que el local storage se limpie para evitar fugas.
-    localStorage.clear();
+    // Al cerrar sesión, limpiamos la memoria pero JAMÁS usando .clear() global,
+    // ya que eso destruye la persistencia necesaria para conectarse a Vercel/Supabase
+    ['coo_spaces', 'coo_last_local_mod', 'coo_last_sync_fingerprint'].forEach(k => localStorage.removeItem(k));
     location.reload(); 
   };
 
