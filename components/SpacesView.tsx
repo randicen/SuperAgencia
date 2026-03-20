@@ -123,8 +123,11 @@ const formatFriendlyDate = (dateStr: string) => {
     const month = date.toLocaleDateString('es-ES', { month: 'short' });
 
     if (hasTime) {
-        const time = date.toLocaleTimeString('es-ES', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
-        return `${day} ${month}, ${time}`;
+        const h = date.getHours();
+        const h12 = h % 12 || 12;
+        const m = date.getMinutes().toString().padStart(2, '0');
+        const ampm = h >= 12 ? 'pm' : 'am';
+        return `${day} ${month}, ${h12}:${m} ${ampm}`;
     }
     return `${day} ${month}`;
 };
@@ -1911,9 +1914,17 @@ const SpacesView: React.FC = () => {
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                     {editingTask.scheduledSlots.map((s, idx) => (
                                                         <div key={idx} className="text-[10px] font-bold text-slate-700 bg-slate-50 p-2 rounded-lg border flex justify-between items-center">
-                                                            <span>{new Date(s.start).toLocaleString('es', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true })}</span>
-                                                            <i className="fa-solid fa-arrow-right text-[8px] text-slate-300"></i>
-                                                            <span>{new Date(s.end).toLocaleString('es', { hour: '2-digit', minute: '2-digit', hour12: true })}</span>
+                                                            <span>{(() => {
+                                                                const d = new Date(s.start);
+                                                                const h = d.getHours();
+                                                                return `${d.getDate()}/${d.getMonth() + 1} ${h % 12 || 12}:${d.getMinutes().toString().padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`;
+                                                            })()}</span>
+                                                            <i className="fa-solid fa-arrow-right text-[8px] text-slate-300 mx-2"></i>
+                                                            <span>{(() => {
+                                                                const d = new Date(s.end);
+                                                                const h = d.getHours();
+                                                                return `${h % 12 || 12}:${d.getMinutes().toString().padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`;
+                                                            })()}</span>
                                                         </div>
                                                     ))}
                                                 </div>

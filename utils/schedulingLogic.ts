@@ -403,7 +403,11 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
             const dStr = String(d);
             date = new Date(dStr.includes('T') ? dStr : `${dStr}T23:59`);
           }
-          return date.toLocaleString('es', { day: '2-digit', month: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
+          const h = date.getHours();
+          const h12 = h % 12 || 12;
+          const m = date.getMinutes().toString().padStart(2, '0');
+          const ampm = h >= 12 ? 'pm' : 'am';
+          return `${date.getDate()}/${(date.getMonth() + 1).toString().padStart(2, '0')}, ${h12}:${m} ${ampm}`;
         } catch { return String(d); }
       };
 
