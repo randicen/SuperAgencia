@@ -103,9 +103,12 @@ const SchedulingQueue = ({ projects, onEditTask }: { projects: Project[], onEdit
                                         <span className="text-[8px] font-black text-slate-600 uppercase mb-0.5">Esfuerzo:</span>
                                         <span className="text-[10px] font-bold text-slate-300">{formatDuration(p.duration)}</span>
                                     </div>
-                                    <div className="flex flex-col items-end">
-                                        <span className="text-[8px] font-black text-slate-600 uppercase mb-0.5">Entrega:</span>
-                                        <span className="text-[10px] font-bold text-slate-400">{p.dueDate}</span>
+                                    <div className="flex flex-col items-end text-right">
+                                        <span className="text-[8px] font-black text-slate-600 uppercase mb-0.5">Fin Estimado:</span>
+                                        <span className="text-[10px] font-bold text-slate-400">
+                                            {p.autoSchedule && p.endDate ? p.endDate.replace('T', ', ').substring(0, 16) : p.dueDate.substring(0, 10)}
+                                            {p.autoSchedule && <i className="fa-solid fa-robot text-blue-500 text-[8px] ml-1 opacity-70"></i>}
+                                        </span>
                                     </div>
                                 </div>
                             </div>

@@ -328,7 +328,18 @@ const ListaView: React.FC<{
                     </div>
                 );
             case 'startDate': return <span className="text-xs text-slate-500 whitespace-nowrap">{formatFriendlyDate(task.startDate)}</span>;
-            case 'dueDate': return <span className="text-xs text-slate-500 whitespace-nowrap">{formatFriendlyDate(task.dueDate)}</span>;
+            case 'dueDate': 
+                return (
+                    <div className="flex flex-col">
+                        <span className="text-xs text-slate-700 font-bold whitespace-nowrap">
+                            {formatFriendlyDate(task.autoSchedule && task.endDate ? task.endDate : task.dueDate)}
+                            {task.autoSchedule && <i className="fa-solid fa-robot text-blue-500 text-[9px] ml-1 opacity-70" title="Calculado automático"></i>}
+                        </span>
+                        {task.autoSchedule && task.endDate && (
+                            <span className="text-[9px] text-slate-400 whitespace-nowrap">Límite: {formatFriendlyDate(task.dueDate)}</span>
+                        )}
+                    </div>
+                );
             case 'priority': return <span className={`text-[9px] font-black uppercase px-2 py-1 rounded ${getPriorityStyle(task.priority)}`}>{PRIORITY_LABELS[task.priority]}</span>;
             case 'slack': {
                 const slack = getFormattedSlack({ dueDate: task.dueDate, duration: task.duration });
@@ -612,9 +623,15 @@ const KanbanView: React.FC<{
                                                 </div>
                                                 <div className="flex justify-between items-center pt-2 border-t border-slate-200/50">
                                                     <span className="text-[9px] font-black text-slate-400 uppercase">Entrega</span>
-                                                    <span className="text-[9px] font-bold text-slate-600">
-                                                        {formatFriendlyDate(task.dueDate)}
-                                                    </span>
+                                                    <div className="text-right">
+                                                        <span className="text-[10px] font-bold text-slate-700 block">
+                                                            {formatFriendlyDate(task.autoSchedule && task.endDate ? task.endDate : task.dueDate)}
+                                                            {task.autoSchedule && <i className="fa-solid fa-robot text-blue-500 text-[9px] ml-1 opacity-70" title="Calculado automático"></i>}
+                                                        </span>
+                                                        {task.autoSchedule && task.endDate && (
+                                                            <span className="text-[8px] text-slate-400">Límite: {formatFriendlyDate(task.dueDate)}</span>
+                                                        )}
+                                                    </div>
                                                 </div>
                                                 {task.totalValue > 0 && (
                                                     <div className="flex justify-between items-center pt-2 border-t border-slate-200/50">
