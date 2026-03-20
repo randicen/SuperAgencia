@@ -151,6 +151,49 @@ const EffortInput = ({ duration, onChange, className = "" }: { duration: number,
     );
 };
 
+// Progress Input component (slider + quick buttons)
+const ProgressInput = ({ progress, onChange, className = "" }: { progress: number, onChange: (p: number) => void, className?: string }) => {
+    return (
+        <div className={`space-y-3 flex-1 ${className}`}>
+            <div className="flex justify-between items-center mb-1">
+                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-1.5">
+                    <i className="fa-solid fa-bars-progress text-slate-300"></i> Progreso Total
+                </label>
+                <span className={`text-[10px] font-black px-2 py-0.5 rounded-md ${progress === 100 ? 'bg-emerald-100 text-emerald-700' : progress > 0 ? 'bg-blue-100 text-blue-700' : 'bg-slate-100 text-slate-500'}`}>
+                    {progress}%
+                </span>
+            </div>
+            
+            <div className="flex items-center gap-3">
+                <input
+                    type="range" min="0" max="100" step="1"
+                    className="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                    value={progress}
+                    onChange={(e) => onChange(Number(e.target.value))}
+                />
+                <input
+                    type="number" min="0" max="100"
+                    className="w-16 p-3 bg-slate-50 border border-slate-200 rounded-xl font-black text-xs text-center outline-none focus:ring-4 ring-blue-500/10 transition-all"
+                    value={progress}
+                    onChange={(e) => {
+                        const val = e.target.value;
+                        const p = val === '' ? 0 : Math.min(100, Math.max(0, parseInt(val) || 0));
+                        onChange(p);
+                    }}
+                />
+            </div>
+            
+            <div className="flex gap-1 justify-between mt-2">
+                {[0, 25, 50, 75, 100].map(p => (
+                    <button key={p} type="button" onClick={() => onChange(p)} className={`flex-1 text-[9px] font-black py-1.5 rounded-lg transition-colors ${progress === p ? 'bg-slate-800 text-white shadow-md' : 'bg-white border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}>
+                        {p}%
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+};
+
 // Helper for user-friendly date formatting
 const formatFriendlyDate = (dateStr: string) => {
     if (!dateStr) return '-';
@@ -2049,20 +2092,13 @@ const SpacesView: React.FC = () => {
                             </div>
 
                             <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
-                                <div className="space-y-1.5 flex-1">
-                                    <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Progreso (%)</label>
-                                    <input
-                                        type="number"
-                                        min="0"
-                                        max="100"
-                                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs"
-                                        value={editingTask.progress}
-                                        onChange={(e) => {
-                                            const val = Math.min(100, Math.max(0, Number(e.target.value)));
-                                            setEditingTask({ ...editingTask, progress: val, estado: getStatusFromProgress(val) });
-                                        }}
-                                    />
-                                </div>
+                                <ProgressInput 
+                                    progress={editingTask.progress} 
+                                    onChange={(val) => {
+                                        setEditingTask({ ...editingTask, progress: val, estado: getStatusFromProgress(val) });
+                                    }} 
+                                    className="flex-1 p-4 bg-slate-50 rounded-2xl border border-slate-200"
+                                />
                                 <div className="space-y-1.5 flex-1">
                                     <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Estado</label>
                                     <select
