@@ -29,6 +29,15 @@ const SpacesSidebar: React.FC = () => {
     // State for Custom Delete Modal
     const [deleteModal, setDeleteModal] = useState<{ type: string; payload: any; message: string; subMessage: string } | null>(null);
 
+    const [showUpcoming, setShowUpcoming] = useState(true);
+    const [, setTick] = useState(0);
+
+    // Auto-update timer for "Próximas Tareas"
+    React.useEffect(() => {
+        const timer = setInterval(() => setTick(t => t + 1), 60000); // Update every minute
+        return () => clearInterval(timer);
+    }, []);
+
     const activeWorkspace = state.workspaces.find(w => w.id === state.activeWorkspaceId);
     const espacios = activeWorkspace?.espacios || [];
 
@@ -586,43 +595,53 @@ const SpacesSidebar: React.FC = () => {
             {/* UPCOMING TASKS MINI-TABLE */}
             {upcomingTasks.length > 0 && (
                 <div className="border-t border-[#1E293B] px-3 py-3 shrink-0">
-                    <div className="flex items-center gap-2 mb-2">
-                        <i className="fa-solid fa-clock text-blue-400 text-[10px]"></i>
-                        <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Próximas Tareas</span>
-                    </div>
-                    <div className="space-y-1">
-                        {upcomingTasks.map((t) => {
-                            const due = new Date(t.dueDate);
-                            const now = new Date();
-                            const diffMs = due.getTime() - now.getTime();
-                            const isOverdue = diffMs < 0;
-                            const absDiff = Math.abs(diffMs);
-                            const daysLeft = Math.floor(absDiff / (1000 * 3600 * 24));
-                            const hoursLeft = Math.floor((absDiff % (1000 * 3600 * 24)) / (1000 * 3600));
+                    <button 
+                        onClick={() => setShowUpcoming(!showUpcoming)} 
+                        className="flex items-center justify-between w-full group mb-2"
+                    >
+                        <div className="flex items-center gap-2">
+                            <i className="fa-solid fa-clock text-blue-400 text-[10px]"></i>
+                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Próximas Tareas</span>
+                        </div>
+                        <i className={`fa-solid fa-chevron-${showUpcoming ? 'down' : 'up'} text-[8px] text-slate-600 group-hover:text-slate-400 transition-colors`}></i>
+                    </button>
+                    
+                    {showUpcoming && (
+                        <div className="space-y-1 animate-in slide-in-from-bottom-2 duration-300">
+                            {upcomingTasks.map((t) => {
+                                const due = new Date(t.dueDate);
+                                const now = new Date();
+                                const diffMs = due.getTime() - now.getTime();
+                                const isOverdue = diffMs < 0;
+                                const absDiff = Math.abs(diffMs);
+                                const daysLeft = Math.floor(absDiff / (1000 * 3600 * 24));
+                                const hoursLeft = Math.floor((absDiff % (1000 * 3600 * 24)) / (1000 * 3600));
+                                const minsLeft = Math.floor((absDiff % (1000 * 3600)) / (1000 * 60));
 
-                            let timeLabel = '';
-                            if (daysLeft > 0) timeLabel = `${daysLeft}d ${hoursLeft}h`;
-                            else if (hoursLeft > 0) timeLabel = `${hoursLeft}h`;
-                            else timeLabel = '<1h';
+                                let timeLabel = '';
+                                if (daysLeft > 0) timeLabel = `${daysLeft}d ${hoursLeft}h`;
+                                else if (hoursLeft > 0) timeLabel = `${hoursLeft}h ${minsLeft}m`;
+                                else timeLabel = `${minsLeft}m`;
 
-                            const priorityColor = t.priority === 'ASAP' ? 'bg-purple-500' : t.priority === 'High' ? 'bg-red-500' : t.priority === 'Medium' ? 'bg-orange-400' : 'bg-emerald-500';
+                                const priorityColor = t.priority === 'ASAP' ? 'bg-purple-500' : t.priority === 'High' ? 'bg-red-500' : t.priority === 'Medium' ? 'bg-orange-400' : 'bg-emerald-500';
 
-                            return (
-                                <div
-                                    key={t.id}
-                                    className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-[#1A1C23] transition-colors group cursor-default"
-                                >
-                                    <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityColor}`}></div>
-                                    <span className="text-[10px] text-slate-300 truncate flex-1 font-medium" title={t.nombre}>
-                                        {t.nombre}
-                                    </span>
-                                    <span className={`text-[9px] font-bold shrink-0 ${isOverdue ? 'text-red-400' : daysLeft === 0 ? 'text-amber-400' : 'text-slate-500'}`}>
-                                        {isOverdue ? `-${timeLabel}` : timeLabel}
-                                    </span>
-                                </div>
-                            );
-                        })}
-                    </div>
+                                return (
+                                    <div
+                                        key={t.id}
+                                        className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-[#1A1C23] transition-colors group cursor-default"
+                                    >
+                                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityColor}`}></div>
+                                        <span className="text-[10px] text-slate-300 truncate flex-1 font-medium" title={t.nombre}>
+                                            {t.nombre}
+                                        </span>
+                                        <span className={`text-[9px] font-bold shrink-0 ${isOverdue ? 'text-red-400' : daysLeft === 0 ? 'text-amber-400' : 'text-slate-500'}`}>
+                                            {isOverdue ? `-${timeLabel}` : timeLabel}
+                                        </span>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
                 </div>
             )}
 

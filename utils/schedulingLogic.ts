@@ -395,10 +395,15 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
 
     let conflictDescription = '';
     if (hasConflict) {
-      const fmtDate = (d: string | number) => {
+      const fmtDate = (d: string | number | Date) => {
         try {
-          const date = typeof d === 'number' ? new Date(d) : new Date(d.includes('T') ? d : `${d}T23:59`);
-          return date.toLocaleString('es', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit', hour12: true });
+          let date: Date;
+          if (d instanceof Date) date = d;
+          else {
+            const dStr = String(d);
+            date = new Date(dStr.includes('T') ? dStr : `${dStr}T23:59`);
+          }
+          return date.toLocaleString('es', { day: '2-digit', month: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
         } catch { return String(d); }
       };
 

@@ -123,7 +123,7 @@ const formatFriendlyDate = (dateStr: string) => {
     const month = date.toLocaleDateString('es-ES', { month: 'short' });
 
     if (hasTime) {
-        const time = date.toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' });
+        const time = date.toLocaleTimeString('es-ES', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
         return `${day} ${month}, ${time}`;
     }
     return `${day} ${month}`;
@@ -1944,7 +1944,7 @@ const SpacesView: React.FC = () => {
                                                         <div>
                                                             <p className="text-[10px] font-black text-orange-800 uppercase tracking-wide">Restricción de Subtarea</p>
                                                             <p className="text-[10px] text-orange-700 leading-tight mt-0.5">
-                                                                Debe estar entre <span className="font-bold">{new Date(parent.startDate).toLocaleString()}</span> y <span className="font-bold">{new Date(parent.endDate || parent.dueDate).toLocaleString()}</span> (Tarea Padre)
+                                                                Debe estar entre <span className="font-bold">{new Date(parent.startDate).toLocaleString('es', { day: '2-digit', month: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()}</span> y <span className="font-bold">{new Date(parent.endDate || parent.dueDate).toLocaleString('es', { day: '2-digit', month: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()}</span> (Tarea Padre)
                                                             </p>
                                                         </div>
                                                     </div>
