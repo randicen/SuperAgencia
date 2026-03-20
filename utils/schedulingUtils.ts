@@ -20,47 +20,47 @@ export const getBusinessDays = (startDate: Date, endDate: Date): number => {
 // Assuming SpaceTask has: dueDate, duration (minutes), startDate (optional), endDate (optional)
 
 export const getFormattedSlack = (task: { dueDate: string; duration: number; }): { text: string; isOverdue: boolean; days: number } => {
-    const today = new Date();
-    // today.setHours(0, 0, 0, 0); // Keep time for more precision? Or just strip it.
-    // Logic below seems day-based. Let's keep it consistent but safe.
-    today.setHours(0, 0, 0, 0);
+    const now = new Date();
 
-    // Parse dueDate safely
     if (!task.dueDate) return { text: 'Sin Fecha', isOverdue: false, days: 999 };
 
     const due = new Date(task.dueDate);
     if (isNaN(due.getTime())) return { text: 'Error Fecha', isOverdue: false, days: 0 };
 
-    // If input was just YYYY-MM-DD, set to end of that day
     if (!task.dueDate.includes('T')) {
         due.setHours(23, 59, 59);
-    } else {
-        // If it has time, stick with it? Or normalize to EOD for margin calc?
-        // Original logic forced EOD. Let's respect time if present, relative to 'now'.
-        // But the original code compared against today-start-of-day.
-        // Let's stick to simple day diff for consistency with "Days Margin".
-        // Or better: calculate precise hours if less than a day?
-        // The return type is "Xd Margen".
     }
 
-    const timeDiff = due.getTime() - today.getTime();
-    const daysDiff = Math.ceil(timeDiff / (1000 * 3600 * 24));
+    const timeDiffMs = due.getTime() - now.getTime();
+    
+    // Effort in ms
+    const durationMs = (task.duration || 0) * 60 * 1000;
+    
+    // Slack = Time until deadline - Time needed to complete
+    const slackMs = timeDiffMs - durationMs;
+    const slackDays = slackMs / (1000 * 3600 * 24);
+    
+    const isOverdue = slackMs < 0;
+    const absSlackMs = Math.abs(slackMs);
+    
+    const d = Math.floor(absSlackMs / (1000 * 3600 * 24));
+    const h = Math.floor((absSlackMs % (1000 * 3600 * 24)) / (1000 * 3600));
+    const m = Math.floor((absSlackMs % (1000 * 3600)) / (1000 * 60));
 
-    // Calculate effort in days (approx 8h/day)
-    // Fallback duration to 0 if NaN/undefined
-    const duration = task.duration || 0;
-    const effortDays = Math.ceil((duration / 60) / 8);
-
-    // Slack = Days until deadline - Days needed to complete
-    const slackDays = daysDiff - effortDays;
-
-    if (isNaN(slackDays)) return { text: 'NaN', isOverdue: false, days: 0 }; // Should not happen now
-
-    if (slackDays < 0) {
-        return { text: `${Math.abs(slackDays)}d Vencido`, isOverdue: true, days: slackDays };
+    let textStr = '';
+    if (d > 0) {
+        textStr = h > 0 ? `${d}d ${h}h` : `${d}d`;
+    } else if (h > 0) {
+        textStr = m > 0 ? `${h}h ${m}m` : `${h}h`;
     } else {
-        return { text: `${slackDays}d Margen`, isOverdue: false, days: slackDays };
+        textStr = m > 0 ? `${m}m` : '0m';
     }
+
+    return { 
+        text: isOverdue ? `${textStr} Venc.` : `${textStr} Margen`, 
+        isOverdue, 
+        days: slackDays // Keep float so sorting by days still works
+    };
 };
 
 export const getPriorityColor = (priority: string | Priority) => {
