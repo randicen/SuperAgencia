@@ -374,6 +374,27 @@ alter publication supabase_realtime add table app_state_dump;
                     )}
 
                     <div className="grid grid-cols-1 gap-2 mt-2">
+                        {onImport && (
+                            <>
+                                <button onClick={() => fileInputRef.current?.click()} className="w-full flex items-center justify-center gap-2 bg-[#1A1C23] hover:bg-indigo-500/20 py-2.5 rounded-md border border-[#2A2D35] hover:border-indigo-500/50 transition-all group">
+                                    <i className="fa-solid fa-cloud-arrow-up text-indigo-400 group-hover:text-indigo-300 transition-colors"></i>
+                                    <span className="text-[10px] font-bold text-indigo-400 group-hover:text-indigo-300 uppercase tracking-wider">Restaurar Data Antigua</span>
+                                </button>
+                                <input 
+                                    type="file" 
+                                    ref={fileInputRef} 
+                                    className="hidden" 
+                                    accept=".json" 
+                                    onChange={(e) => {
+                                        const file = e.target.files?.[0];
+                                        if (file && onImport) {
+                                            onImport(file);
+                                            e.target.value = ''; // Reset input to allow rapid re-upload if needed
+                                        }
+                                    }} 
+                                />
+                            </>
+                        )}
                         <button onClick={onExport} className="w-full flex items-center justify-center gap-2 bg-[#1A1C23] hover:bg-[#252833] py-2.5 rounded-md border border-[#2A2D35] transition-colors group">
                             <i className="fa-solid fa-cloud-arrow-down text-slate-500 group-hover:text-white transition-colors"></i>
                             <span className="text-[10px] font-bold text-slate-500 group-hover:text-white uppercase tracking-wider">Descargar Backup .JSON</span>
