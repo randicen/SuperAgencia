@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { supabase } from '../contexts/AuthContext';
+import { supabase, isUsingDummyKeys } from '../contexts/AuthContext';
 
 interface LoginViewProps {
   onLoginSuccess: () => void;
@@ -9,6 +9,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const [isLogin, setIsLogin] = useState(true);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
 
@@ -22,6 +23,12 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         const { error } = await supabase.auth.signInWithPassword({ email, password });
         if (error) throw error;
       } else {
+        if (password !== confirmPassword) {
+            throw new Error('Las contraseñas no coinciden.');
+        }
+        if (password.length < 6) {
+            throw new Error('La contraseña debe tener al menos 6 caracteres.');
+        }
         const { error } = await supabase.auth.signUp({ email, password });
         if (error) throw error;
         else alert('Revisa tu correo para confirmar tu cuenta (si tienes habilitada la confirmación por email en Supabase).');
@@ -95,12 +102,28 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
           {errorMsg && (
             <div className="bg-red-500/10 border border-red-500/20 text-red-400 px-4 py-3 rounded-xl text-sm font-medium flex items-center gap-2">
-              <i className="fa-solid fa-circle-exclamation"></i>
-              {errorMsg}
+              <i className="fa-solid fa-circle-exclamation shrink-0"></i>
+              <p>{errorMsg}</p>
             </div>
           )}
 
-          <div className="space-y-4">
+          {isUsingDummyKeys && (
+              <div className="bg-orange-500/10 border-2 border-orange-500/50 text-orange-400 px-4 py-4 rounded-xl text-sm font-bold flex flex-col gap-2 relative overflow-hidden">
+                  <div className="absolute top-0 left-0 w-1 h-full bg-orange-500"></div>
+                  <div className="flex items-center gap-2 text-orange-500">
+                    <i className="fa-solid fa-triangle-exclamation text-lg"></i>
+                    <h3 className="uppercase tracking-widest text-xs">Variables Vercel Faltantes</h3>
+                  </div>
+                  <p className="text-slate-300 font-medium">
+                      El servidor no cargó las llaves `VITE_SUPABASE_URL` ni `KEY`. Por seguridad, el login ha sido bloqueado.
+                  </p>
+                  <p className="text-xs text-orange-300 font-medium mt-1">
+                      (Si acabas de ponerlas en Vercel, recuerda darle al botón de <strong>Redeploy</strong> y recargar esta página).
+                  </p>
+              </div>
+          )}
+
+          <div className={`space-y-4 ${isUsingDummyKeys ? 'opacity-30 pointer-events-none grayscale' : ''}`}>
             <button 
               onClick={handleGoogleAuth}
               disabled={loading}
@@ -140,6 +163,20 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 />
               </div>
 
+              {!isLogin && (
+                  <div className="space-y-1">
+                    <label className="text-xs font-bold uppercase tracking-widest text-slate-400 ml-1">Confirmar Contraseña</label>
+                    <input 
+                      type="password" 
+                      required
+                      value={confirmPassword}
+                      onChange={(e) => setConfirmPassword(e.target.value)}
+                      className="w-full bg-[#1E293B] border border-slate-700 text-white rounded-xl px-4 py-3 outline-none focus:ring-2 focus:ring-indigo-500 transition-all placeholder:text-slate-600"
+                      placeholder="••••••••"
+                    />
+                  </div>
+              )}
+
               <button 
                 type="submit" 
                 disabled={loading}
@@ -152,7 +189,7 @@ const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
           <div className="text-center pt-4">
             <button 
-              onClick={() => setIsLogin(!isLogin)}
+              onClick={() => { setIsLogin(!isLogin); setErrorMsg(''); setConfirmPassword(''); }}
               className="text-slate-400 hover:text-white text-sm font-medium transition-colors"
             >
               {isLogin ? '¿No tienes cuenta? Regístrate aquí' : '¿Ya tienes cuenta? Inicia sesión'}

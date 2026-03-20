@@ -5,6 +5,8 @@ import { createClient, User, Session, SupabaseClient } from '@supabase/supabase-
 const envUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('coo_supabase_url');
 const envKey = import.meta.env.VITE_SUPABASE_KEY || localStorage.getItem('coo_supabase_key');
 
+export const isUsingDummyKeys = !envUrl || !envKey;
+
 // Fallback dummy para evitar que 'createClient' crashee toda la App de React en un "White Screen"
 // La UI cargará y permitirá al usuario introducir las credenciales reales en el menú lateral.
 export const supabase: SupabaseClient = createClient(
