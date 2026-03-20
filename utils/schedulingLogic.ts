@@ -398,8 +398,11 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
       const fmtDate = (d: string | number | Date) => {
         try {
           let date: Date;
-          if (d instanceof Date) date = d;
-          else {
+          if (d instanceof Date) {
+            date = d;
+          } else if (typeof d === 'number') {
+            date = new Date(d);
+          } else {
             const dStr = String(d);
             date = new Date(dStr.includes('T') ? dStr : `${dStr}T23:59`);
           }
