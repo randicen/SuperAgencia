@@ -1015,6 +1015,8 @@ const SpacesView: React.FC = () => {
                 if (!ws) return;
                 
                 const extractTasks = (tasks: SpaceTask[]) => {
+                    const now = new Date();
+                    const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
                     tasks.forEach(t => {
                         // Use the editingTask's live values if this is the task being edited
                         const src = t.id === editingTask.id ? editingTask : t;
@@ -1023,8 +1025,8 @@ const SpacesView: React.FC = () => {
                             clientId: '',
                             clientName: src.clientName || '',
                             projectName: src.nombre,
-                            startDate: src.startDate || new Date().toISOString().split('T')[0],
-                            endDate: src.endDate || new Date().toISOString().split('T')[0],
+                            startDate: src.startDate || localToday,
+                            endDate: src.endDate || localToday,
                             priority: src.priority === 'ASAP' ? 'ASAP' : src.priority === 'High' ? 'High' : src.priority === 'Medium' ? 'Medium' : 'Low',
                             progress: src.progress,
                             totalValue: src.totalValue,

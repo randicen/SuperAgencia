@@ -28,15 +28,24 @@ const recalculateScheduling = (state: SpacesState): SpacesState => {
     const allTasks: Project[] = [];
     const allEvents: { nombre: string, startDate: string, endDate: string }[] = [];
 
+    const getLocalDateStr = () => {
+        const now = new Date();
+        const y = now.getFullYear();
+        const m = String(now.getMonth() + 1).padStart(2, '0');
+        const d = String(now.getDate()).padStart(2, '0');
+        return `${y}-${m}-${d}`;
+    };
+
     const extractProjectsRecursive = (tasks: SpaceTask[]) => {
         tasks.forEach(t => {
+            const localToday = getLocalDateStr();
             const p: Project = {
                 id: t.id,
                 clientId: '',
                 clientName: t.clientName || '',
                 projectName: t.nombre,
-                startDate: t.startDate || new Date().toISOString().split('T')[0],
-                endDate: t.endDate || new Date().toISOString().split('T')[0],
+                startDate: t.startDate || localToday,
+                endDate: t.endDate || localToday,
                 priority: t.priority === 'ASAP' ? Priority.ASAP : t.priority === 'High' ? Priority.HIGH : t.priority === 'Medium' ? Priority.MEDIUM : Priority.LOW,
                 progress: t.progress,
                 totalValue: t.totalValue,
