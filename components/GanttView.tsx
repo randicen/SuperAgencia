@@ -435,17 +435,7 @@ const GanttView: React.FC<GanttViewProps> = ({
                             </div>
                             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                                 {/* CONVERSION DE INPUT A HORAS PERO STORAGE EN MINUTOS */}
-                                <div className="space-y-1.5 flex-1">
-                                    <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Esfuerzo (Horas)</label>
-                                    <input
-                                        type="number"
-                                        step="0.5"
-                                        min="0.1"
-                                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs"
-                                        value={editingProject.duration ? editingProject.duration / 60 : ''}
-                                        onChange={e => setEditingProject({ ...editingProject, duration: Math.round(Number(e.target.value) * 60) })}
-                                    />
-                                </div>
+                                <EffortInput duration={editingProject.duration} onChange={d => setEditingProject({ ...editingProject, duration: d })} className="flex-1" />
                                 <div className="space-y-1.5 flex-1"><label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Prioridad</label><select className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl font-black text-xs uppercase" value={editingProject.priority} onChange={e => setEditingProject({ ...editingProject, priority: e.target.value as Priority })}><option value={Priority.ASAP}>ASAP</option><option value={Priority.HIGH}>High</option><option value={Priority.MEDIUM}>Medium</option><option value={Priority.LOW}>Low</option></select></div>
                                 <div className="space-y-1.5 flex-1 flex flex-col justify-center"><label className="text-[9px] font-black uppercase text-slate-400 tracking-widest mb-2">Auto-Agendamiento</label><div className="flex items-center gap-3"><button type="button" onClick={() => setEditingProject({ ...editingProject, autoSchedule: !editingProject.autoSchedule })} className={`w-14 h-8 rounded-full transition-all relative ${editingProject.autoSchedule ? 'bg-blue-600' : 'bg-slate-300'}`}><div className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all ${editingProject.autoSchedule ? 'left-7' : 'left-1 shadow-sm'}`}></div></button><span className="text-[10px] font-black uppercase text-slate-600">{editingProject.autoSchedule ? 'ON' : 'OFF'}</span></div></div>
                             </div>
@@ -558,17 +548,7 @@ const GanttView: React.FC<GanttViewProps> = ({
                                         <div className="grid grid-cols-2 gap-4">
                                             <div className="space-y-1.5 flex-1"><label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Tipo Deadline</label><select className="w-full p-4 bg-white border border-slate-200 rounded-2xl font-black text-xs uppercase" value={newTask.deadlineType} onChange={e => setNewTask({ ...newTask, deadlineType: e.target.value as any })}><option value="Soft Deadline">Soft Deadline</option><option value="Hard Deadline">Hard Deadline</option></select></div>
                                             {/* INPUT DE HORAS EN MODAL DE CREACIÓN */}
-                                            <div className="space-y-1.5 flex-1">
-                                                <label className="text-[9px] font-black uppercase text-slate-400 ml-1 tracking-widest">Esfuerzo (Horas)</label>
-                                                <input
-                                                    type="number"
-                                                    step="0.5"
-                                                    min="0.1"
-                                                    className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all"
-                                                    value={newTask.duration / 60}
-                                                    onChange={(e) => setNewTask({ ...newTask, duration: Math.round(Number(e.target.value) * 60) })}
-                                                />
-                                            </div>
+                                            <EffortInput duration={newTask.duration} onChange={d => setNewTask({ ...newTask, duration: d })} className="flex-1" />
                                         </div>
                                         {/* Elasticity Toggle */}
                                         <div className="p-3 bg-white rounded-xl border border-slate-200 flex items-center justify-between">
@@ -599,6 +579,49 @@ const GanttView: React.FC<GanttViewProps> = ({
                     </form>
                 </div>
             )}
+        </div>
+    );
+};
+
+// Effort Input component (hours + minutes)
+const EffortInput = ({ duration, onChange, className = "" }: { duration: number, onChange: (d: number) => void, className?: string }) => {
+    const hours = Math.floor(duration / 60);
+    const minutes = duration % 60;
+    return (
+        <div className={`space-y-1.5 ${className}`}>
+            <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest ml-1 flex items-center gap-1.5">
+                <i className="fa-solid fa-stopwatch text-slate-300"></i> Esfuerzo Estimado
+            </label>
+            <div className="flex items-center gap-2">
+                <div className="relative flex-1">
+                    <input
+                        type="number" min="0" 
+                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all pr-8"
+                        value={hours || ''} placeholder="0"
+                        onChange={e => {
+                            const val = e.target.value;
+                            const h = val === '' ? 0 : Math.max(0, parseInt(val) || 0);
+                            onChange(h * 60 + minutes);
+                        }}
+                    />
+                    <span className="absolute right-3 top-[17px] text-[10px] font-black text-slate-400 uppercase">h</span>
+                </div>
+                <div className="relative flex-1">
+                    <input
+                        type="number" min="0" max="59" 
+                        className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all pr-8"
+                        value={minutes === 0 && hours === 0 ? '' : minutes} placeholder="0"
+                        onChange={e => {
+                            const val = e.target.value;
+                            let m = val === '' ? 0 : parseInt(val) || 0;
+                            if (m < 0) m = 0;
+                            if (m > 59) m = 59;
+                            onChange(hours * 60 + m);
+                        }}
+                    />
+                    <span className="absolute right-3 top-[17px] text-[10px] font-black text-slate-400 uppercase">m</span>
+                </div>
+            </div>
         </div>
     );
 };
