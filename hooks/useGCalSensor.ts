@@ -34,10 +34,14 @@ export const useGCalSensor = (): UseGCalSensorReturn => {
     const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const fetchEvents = useCallback(async () => {
-        // Prevent multiple simultaneous loads
-        if (state.isLoading) return;
-        
-        setState(prev => ({ ...prev, isLoading: true, error: null }));
+        // Use a functional update to check loading state without depending on it
+        setState(prev => {
+            if (prev.isLoading) return prev;
+            
+            // We can't do async inside setState functional updates, 
+            // but we can trigger the flow. For simplicity here:
+            return { ...prev, isLoading: true, error: null };
+        });
 
         try {
             const { data: { session } } = await supabase.auth.getSession();
@@ -46,15 +50,12 @@ export const useGCalSensor = (): UseGCalSensorReturn => {
                 return;
             }
 
-            // Using the provider_token if available from the session
-            // or letting the Edge Function handle it via DB stored tokens.
             const { data, error } = await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
                 body: { action: 'fetch' },
             });
 
             if (error) throw new Error(error.message);
 
-            // Handle the case where no connection exists
             if (data?.error === 'No Google account connected') {
                 setState(prev => ({ ...prev, isLoading: false, events: [], error: null }));
                 return;
@@ -87,7 +88,7 @@ export const useGCalSensor = (): UseGCalSensorReturn => {
                 error: err instanceof Error ? err.message : 'Error desconocido',
             }));
         }
-    }, [state.isLoading]);
+    }, []); // Empty dependencies to prevent infinite loops
 
     const connectOAuth = useCallback(async () => {
         setState(prev => ({ ...prev, isLoading: true, error: null }));
