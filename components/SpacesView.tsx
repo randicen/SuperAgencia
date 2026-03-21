@@ -1676,6 +1676,11 @@ const SpacesView: React.FC = () => {
         });
     }
 
+    // Agregar también los eventos importados de Google Calendar
+    if (state.gcalEvents && state.gcalEvents.length > 0) {
+        events = [...events, ...state.gcalEvents];
+    }
+
     return (
         <div className="flex-1 flex flex-col bg-[#F4F5F8] overflow-hidden">
             {/* Header with breadcrumb and view switcher */}
