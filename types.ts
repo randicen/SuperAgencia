@@ -69,6 +69,7 @@ export interface BusinessRules {
   workingDays: number[];
   workingHoursStart: string;
   workingHoursEnd: string;
+  gcalIcalUrl?: string;
   customRules: string;
   historicalSeasonality: Record<string, number>;
 }

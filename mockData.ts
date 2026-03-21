@@ -15,6 +15,7 @@ export const DEFAULT_RULES: BusinessRules = {
   workingDays: [1, 2, 3, 4, 5],
   workingHoursStart: "09:00",
   workingHoursEnd: "17:00",
+  gcalIcalUrl: "",
   customRules: "valor: correccion de formato = 5.000 COP por pagina",
   historicalSeasonality: {
     'Ene': 0, 'Feb': 0, 'Mar': 0, 'Abr': 0, 'May': 0, 'Jun': 0,

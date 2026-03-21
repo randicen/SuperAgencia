@@ -84,6 +84,7 @@ export interface SpacesState {
     activeListId: string | null;
     expandedIds: string[];
     rules: BusinessRules;
+    gcalEvents: SpaceEvent[];
 }
 
 export type SpacesAction =
@@ -114,5 +115,6 @@ export type SpacesAction =
     | { type: 'TOGGLE_EXPAND'; payload: { id: string } }
     | { type: 'UPDATE_RULES'; payload: BusinessRules }
     | { type: 'LOAD_STATE'; payload: SpacesState }
+    | { type: 'SET_GCAL_EVENTS'; payload: { events: SpaceEvent[] } }
     // MIGRATION HELPER
     | { type: 'MIGRATE_OLD_STATE'; payload: { oldEspacios: Space[] } };

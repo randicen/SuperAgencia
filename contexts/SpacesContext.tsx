@@ -15,6 +15,7 @@ const initialState: SpacesState = {
     activeListId: null,
     expandedIds: [],
     rules: DEFAULT_RULES,
+    gcalEvents: [],
 };
 
 // Helper: Run scheduling on the active workspace
@@ -27,6 +28,15 @@ const recalculateScheduling = (state: SpacesState): SpacesState => {
     // 1. Flatten ALL tasks AND events from active workspace
     const allTasks: Project[] = [];
     const allEvents: { nombre: string, startDate: string, endDate: string }[] = [];
+    
+    // Add Google Calendar Events as fixed anchors
+    state.gcalEvents.forEach(e => {
+        allEvents.push({ 
+            nombre: `[GCal] ${e.nombre}`, 
+            startDate: e.startDate, 
+            endDate: e.endDate 
+        });
+    });
 
     const getLocalDateStr = () => {
         const now = new Date();
@@ -198,8 +208,14 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
                 activeSpaceId: loadedState.activeSpaceId,
                 activeFolderId: loadedState.activeFolderId,
                 activeListId: loadedState.activeListId,
-                expandedIds: loadedState.expandedIds || []
+                expandedIds: loadedState.expandedIds || [],
+                gcalEvents: loadedState.gcalEvents || []
             };
+        }
+
+        // Migration Check: Ensure gcalEvents exist
+        if (!loadedState.gcalEvents) {
+            loadedState.gcalEvents = [];
         }
 
         // Ensure we have an active workspace if none is set
@@ -520,6 +536,12 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
                 rules: action.payload
             };
             break;
+        case 'SET_GCAL_EVENTS':
+            newState = {
+                ...state,
+                gcalEvents: action.payload.events
+            };
+            break;
     }
 
     // Construct new state with updated workspace
@@ -529,8 +551,8 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
         workspaces: state.workspaces.map((w, i) => i === activeWorkspaceIndex ? { ...w, espacios: updatedEspacios } : w)
     };
 
-    // Run scheduling if task operation, data, or rules changed
-    if (['ADD_TASK', 'UPDATE_TASK', 'DELETE_TASK', 'ADD_EVENT', 'UPDATE_EVENT', 'DELETE_EVENT', 'UPDATE_RULES'].includes(action.type)) {
+    // Run scheduling if task operation, data, rules or GCal changed
+    if (['ADD_TASK', 'UPDATE_TASK', 'DELETE_TASK', 'ADD_EVENT', 'UPDATE_EVENT', 'DELETE_EVENT', 'UPDATE_RULES', 'SET_GCAL_EVENTS'].includes(action.type)) {
         return recalculateScheduling(newState);
     }
 
@@ -583,6 +605,17 @@ export function SpacesProvider({ children }: { children: ReactNode }) {
         };
         window.addEventListener('coo_cloud_data_received', handleCloudData);
         return () => window.removeEventListener('coo_cloud_data_received', handleCloudData);
+    }, []);
+
+    // Escuchar eventos de Google Calendar (Sensor)
+    useEffect(() => {
+        const handleGCalEvents = (e: any) => {
+            if (e.detail) {
+                dispatch({ type: 'SET_GCAL_EVENTS', payload: { events: e.detail } });
+            }
+        };
+        window.addEventListener('coo_gcal_events_updated', handleGCalEvents);
+        return () => window.removeEventListener('coo_gcal_events_updated', handleGCalEvents);
     }, []);
 
     // Save to localStorage

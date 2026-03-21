@@ -13,6 +13,8 @@
     "@headlessui/react": "^2.2.9",
     "@supabase/supabase-js": "2.39.3",
     "@vitejs/plugin-react": "^5.1.2",
+    "ical.js": "^2.2.1",
+    "node-ical": "^0.25.6",
     "openai": "^6.29.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",

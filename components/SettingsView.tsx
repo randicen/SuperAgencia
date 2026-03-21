@@ -131,6 +131,58 @@ const SettingsView: React.FC = () => {
                         </div>
                     </div>
                 </div>
+
+                {/* GOOGLE CALENDAR SENSOR */}
+                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between">
+                    <div>
+                        <div className="flex items-center gap-4 mb-2">
+                            <div className="w-12 h-12 bg-rose-50 rounded-2xl flex items-center justify-center text-rose-600 shadow-sm">
+                                <i className="fa-brands fa-google text-xl"></i>
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-slate-800 uppercase tracking-wider text-sm">Google Calendar Sensor</h3>
+                                <p className="text-xs text-slate-400">Sensor de disponibilidad pasivo</p>
+                            </div>
+                        </div>
+
+                        <div className="space-y-4 mt-6">
+                            <div>
+                                <label className="text-[10px] font-black text-slate-400 uppercase mb-2 block tracking-widest">URL secreta iCal (.ics)</label>
+                                <div className="relative group">
+                                    <input
+                                        type="url"
+                                        placeholder="https://calendar.google.com/calendar/ical/.../basic.ics"
+                                        value={rules.gcalIcalUrl || ''}
+                                        onChange={(e) => updateRules({ ...rules, gcalIcalUrl: e.target.value })}
+                                        className="w-full p-4 pr-12 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 text-xs focus:ring-4 focus:ring-rose-500/10 focus:border-rose-200 transition-all outline-none"
+                                    />
+                                    <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300">
+                                        <i className="fa-solid fa-link text-xs"></i>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div className="mt-8 p-4 bg-rose-50 rounded-2xl border border-rose-100/50">
+                        <div className="flex gap-3">
+                            <i className="fa-solid fa-circle-info text-rose-500 mt-0.5"></i>
+                            <div className="space-y-2">
+                                <p className="text-[10px] leading-relaxed text-rose-900 font-medium">
+                                    La SuperAgencia leerá tus eventos de Google para <b>no agendar tareas inteligentes encima de ellos</b>. Tus datos nunca salen de tu navegador.
+                                </p>
+                                <a 
+                                    href="https://support.google.com/calendar/answer/37648?hl=es#zippy=%2Cver-la-direcci%C3%B3n-secreta" 
+                                    target="_blank" 
+                                    rel="noopener noreferrer"
+                                    className="text-[9px] font-black uppercase text-rose-600 hover:text-rose-700 flex items-center gap-1 transition-colors"
+                                >
+                                    ¿Cómo obtener mi URL secreta? <i className="fa-solid fa-arrow-up-right-from-square text-[8px]"></i>
+                                </a>
+                            </div>
+                        </div>
+                    </div>
+                </div>
             </div>
 
             {/* INFO PANEL */}
