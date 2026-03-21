@@ -1,12 +1,4 @@
-// Supabase Edge Function: Google Calendar Sensor
-// Fetches user's iCal feed server-side, parses with ical.js, caches in DB.
-// No CORS issues, no third-party proxies, RFC 5545 compliant.
-
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
-import ICAL from "https://esm.sh/ical.js@2.1.0";
-
-const CACHE_TTL_MS = 5 * 60 * 1000; // 5 minutes
-const EVENT_WINDOW_DAYS = 14; // Only import next 14 days
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -14,268 +6,133 @@ const corsHeaders = {
   "Access-Control-Allow-Methods": "POST, OPTIONS",
 };
 
-interface ParsedEvent {
+interface GoogleEvent {
   id: string;
-  nombre: string;
-  startDate: string;
-  endDate: string;
+  summary: string;
   description?: string;
+  start: { dateTime?: string; date?: string };
+  end: { dateTime?: string; date?: string };
 }
 
-const toLocalISO = (jcalTime: typeof ICAL.Time): string => {
-  if (!jcalTime) return "";
-  const jsDate = jcalTime.toJSDate();
-  const y = jsDate.getFullYear();
-  const m = String(jsDate.getMonth() + 1).padStart(2, "0");
-  const d = String(jsDate.getDate()).padStart(2, "0");
-  const h = String(jsDate.getHours()).padStart(2, "0");
-  const min = String(jsDate.getMinutes()).padStart(2, "0");
-  return `${y}-${m}-${d}T${h}:${min}`;
-};
-
-const parseICalFeed = (icalData: string): ParsedEvent[] => {
-  const jcalData = ICAL.parse(icalData);
-  const comp = new ICAL.Component(jcalData);
-  const vevents = comp.getAllSubcomponents("vevent");
-
-  const now = new Date();
-  const limit = new Date();
-  limit.setDate(now.getDate() + EVENT_WINDOW_DAYS);
-
-  const events: ParsedEvent[] = [];
-
-  for (const vevent of vevents) {
-    const event = new ICAL.Event(vevent);
-    const summary = event.summary || "Evento GCal";
-    const dtStart = event.startDate;
-    const dtEnd = event.endDate;
-
-    if (!dtStart || !dtEnd) continue;
-
-    // Handle recurring events (expand occurrences within window)
-    if (event.isRecurring()) {
-      const iterator = event.iterator();
-      let next = iterator.next();
-      let safety = 0;
-
-      while (next && safety < 200) {
-        safety++;
-        const occurrenceStart = next.toJSDate();
-
-        if (occurrenceStart > limit) break;
-
-        if (occurrenceStart >= now) {
-          const durationMs = dtEnd.toJSDate().getTime() - dtStart.toJSDate().getTime();
-          const occurrenceEnd = new Date(occurrenceStart.getTime() + durationMs);
-
-          events.push({
-            id: `gcal-${event.uid}-${occurrenceStart.getTime()}`,
-            nombre: summary,
-            startDate: toLocalISO(next),
-            endDate: toLocalISO(ICAL.Time.fromJSDate(occurrenceEnd, false)),
-            description: event.description || undefined,
-          });
-        }
-
-        next = iterator.next();
-      }
-    } else {
-      // Single event
-      const startJs = dtStart.toJSDate();
-      if (startJs >= now && startJs <= limit) {
-        events.push({
-          id: `gcal-${event.uid}`,
-          nombre: summary,
-          startDate: toLocalISO(dtStart),
-          endDate: toLocalISO(dtEnd),
-          description: event.description || undefined,
-        });
-      }
-    }
-  }
-
-  // Sort by start date
-  events.sort((a, b) => new Date(a.startDate).getTime() - new Date(b.startDate).getTime());
-
-  return events;
-};
-
 Deno.serve(async (req) => {
-  // CORS preflight
-  if (req.method === "OPTIONS") {
-    return new Response("ok", { headers: corsHeaders });
-  }
+  if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
 
   try {
-    // 1. Auth: Extract user from JWT
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "No authorization header" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
+    const authHeader = req.headers.get("Authorization")!;
     const supabaseUrl = Deno.env.get("SUPABASE_URL")!;
     const supabaseServiceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-    const supabaseAnonKey = Deno.env.get("SUPABASE_ANON_KEY")!;
 
-    // Client with user's JWT (for RLS-protected reads)
-    const userClient = createClient(supabaseUrl, supabaseAnonKey, {
-      global: { headers: { Authorization: authHeader } },
-    });
+    const supabase = createClient(supabaseUrl, supabaseServiceKey);
 
-    // Service client (for cache writes, bypasses RLS)
-    const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
+    // Get user from JWT
+    const { data: { user }, error: authError } = await createClient(supabaseUrl, Deno.env.get("SUPABASE_ANON_KEY")!, {
+      global: { headers: { Authorization: authHeader } }
+    }).auth.getUser();
 
-    // Get authenticated user
-    const { data: { user }, error: authError } = await userClient.auth.getUser();
-    if (authError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
+    if (authError || !user) throw new Error("Unauthorized");
 
     const userId = user.id;
 
-    // 2. Handle URL save (POST with icalUrl)
-    let body: { action?: string; icalUrl?: string } = {};
-    if (req.method === "POST") {
-      body = await req.json();
-      console.log(`[gcal-sync] Received POST action: ${body.action}`);
-    }
-
-    if (body.action === "save_url") {
-      console.log(`[gcal-sync] Saving URL for user: ${userId}`);
-      
-      const { error: upsertError } = await serviceClient.from("user_gcal_settings").upsert({
-        user_id: userId,
-        ical_url: body.icalUrl || "",
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id" });
-
-      if (upsertError) {
-        console.error(`[gcal-sync] DB Error saving settings:`, upsertError);
-        return new Response(JSON.stringify({ error: `DB Error (Settings): ${upsertError.message}` }), {
-          status: 500,
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-
-      // Invalidate cache
-      const { error: deleteError } = await serviceClient.from("gcal_cache").delete().eq("user_id", userId);
-      if (deleteError) {
-          console.warn(`[gcal-sync] Could not clear cache, but settings saved:`, deleteError);
-      }
-
-      console.log(`[gcal-sync] URL saved successfully`);
-      return new Response(JSON.stringify({ ok: true }), {
+    // 1. Get the provider_token (Google Access Token) from Supabase Auth
+    // Note: This requires 'Google' provider to be enabled and user to be linked.
+    const { data: identities, error: identityError } = await supabase.auth.admin.listUserIdentities(userId);
+    
+    if (identityError) throw identityError;
+    
+    const googleIdentity = identities.find(i => i.provider === 'google');
+    if (!googleIdentity) {
+      return new Response(JSON.stringify({ error: "No Google account connected" }), {
+        status: 200, // Return 200 so the frontend handles it gracefully
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // 3. Fetch events (check cache first)
-    const { data: cacheRow, error: cacheError } = await serviceClient
-      .from("gcal_cache")
-      .select("events_json, fetched_at")
-      .eq("user_id", userId)
-      .maybeSingle();
+    // Attempt to get the provider token. 
+    // In Supabase, if the user just logged in, the token is in the session.
+    // For background sync, we'd normally need a refresh_token flow.
+    // For now, we expect the frontend to provide the token or use the current active one.
+    
+    // FETCH GOOGLE CALENDAR EVENTS
+    // Access token is often available in the auth.identities or via a specific table if you store it.
+    // For this implementation, we assume Supabase is managing the Google session.
+    
+    // IMPORTANT: To call Google API, we need the access_token. 
+    // Usually, the easiest way in an Edge Function is to receive it from the client 
+    // OR have a table where we store the refresh_token.
+    
+    // For MVP, let's try to get it from the user's current session or identity metadata.
+    const accessToken = googleIdentity.identity_data.provider_token || googleIdentity.identity_data.access_token;
 
-    if (cacheError) {
-        console.error(`[gcal-sync] DB Error reading cache:`, cacheError);
+    if (!accessToken) {
+       // If no token in identity, we need the user to re-authenticate or we provide a fallback message
+       return new Response(JSON.stringify({ error: "No access token found. Please re-connect Google." }), {
+         status: 200,
+         headers: { ...corsHeaders, "Content-Type": "application/json" },
+       });
     }
 
-    if (cacheRow) {
-      const cacheAge = Date.now() - new Date(cacheRow.fetched_at).getTime();
-      if (cacheAge < CACHE_TTL_MS) {
-        console.log(`[gcal-sync] Serving from cache (age: ${Math.round(cacheAge/1000)}s)`);
-        return new Response(JSON.stringify({
-          events: cacheRow.events_json,
-          cachedAt: cacheRow.fetched_at,
-          fromCache: true,
-        }), {
-          headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-      }
-    }
+    const now = new Date();
+    const timeMin = now.toISOString();
+    const timeMax = new Date(now.getTime() + 14 * 24 * 60 * 60 * 1000).toISOString();
 
-    // 4. Cache miss or expired: fetch from Google
-    const { data: settings, error: settingsError } = await serviceClient
-      .from("user_gcal_settings")
-      .select("ical_url")
-      .eq("user_id", userId)
-      .maybeSingle();
+    const gcalUrl = `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${timeMin}&timeMax=${timeMax}&singleEvents=true&orderBy=startTime`;
 
-    if (settingsError) {
-        console.error(`[gcal-sync] DB Error reading settings:`, settingsError);
-        return new Response(JSON.stringify({ error: `DB Error (Read Settings): ${settingsError.message}` }), {
-            status: 500,
-            headers: { ...corsHeaders, "Content-Type": "application/json" },
-        });
-    }
-
-    if (!settings?.ical_url) {
-      console.log(`[gcal-sync] No iCal URL for user ${userId}`);
-      return new Response(JSON.stringify({
-        events: [],
-        error: "No iCal URL configured",
-      }), {
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
-    // 5. Fetch iCal feed (server-side, no CORS)
-    console.log(`[gcal-sync] Fetching iCal from Google...`);
-    const icalResponse = await fetch(settings.ical_url, {
-      headers: { "User-Agent": "SuperAgencia-GCal-Sensor/1.0" },
+    console.log(`[gcal-sync] Fetching from Google API for ${user.email}...`);
+    const gcalRes = await fetch(gcalUrl, {
+      headers: { Authorization: `Bearer ${accessToken}` }
     });
 
-    if (!icalResponse.ok) {
-      console.error(`[gcal-sync] Google responded with: ${icalResponse.status}`);
-      return new Response(JSON.stringify({
-        events: [],
-        error: `Google Calendar responde: ${icalResponse.status} ${icalResponse.statusText}`,
-      }), {
-        status: 502,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    if (!gcalRes.ok) {
+        const errText = await gcalRes.text();
+        console.error(`[gcal-sync] Google API Error:`, errText);
+        // If 401, token expired
+        if (gcalRes.status === 401) {
+            return new Response(JSON.stringify({ error: "Google session expired. Please reconnect." }), {
+                status: 200,
+                headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+        }
+        throw new Error(`Google API returned ${gcalRes.status}`);
     }
 
-    const icalData = await icalResponse.text();
+    const gcalData = await gcalRes.json();
+    const googleEvents: GoogleEvent[] = gcalData.items || [];
 
-    // 6. Parse with ical.js (RFC 5545 compliant)
-    console.log(`[gcal-sync] Parsing iCal data (${icalData.length} chars)...`);
-    const events = parseICalFeed(icalData);
+    // Map to SpaceEvents
+    const events = googleEvents.map(ge => {
+      const start = ge.start.dateTime || ge.start.date || "";
+      const end = ge.end.dateTime || ge.end.date || "";
+      
+      // Convert to local ISO format (remove Z or offset if needed, but our app prefers ISO)
+      return {
+        id: `gcal-${ge.id}`,
+        nombre: ge.summary || "Evento Google",
+        startDate: start.substring(0, 16), // Format: YYYY-MM-DDTHH:mm
+        endDate: end.substring(0, 16),
+        description: ge.description
+      };
+    });
 
-    // 7. Update cache
-    const nowTimestamp = new Date().toISOString();
-    const { error: cacheUpsertError } = await serviceClient.from("gcal_cache").upsert({
+    // Cache the result
+    const nowIso = new Date().toISOString();
+    await supabase.from("gcal_cache").upsert({
       user_id: userId,
       events_json: events,
-      fetched_at: nowTimestamp,
-    }, { onConflict: "user_id" });
+      fetched_at: nowIso,
+    });
 
-    if (cacheUpsertError) {
-        console.error(`[gcal-sync] DB Error updating cache:`, cacheUpsertError);
-    }
-
-    console.log(`[gcal-sync] Success! Found ${events.length} events.`);
     return new Response(JSON.stringify({
       events,
-      cachedAt: nowTimestamp,
+      cachedAt: nowIso,
       fromCache: false,
-      count: events.length,
+      count: events.length
     }), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
 
   } catch (err) {
     console.error("[gcal-sync] Fatal Error:", err);
-    return new Response(JSON.stringify({
-      error: err instanceof Error ? err.message : "Internal server error",
-      events: [],
-    }), {
+    return new Response(JSON.stringify({ error: err.message, events: [] }), {
       status: 500,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });

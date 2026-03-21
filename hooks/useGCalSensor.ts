@@ -18,7 +18,7 @@ interface GCalSensorState {
 }
 
 interface UseGCalSensorReturn extends GCalSensorState {
-    saveIcalUrl: (url: string) => Promise<boolean>;
+    connectOAuth: () => Promise<void>;
     refresh: () => Promise<void>;
 }
 
@@ -34,6 +34,9 @@ export const useGCalSensor = (): UseGCalSensorReturn => {
     const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const fetchEvents = useCallback(async () => {
+        // Prevent multiple simultaneous loads
+        if (state.isLoading) return;
+        
         setState(prev => ({ ...prev, isLoading: true, error: null }));
 
         try {
@@ -43,14 +46,17 @@ export const useGCalSensor = (): UseGCalSensorReturn => {
                 return;
             }
 
+            // Using the provider_token if available from the session
+            // or letting the Edge Function handle it via DB stored tokens.
             const { data, error } = await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
                 body: { action: 'fetch' },
             });
 
             if (error) throw new Error(error.message);
 
-            if (data?.error === 'No iCal URL configured') {
-                setState(prev => ({ ...prev, isLoading: false, events: [] }));
+            // Handle the case where no connection exists
+            if (data?.error === 'No Google account connected') {
+                setState(prev => ({ ...prev, isLoading: false, events: [], error: null }));
                 return;
             }
 
@@ -72,7 +78,7 @@ export const useGCalSensor = (): UseGCalSensorReturn => {
                 fromCache: data.fromCache || false,
             });
 
-            console.log(`[GCal Sensor] ${events.length} events loaded (cache: ${data.fromCache})`);
+            console.log(`[GCal Sensor] ${events.length} Google events loaded.`);
         } catch (err) {
             console.error('[GCal Sensor] Error:', err);
             setState(prev => ({
@@ -81,28 +87,33 @@ export const useGCalSensor = (): UseGCalSensorReturn => {
                 error: err instanceof Error ? err.message : 'Error desconocido',
             }));
         }
-    }, []);
+    }, [state.isLoading]);
 
-    const saveIcalUrl = useCallback(async (url: string): Promise<boolean> => {
+    const connectOAuth = useCallback(async () => {
+        setState(prev => ({ ...prev, isLoading: true, error: null }));
         try {
-            const { error } = await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
-                body: { action: 'save_url', icalUrl: url },
+            const { error } = await supabase.auth.signInWithOAuth({
+                provider: 'google',
+                options: {
+                    redirectTo: window.location.origin,
+                    queryParams: {
+                        access_type: 'offline',
+                        prompt: 'consent',
+                    },
+                    scopes: 'https://www.googleapis.com/auth/calendar.readonly',
+                },
             });
 
-            if (error) throw new Error(error.message);
-
-            // After saving, immediately fetch fresh events
-            await fetchEvents();
-            return true;
+            if (error) throw error;
         } catch (err) {
-            console.error('[GCal Sensor] Save URL error:', err);
+            console.error('[GCal Sensor] OAuth error:', err);
             setState(prev => ({
                 ...prev,
-                error: err instanceof Error ? err.message : 'Error al guardar URL',
+                isLoading: false,
+                error: err instanceof Error ? err.message : 'Error al conectar con Google',
             }));
-            return false;
         }
-    }, [fetchEvents]);
+    }, []);
 
     // Initial fetch + polling
     useEffect(() => {
@@ -117,7 +128,7 @@ export const useGCalSensor = (): UseGCalSensorReturn => {
 
     return {
         ...state,
-        saveIcalUrl,
+        connectOAuth,
         refresh: fetchEvents,
     };
 };

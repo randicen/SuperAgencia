@@ -18,10 +18,6 @@ const SettingsView: React.FC = () => {
     const { rules } = state;
     const gcal = useGCalSensor();
 
-    const [icalUrlInput, setIcalUrlInput] = useState('');
-    const [isSaving, setIsSaving] = useState(false);
-    const [saveSuccess, setSaveSuccess] = useState<boolean | null>(null);
-
     const updateRules = (newRules: typeof rules) => {
         dispatch({ type: 'UPDATE_RULES', payload: newRules });
     };
@@ -34,22 +30,6 @@ const SettingsView: React.FC = () => {
             ? rules.workingDays.filter(d => d !== dayId)
             : [...rules.workingDays, dayId].sort();
         updateRules({ ...rules, workingDays: newDays });
-    };
-
-    const handleSaveGCalUrl = async () => {
-        if (!icalUrlInput.trim()) return;
-        setIsSaving(true);
-        setSaveSuccess(null);
-        const ok = await gcal.saveIcalUrl(icalUrlInput.trim());
-        setIsSaving(false);
-        setSaveSuccess(ok);
-        if (ok) {
-            // Dispatch events to scheduling engine
-            if (gcal.events.length > 0) {
-                dispatch({ type: 'SET_GCAL_EVENTS', payload: { events: gcal.events } });
-            }
-        }
-        setTimeout(() => setSaveSuccess(null), 4000);
     };
 
     // When gcal events change, push to scheduler
@@ -180,51 +160,55 @@ const SettingsView: React.FC = () => {
                             )}
                         </div>
 
-                        <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-3 mt-6">
-                            <div className="relative">
-                                <input
-                                    type="url"
-                                    placeholder="https://calendar.google.com/calendar/ical/.../basic.ics"
-                                    value={icalUrlInput}
-                                    onChange={(e) => setIcalUrlInput(e.target.value)}
-                                    className="w-full p-4 pr-12 bg-slate-50 border border-slate-100 rounded-2xl font-bold text-slate-700 text-xs focus:ring-4 focus:ring-rose-500/10 focus:border-rose-200 transition-all outline-none"
-                                />
-                                <div className="absolute right-4 top-1/2 -translate-y-1/2 text-slate-300">
-                                    <i className="fa-solid fa-link text-xs"></i>
+                        <div className="flex flex-col items-center justify-center py-6 mt-4 border-2 border-dashed border-slate-100 rounded-[2rem] bg-slate-50/50">
+                            {gcal.lastSynced ? (
+                                <div className="text-center">
+                                    <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-3 shadow-sm border-4 border-white">
+                                        <i className="fa-solid fa-check text-2xl"></i>
+                                    </div>
+                                    <p className="text-sm font-black text-slate-800 uppercase tracking-tight">Calendario Sincronizado</p>
+                                    <p className="text-[10px] text-slate-400 mt-1">Google Calendar está enviando datos en tiempo real.</p>
+                                    
+                                    <button 
+                                        onClick={gcal.connectOAuth} 
+                                        className="mt-6 text-[10px] font-black text-rose-500 uppercase tracking-widest hover:text-rose-700 transition-colors flex items-center gap-2 mx-auto"
+                                    >
+                                        <i className="fa-solid fa-arrows-rotate"></i> Volver a conectar cuenta
+                                    </button>
                                 </div>
-                            </div>
-                            <button
-                                onClick={handleSaveGCalUrl}
-                                disabled={isSaving || !icalUrlInput.trim()}
-                                className={`px-8 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg ${
-                                    isSaving 
-                                        ? 'bg-slate-200 text-slate-400 cursor-wait' 
-                                        : saveSuccess === true
-                                            ? 'bg-emerald-600 text-white shadow-emerald-200'
-                                            : saveSuccess === false
-                                                ? 'bg-red-600 text-white shadow-red-200'
-                                                : 'bg-rose-600 text-white hover:bg-rose-700 shadow-rose-200 hover:shadow-rose-300'
-                                }`}
-                            >
-                                {isSaving ? (
-                                    <><i className="fa-solid fa-spinner fa-spin mr-2"></i>Conectando...</>
-                                ) : saveSuccess === true ? (
-                                    <><i className="fa-solid fa-check mr-2"></i>Conectado</>
-                                ) : saveSuccess === false ? (
-                                    <><i className="fa-solid fa-xmark mr-2"></i>Error</>
-                                ) : (
-                                    <><i className="fa-solid fa-satellite-dish mr-2"></i>Conectar Sensor</>
-                                )}
-                            </button>
+                            ) : (
+                                <div className="text-center px-6">
+                                    <div className="w-16 h-16 bg-white text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl border border-slate-50">
+                                        <i className="fa-brands fa-google text-2xl"></i>
+                                    </div>
+                                    <h4 className="font-black text-slate-800 text-sm uppercase mb-2">Conexión en un clic</h4>
+                                    <p className="text-[10px] text-slate-400 mb-6 leading-relaxed">
+                                        Asocia tu cuenta de Google para que la IA proteja tus horas ocupadas automáticamente.
+                                    </p>
+                                    
+                                    <button
+                                        onClick={gcal.connectOAuth}
+                                        disabled={gcal.isLoading}
+                                        className="w-full md:w-auto px-10 py-4 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-rose-200 flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50"
+                                    >
+                                        {gcal.isLoading ? (
+                                            <i className="fa-solid fa-spinner fa-spin"></i>
+                                        ) : (
+                                            <i className="fa-brands fa-google"></i>
+                                        )}
+                                        Sincronizar mi Google Calendar
+                                    </button>
+                                </div>
+                            )}
                         </div>
 
                         {gcal.lastSynced && (
-                            <div className="mt-3 flex items-center gap-2 text-[9px] text-slate-400">
+                            <div className="mt-6 flex items-center gap-2 text-[9px] text-slate-400 border-t border-slate-50 pt-4">
                                 <i className="fa-solid fa-clock"></i>
-                                <span>Última sincronización: {new Date(gcal.lastSynced).toLocaleString()}</span>
-                                {gcal.fromCache && <span className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-500 font-bold">CACHE</span>}
-                                <button onClick={gcal.refresh} className="ml-auto text-rose-500 hover:text-rose-700 transition-colors">
-                                    <i className="fa-solid fa-arrows-rotate"></i> Refrescar
+                                <span>Refrescado {new Date(gcal.lastSynced).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                {gcal.fromCache && <span className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-500 font-bold uppercase tracking-tighter">Caché</span>}
+                                <button onClick={gcal.refresh} className="ml-auto flex items-center gap-1.5 text-blue-500 hover:text-blue-700 font-bold transition-colors">
+                                    <i className="fa-solid fa-rotate"></i> Actualizar
                                 </button>
                             </div>
                         )}
