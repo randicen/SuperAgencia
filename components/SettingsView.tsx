@@ -1,5 +1,4 @@
-
-import React, { useState } from 'react';
+import React from 'react';
 import { useSpaces } from '../contexts/SpacesContext';
 import { useGCalSensor } from '../hooks/useGCalSensor';
 
@@ -37,10 +36,10 @@ const SettingsView: React.FC = () => {
         if (gcal.events.length > 0) {
             dispatch({ type: 'SET_GCAL_EVENTS', payload: { events: gcal.events } });
         }
-    }, [gcal.events]);
+    }, [gcal.events, dispatch]);
 
     return (
-        <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+        <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500 pb-20">
             <header>
                 <h2 className="text-3xl font-black text-slate-800 tracking-tight">CONFIGURACIÓN</h2>
                 <p className="text-slate-500 font-medium">Define los límites de tu motor de agendamiento</p>
@@ -85,7 +84,7 @@ const SettingsView: React.FC = () => {
                                     type="time"
                                     value={rules.workingHoursStart}
                                     onChange={(e) => updateRules({ ...rules, workingHoursStart: e.target.value })}
-                                    className="w-full p-3 bg-slate-50 border-none rounded-2xl font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 transition-all"
+                                    className="w-full p-3 bg-slate-50 border-none rounded-2xl font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 transition-all font-mono"
                                 />
                             </div>
                             <div>
@@ -94,7 +93,7 @@ const SettingsView: React.FC = () => {
                                     type="time"
                                     value={rules.workingHoursEnd}
                                     onChange={(e) => updateRules({ ...rules, workingHoursEnd: e.target.value })}
-                                    className="w-full p-3 bg-slate-50 border-none rounded-2xl font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 transition-all"
+                                    className="w-full p-3 bg-slate-50 border-none rounded-2xl font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 transition-all font-mono"
                                 />
                             </div>
                         </div>
@@ -120,12 +119,12 @@ const SettingsView: React.FC = () => {
                                 type="number"
                                 value={rules.baseHourlyRate}
                                 onChange={(e) => updateRules({ ...rules, baseHourlyRate: Number(e.target.value) })}
-                                className="w-full p-3 bg-slate-50 border-none rounded-2xl font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 transition-all"
+                                className="w-full p-3 bg-slate-50 border-none rounded-2xl font-bold text-slate-700 focus:ring-2 focus:ring-blue-500 transition-all font-mono"
                             />
                         </div>
 
                         <div>
-                            <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Límite de Proyectos Simultáneos</label>
+                            <label className="text-xs font-black text-slate-400 uppercase mb-2 block">Proyectos Simultáneos</label>
                             <div className="flex items-center gap-4">
                                 <input
                                     type="range"
@@ -141,126 +140,101 @@ const SettingsView: React.FC = () => {
                     </div>
                 </div>
 
-                {/* GOOGLE CALENDAR SENSOR */}
-                <div className="bg-white p-8 rounded-[2.5rem] shadow-sm border border-slate-100 flex flex-col justify-between md:col-span-2">
-                    <div>
-                        <div className="flex items-center gap-4 mb-2">
-                            <div className="w-12 h-12 bg-rose-50 rounded-2xl flex items-center justify-center text-rose-600 shadow-sm">
-                                <i className="fa-brands fa-google text-xl"></i>
-                            </div>
-                            <div className="flex-1">
-                                <h3 className="font-bold text-slate-800 uppercase tracking-wider text-sm">Google Calendar Sensor</h3>
-                                <p className="text-xs text-slate-400">Sensor de disponibilidad pasivo (server-side)</p>
-                            </div>
-                            {gcal.events.length > 0 && (
-                                <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 rounded-xl border border-emerald-100">
-                                    <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
-                                    <span className="text-[9px] font-black text-emerald-700 uppercase">{gcal.events.length} eventos activos</span>
-                                </div>
-                            )}
+                {/* GOOGLE CALENDAR SENSOR (PREMIUM OAUTH) */}
+                <div className="md:col-span-2">
+                    <div className="bg-gradient-to-br from-white to-slate-50/50 p-10 rounded-[3rem] border border-slate-100 shadow-xl shadow-slate-200/50 relative overflow-hidden group">
+                        <div className="absolute top-0 right-0 p-8 opacity-[0.03] scale-[4] pointer-events-none group-hover:scale-[4.5] transition-transform duration-700">
+                            <i className="fa-brands fa-google"></i>
                         </div>
-
-                        <div className="flex flex-col items-center justify-center py-6 mt-4 border-2 border-dashed border-slate-100 rounded-[2rem] bg-slate-50/50">
-                            {gcal.lastSynced ? (
-                                <div className="text-center">
-                                    <div className="w-16 h-16 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-3 shadow-sm border-4 border-white">
-                                        <i className="fa-solid fa-check text-2xl"></i>
-                                    </div>
-                                    <p className="text-sm font-black text-slate-800 uppercase tracking-tight">Calendario Sincronizado</p>
-                                    <p className="text-[10px] text-slate-400 mt-1">Google Calendar está enviando datos en tiempo real.</p>
-                                    
-                                    <button 
-                                        onClick={gcal.connectOAuth} 
-                                        className="mt-6 text-[10px] font-black text-rose-500 uppercase tracking-widest hover:text-rose-700 transition-colors flex items-center gap-2 mx-auto"
-                                    >
-                                        <i className="fa-solid fa-arrows-rotate"></i> Volver a conectar cuenta
-                                    </button>
+                        
+                        <div className="relative z-10">
+                            <div className="flex items-center gap-6 mb-8">
+                                <div className="w-16 h-16 bg-white rounded-3xl flex items-center justify-center text-rose-600 shadow-xl border border-rose-50/50 rotate-3 group-hover:rotate-0 transition-transform">
+                                    <i className="fa-brands fa-google text-3xl"></i>
                                 </div>
-                            ) : (
-                                <div className="text-center px-6">
-                                    <div className="w-16 h-16 bg-white text-rose-600 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-xl border border-slate-50">
-                                        <i className="fa-brands fa-google text-2xl"></i>
-                                    </div>
-                                    <h4 className="font-black text-slate-800 text-sm uppercase mb-2">Conexión en un clic</h4>
-                                    <p className="text-[10px] text-slate-400 mb-6 leading-relaxed">
-                                        Asocia tu cuenta de Google para que la IA proteja tus horas ocupadas automáticamente.
-                                    </p>
-                                    
-                                    <button
-                                        onClick={gcal.connectOAuth}
-                                        disabled={gcal.isLoading}
-                                        className="w-full md:w-auto px-10 py-4 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black text-[10px] uppercase tracking-widest transition-all shadow-lg shadow-rose-200 flex items-center justify-center gap-3 active:scale-95 disabled:opacity-50"
-                                    >
-                                        {gcal.isLoading ? (
-                                            <i className="fa-solid fa-spinner fa-spin"></i>
-                                        ) : (
-                                            <i className="fa-brands fa-google"></i>
-                                        )}
-                                        Sincronizar mi Google Calendar
-                                    </button>
+                                <div>
+                                    <h3 className="text-xl font-black text-slate-900 uppercase tracking-tight">Sincronización Inteligente</h3>
+                                    <p className="text-sm text-slate-500 font-medium tracking-tight">Vínculo directo con tu cuenta de Google.</p>
                                 </div>
-                            )}
-                        </div>
-
-                        {gcal.lastSynced && (
-                            <div className="mt-6 flex items-center gap-2 text-[9px] text-slate-400 border-t border-slate-50 pt-4">
-                                <i className="fa-solid fa-clock"></i>
-                                <span>Refrescado {new Date(gcal.lastSynced).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span>
-                                {gcal.fromCache && <span className="px-1.5 py-0.5 bg-slate-100 rounded text-slate-500 font-bold uppercase tracking-tighter">Caché</span>}
-                                <button onClick={gcal.refresh} className="ml-auto flex items-center gap-1.5 text-blue-500 hover:text-blue-700 font-bold transition-colors">
-                                    <i className="fa-solid fa-rotate"></i> Actualizar
-                                </button>
                             </div>
-                        )}
 
-                        {gcal.error && (
-                            <div className="mt-3 p-3 bg-red-50 rounded-xl border border-red-100 text-[10px] text-red-700 font-medium flex items-center gap-2">
-                                <i className="fa-solid fa-triangle-exclamation"></i> {gcal.error}
+                            <div className="">
+                                {gcal.lastSynced ? (
+                                    <div className="flex flex-col md:flex-row items-center gap-8 bg-white/60 backdrop-blur-sm p-8 rounded-[2.5rem] border border-emerald-100 shadow-sm">
+                                        <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center shadow-inner border-4 border-white">
+                                            <i className="fa-solid fa-calendar-check text-4xl"></i>
+                                        </div>
+                                        <div className="flex-1 text-center md:text-left">
+                                            <h4 className="font-bold text-slate-800 text-lg uppercase tracking-tight">Calendario Conectado</h4>
+                                            <p className="text-sm text-slate-400">Todo en orden. {gcal.events.length} bloqueos detectados próximamente.</p>
+                                            <div className="mt-5 flex flex-wrap justify-center md:justify-start gap-3">
+                                                <button onClick={gcal.refresh} disabled={gcal.isLoading} className="px-6 py-3 bg-slate-900 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all flex items-center gap-2 active:scale-95 disabled:opacity-50">
+                                                    {gcal.isLoading ? <i className="fa-solid fa-circle-notch fa-spin"></i> : <i className="fa-solid fa-rotate"></i>} 
+                                                    Refrescar Eventos
+                                                </button>
+                                                <button onClick={gcal.connectOAuth} className="px-6 py-3 bg-white text-rose-600 border border-rose-100 rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-50 transition-all active:scale-95">
+                                                    Cambiar Cuenta
+                                                </button>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="bg-white/80 p-10 rounded-[2.5rem] border border-slate-100 text-center shadow-sm">
+                                        <h4 className="text-lg font-bold text-slate-800 uppercase mb-3">Conexión de un solo clic</h4>
+                                        <p className="text-slate-500 text-sm max-w-xl mx-auto mb-8 leading-relaxed">
+                                            Nuestro algoritmo analizará tus espacios ocupados para que la IA nunca agende tareas sobre tus reuniones o compromisos personales.
+                                        </p>
+                                        
+                                        <button
+                                            onClick={gcal.connectOAuth}
+                                            disabled={gcal.isLoading}
+                                            className="inline-flex items-center gap-4 px-12 py-5 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[11px] shadow-2xl shadow-rose-200 transition-all hover:-translate-y-1 active:scale-95 disabled:opacity-50"
+                                        >
+                                            {gcal.isLoading ? (
+                                                <i className="fa-solid fa-circle-notch fa-spin text-lg"></i>
+                                            ) : (
+                                                <i className="fa-brands fa-google text-lg"></i>
+                                            )}
+                                            Vincular mi Google Calendar
+                                        </button>
+                                    </div>
+                                )}
+
+                                {gcal.error && (
+                                    <div className="mt-4 p-4 bg-red-50 rounded-2xl border border-red-100 text-xs text-red-700 font-bold flex items-center gap-3">
+                                        <i className="fa-solid fa-triangle-exclamation text-lg"></i>
+                                        {gcal.error}
+                                    </div>
+                                )}
                             </div>
-                        )}
-                    </div>
-
-                    <div className="mt-6 p-4 bg-rose-50 rounded-2xl border border-rose-100/50">
-                        <div className="flex gap-3">
-                            <i className="fa-solid fa-shield-halved text-rose-500 mt-0.5"></i>
-                            <div className="space-y-2">
-                                <p className="text-[10px] leading-relaxed text-rose-900 font-medium">
-                                    Tu URL secreta se almacena <b>encriptada en el servidor</b>, nunca en tu navegador. La IA leerá tus eventos para <b>no agendar tareas encima de ellos</b>.
-                                </p>
-                                <a 
-                                    href="https://support.google.com/calendar/answer/37648?hl=es#zippy=%2Cver-la-direcci%C3%B3n-secreta" 
-                                    target="_blank" 
-                                    rel="noopener noreferrer"
-                                    className="text-[9px] font-black uppercase text-rose-600 hover:text-rose-700 flex items-center gap-1 transition-colors"
-                                >
-                                    ¿Cómo obtener mi URL secreta? <i className="fa-solid fa-arrow-up-right-from-square text-[8px]"></i>
-                                </a>
+                            
+                            <div className="mt-8 flex items-center gap-3 px-6 py-3 bg-blue-50/50 rounded-2xl w-fit">
+                                <i className="fa-solid fa-shield-halved text-blue-500"></i>
+                                <span className="text-[10px] font-black text-blue-800 uppercase tracking-widest opacity-60">Seguridad vía Google OAuth 2.0</span>
                             </div>
                         </div>
                     </div>
                 </div>
-            </div>
 
-            {/* INFO PANEL */}
-            <div className="bg-blue-900 text-white p-8 rounded-[2.5rem] shadow-xl overflow-hidden relative">
-                <div className="relative z-10 flex flex-col md:flex-row items-center gap-6">
-                    <div className="w-16 h-16 bg-white/10 rounded-2xl flex items-center justify-center text-3xl backdrop-blur-md">
-                        <i className="fa-solid fa-wand-magic-sparkles text-blue-300"></i>
+                {/* INFO PANEL */}
+                <div className="bg-slate-900 text-white p-10 rounded-[3rem] shadow-2xl overflow-hidden relative group md:col-span-2">
+                    <div className="relative z-10 flex flex-col md:flex-row items-center gap-8">
+                        <div className="w-20 h-20 bg-blue-500 text-white rounded-[2.5rem] flex items-center justify-center text-4xl shadow-lg shadow-blue-500/20 group-hover:scale-110 transition-transform">
+                            <i className="fa-solid fa-wand-magic-sparkles"></i>
+                        </div>
+                        <div>
+                            <h4 className="text-2xl font-black uppercase tracking-tight mb-2">Algoritmo de Auto-Agendamiento</h4>
+                            <p className="text-slate-400 text-sm max-w-2xl leading-relaxed">
+                                Cualquier cambio aquí recalculará <b>instantáneamente</b> tu Panorama. 
+                                Priorizamos tareas ASAP y deadlines críticos dentro de tu disponibilidad real.
+                            </p>
+                        </div>
                     </div>
-                    <div>
-                        <h4 className="text-xl font-bold mb-1">Algoritmo de Auto-Agendamiento</h4>
-                        <p className="text-blue-200 text-sm max-w-xl">
-                            Cualquier cambio que realices aquí recalculará instantáneamente todos tus proyectos activos en las vistas de Espacios, Gantt y Calendario.
-                            El sistema priorizará ASAP y Hard Deadlines dentro de tus nuevos límites.
-                        </p>
-                    </div>
+                    <div className="absolute -right-20 -bottom-20 w-80 h-80 bg-blue-500/10 rounded-full blur-[100px]"></div>
                 </div>
-                {/* Decorative circle */}
-                <div className="absolute -right-20 -bottom-20 w-64 h-64 bg-blue-500/20 rounded-full blur-3xl"></div>
             </div>
         </div>
     );
 };
-
 
 export default SettingsView;
