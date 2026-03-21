@@ -607,16 +607,8 @@ export function SpacesProvider({ children }: { children: ReactNode }) {
         return () => window.removeEventListener('coo_cloud_data_received', handleCloudData);
     }, []);
 
-    // Escuchar eventos de Google Calendar (Sensor)
-    useEffect(() => {
-        const handleGCalEvents = (e: any) => {
-            if (e.detail) {
-                dispatch({ type: 'SET_GCAL_EVENTS', payload: { events: e.detail } });
-            }
-        };
-        window.addEventListener('coo_gcal_events_updated', handleGCalEvents);
-        return () => window.removeEventListener('coo_gcal_events_updated', handleGCalEvents);
-    }, []);
+
+
 
     // Save to localStorage
     useEffect(() => {
