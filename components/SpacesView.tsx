@@ -838,15 +838,17 @@ const CalendarViewComponent: React.FC<{
     // Grid rendering logic
     const gridCols = view === 'month' ? 'grid-cols-7' : view === 'week' ? 'grid-cols-7' : view === '4days' ? 'grid-cols-4' : 'grid-cols-1';
 
+    const [selectedDay, setSelectedDay] = useState<number | null>(null);
+
     return (
-        <div className="flex flex-col h-full bg-white rounded-3xl border border-slate-200 shadow-sm p-4 overflow-hidden">
+        <div className="flex flex-col h-full bg-white rounded-3xl border border-slate-200 shadow-sm p-4 overflow-hidden relative">
             <div className="flex items-center justify-between mb-4 shrink-0">
                 <div className="flex items-center gap-4">
                     <div className="flex bg-slate-100 p-1 rounded-xl">
-                        <button onClick={() => setView('month')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'month' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>Mes</button>
-                        <button onClick={() => setView('week')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'week' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>Semana</button>
-                        <button onClick={() => setView('4days')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === '4days' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>4 Días</button>
-                        <button onClick={() => setView('day')} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'day' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>Día</button>
+                        <button onClick={() => { setView('month'); setSelectedDay(null); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'month' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>Mes</button>
+                        <button onClick={() => { setView('week'); setSelectedDay(null); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'week' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>Semana</button>
+                        <button onClick={() => { setView('4days'); setSelectedDay(null); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === '4days' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>4 Días</button>
+                        <button onClick={() => { setView('day'); setSelectedDay(null); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'day' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>Día</button>
                     </div>
                 </div>
 
@@ -878,44 +880,111 @@ const CalendarViewComponent: React.FC<{
                     const activeTasks = tasks.filter(t => isTaskActiveOnDay(t, date) && t.estado !== 'DONE');
                     const isToday = new Date().toDateString() === date.toDateString();
                     const isWorkingDay = rules.workingDays.includes(date.getDay());
+                    const isExpanded = selectedDay === idx;
 
                     return (
-                        <div key={idx} className={`${isWorkingDay ? 'bg-white' : 'bg-slate-50/80'} border text-center border-slate-100 rounded-xl p-2 relative hover:border-blue-300 transition-colors flex flex-col ${view === 'day' ? 'min-h-[300px]' : 'min-h-[100px]'} ${isToday ? 'ring-2 ring-blue-500/20 bg-blue-50/10' : ''}`}>
-                            <span className={`text-xs font-bold mb-2 block ${isToday ? 'text-blue-600' : isWorkingDay ? 'text-slate-400' : 'text-slate-300'}`}>
-                                {date.getDate()} {view === 'day' && date.toLocaleDateString('es-ES', { weekday: 'long' })}
-                            </span>
-                            <div className="space-y-1 overflow-y-auto flex-1 custom-scrollbar">
+                        <div 
+                            key={idx} 
+                            onClick={() => {
+                                if (view !== 'day') setSelectedDay(isExpanded ? null : idx);
+                            }}
+                            className={`
+                                ${isWorkingDay ? 'bg-white' : 'bg-slate-50/80'} 
+                                border text-center border-slate-100 rounded-xl p-2 relative 
+                                hover:border-blue-300 transition-all duration-300 ease-in-out flex flex-col 
+                                ${view === 'day' ? 'min-h-[300px]' : isExpanded ? 'z-50 ring-4 ring-blue-500/20 shadow-2xl scale-[1.02] bg-white' : 'min-h-[100px] cursor-pointer'} 
+                                ${isToday ? 'ring-2 ring-blue-500/20 bg-blue-50/10' : ''}
+                                ${isExpanded ? 'absolute inset-4 overflow-hidden h-[calc(100%-32px)]' : ''}
+                            `}
+                        >
+                            <div className="flex justify-between items-center mb-2 px-1">
+                                <span className={`text-xs font-black ${isToday ? 'text-blue-600' : isWorkingDay ? 'text-slate-400' : 'text-slate-300'}`}>
+                                    {date.getDate()} {view === 'day' && date.toLocaleDateString('es-ES', { weekday: 'long' })}
+                                </span>
+                                {isExpanded && (
+                                    <button 
+                                        onClick={(e) => { e.stopPropagation(); setSelectedDay(null); }}
+                                        className="w-6 h-6 bg-slate-100 rounded-full flex items-center justify-center text-slate-400 hover:text-slate-600 transition-colors"
+                                    >
+                                        <i className="fa-solid fa-xmark text-[10px]"></i>
+                                    </button>
+                                )}
+                            </div>
+                            
+                            <div className={`space-y-1 overflow-y-auto flex-1 custom-scrollbar ${isExpanded ? 'px-2 pb-4' : ''}`}>
+                                {activeEvents.length === 0 && activeTasks.length === 0 && isExpanded && (
+                                    <div className="h-full flex flex-col items-center justify-center py-20 grayscale opacity-30">
+                                        <i className="fa-solid fa-calendar-day text-4xl mb-4 text-slate-300"></i>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-slate-400">Sin actividades</p>
+                                    </div>
+                                )}
+                                
+                                {isExpanded && (activeEvents.length > 0 || activeTasks.length > 0) && (
+                                    <div className="mb-4 text-left border-b border-slate-100 pb-3">
+                                        <h4 className="text-[10px] font-black text-slate-800 uppercase tracking-widest mb-1">
+                                            {date.toLocaleDateString('es-ES', { weekday: 'long', day: 'numeric', month: 'long' })}
+                                        </h4>
+                                        <p className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter">
+                                            {activeEvents.length} Eventos · {activeTasks.length} Tareas Pendientes
+                                        </p>
+                                    </div>
+                                )}
+
                                 {activeEvents.map(event => (
                                     <div
                                         key={event.id}
-                                        onClick={() => onEditEvent?.(event)}
-                                        className="text-[8px] px-2 py-1 rounded-md font-bold uppercase truncate cursor-pointer hover:opacity-80 border-l-2 text-left shadow-sm bg-orange-50 text-orange-700 border-orange-500"
+                                        onClick={(e) => {
+                                            if (isExpanded) { e.stopPropagation(); onEditEvent?.(event); }
+                                        }}
+                                        className={`${isExpanded ? 'p-3 mb-2 rounded-2xl' : 'px-2 py-1 rounded-md'} text-[8px] font-bold uppercase truncate cursor-pointer hover:opacity-80 border-l-2 text-left shadow-sm bg-orange-50 text-orange-700 border-orange-500 transition-all`}
                                     >
                                         <div className="flex justify-between items-center gap-1">
-                                            <span className="flex items-center gap-1">
+                                            <span className={`flex items-center gap-2 ${isExpanded ? 'text-[10px]' : ''}`}>
                                                 <i className="fa-solid fa-calendar-day text-[7px]"></i>
                                                 {event.nombre}
                                             </span>
+                                            {isExpanded && (
+                                                <span className="text-[8px] opacity-60">
+                                                    {event.startDate.includes('T') ? new Date(event.startDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Todo el día'}
+                                                </span>
+                                            )}
                                         </div>
+                                        {isExpanded && event.description && (
+                                            <p className="mt-2 text-[9px] normal-case font-medium text-orange-600/70 border-t border-orange-100 pt-2 leading-relaxed">
+                                                {event.description}
+                                            </p>
+                                        )}
                                     </div>
                                 ))}
                                 {activeTasks.map(task => (
                                     <div
                                         key={task.id}
-                                        onClick={() => onEditTask(task)}
-                                        className={`text-[8px] px-2 py-1 rounded-md font-bold uppercase truncate cursor-pointer hover:opacity-80 border-l-2 text-left shadow-sm ${task.hasConflict ? 'ring-2 ring-red-400' : ''} ${task.priority === 'ASAP' ? 'bg-purple-50 text-purple-700 border-purple-500' :
+                                        onClick={(e) => {
+                                            if (isExpanded) { e.stopPropagation(); onEditTask(task); }
+                                        }}
+                                        className={`text-[8px] font-bold uppercase truncate cursor-pointer hover:opacity-80 border-l-2 text-left shadow-sm transition-all ${isExpanded ? 'p-3 mb-2 rounded-2xl' : 'px-2 py-1 rounded-md'} ${task.hasConflict ? 'ring-2 ring-red-400' : ''} ${task.priority === 'ASAP' ? 'bg-purple-50 text-purple-700 border-purple-500' :
                                             task.priority === 'High' ? 'bg-red-50 text-red-700 border-red-500' :
                                                 task.priority === 'Medium' ? 'bg-orange-50 text-orange-700 border-orange-500' :
                                                     'bg-emerald-50 text-emerald-700 border-emerald-500'
                                             }`}
                                     >
                                         <div className="flex justify-between items-center gap-1">
-                                            <span className="flex items-center gap-1">
+                                            <span className={`flex items-center gap-2 ${isExpanded ? 'text-[10px]' : ''}`}>
                                                 {task.hasConflict && <i className="fa-solid fa-triangle-exclamation text-red-500 text-[7px]"></i>}
                                                 {task.nombre}
                                             </span>
-                                            {task.duration >= 120 && <span className="opacity-50 text-[7px]">{formatDuration(task.duration)}</span>}
+                                            {isExpanded && (
+                                                <span className="text-[8px] opacity-60">
+                                                    {formatDuration(task.duration)}
+                                                </span>
+                                            )}
                                         </div>
+                                        {isExpanded && (
+                                            <div className="mt-2 flex items-center gap-3 pt-2 border-t border-current opacity-30">
+                                                <span className="text-[7px] uppercase tracking-widest"><i className="fa-solid fa-flag mr-1"></i> {task.priority}</span>
+                                                {task.clientName && <span className="text-[7px] uppercase tracking-widest"><i className="fa-solid fa-user mr-1"></i> {task.clientName}</span>}
+                                            </div>
+                                        )}
                                     </div>
                                 ))}
                             </div>
