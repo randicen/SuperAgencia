@@ -188,7 +188,7 @@ const SettingsView: React.FC = () => {
                                         <button
                                             onClick={gcal.connectOAuth}
                                             disabled={gcal.isLoading}
-                                            className="inline-flex items-center gap-4 px-12 py-5 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[11px] shadow-2xl shadow-rose-200 transition-all hover:-translate-y-1 active:scale-95 disabled:opacity-50"
+                                            className="inline-flex items-center gap-4 px-12 py-5 bg-rose-600 hover:bg-rose-700 text-white rounded-2xl font-black uppercase tracking-[0.2em] text-[11px] shadow-2xl shadow-rose-200 transition-all hover:-translate-y-1 active:scale-95 disabled:opacity-50 cursor-pointer"
                                         >
                                             {gcal.isLoading ? (
                                                 <i className="fa-solid fa-circle-notch fa-spin text-lg"></i>
