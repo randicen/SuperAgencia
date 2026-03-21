@@ -143,33 +143,53 @@ Deno.serve(async (req) => {
     let body: { action?: string; icalUrl?: string } = {};
     if (req.method === "POST") {
       body = await req.json();
+      console.log(`[gcal-sync] Received POST action: ${body.action}`);
     }
 
     if (body.action === "save_url") {
-      await serviceClient.from("user_gcal_settings").upsert({
+      console.log(`[gcal-sync] Saving URL for user: ${userId}`);
+      
+      const { error: upsertError } = await serviceClient.from("user_gcal_settings").upsert({
         user_id: userId,
         ical_url: body.icalUrl || "",
         updated_at: new Date().toISOString(),
       }, { onConflict: "user_id" });
 
-      // Invalidate cache
-      await serviceClient.from("gcal_cache").delete().eq("user_id", userId);
+      if (upsertError) {
+        console.error(`[gcal-sync] DB Error saving settings:`, upsertError);
+        return new Response(JSON.stringify({ error: `DB Error (Settings): ${upsertError.message}` }), {
+          status: 500,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
 
+      // Invalidate cache
+      const { error: deleteError } = await serviceClient.from("gcal_cache").delete().eq("user_id", userId);
+      if (deleteError) {
+          console.warn(`[gcal-sync] Could not clear cache, but settings saved:`, deleteError);
+      }
+
+      console.log(`[gcal-sync] URL saved successfully`);
       return new Response(JSON.stringify({ ok: true }), {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     // 3. Fetch events (check cache first)
-    const { data: cacheRow } = await serviceClient
+    const { data: cacheRow, error: cacheError } = await serviceClient
       .from("gcal_cache")
       .select("events_json, fetched_at")
       .eq("user_id", userId)
       .maybeSingle();
 
+    if (cacheError) {
+        console.error(`[gcal-sync] DB Error reading cache:`, cacheError);
+    }
+
     if (cacheRow) {
       const cacheAge = Date.now() - new Date(cacheRow.fetched_at).getTime();
       if (cacheAge < CACHE_TTL_MS) {
+        console.log(`[gcal-sync] Serving from cache (age: ${Math.round(cacheAge/1000)}s)`);
         return new Response(JSON.stringify({
           events: cacheRow.events_json,
           cachedAt: cacheRow.fetched_at,
@@ -181,13 +201,22 @@ Deno.serve(async (req) => {
     }
 
     // 4. Cache miss or expired: fetch from Google
-    const { data: settings } = await serviceClient
+    const { data: settings, error: settingsError } = await serviceClient
       .from("user_gcal_settings")
       .select("ical_url")
       .eq("user_id", userId)
       .maybeSingle();
 
+    if (settingsError) {
+        console.error(`[gcal-sync] DB Error reading settings:`, settingsError);
+        return new Response(JSON.stringify({ error: `DB Error (Read Settings): ${settingsError.message}` }), {
+            status: 500,
+            headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+    }
+
     if (!settings?.ical_url) {
+      console.log(`[gcal-sync] No iCal URL for user ${userId}`);
       return new Response(JSON.stringify({
         events: [],
         error: "No iCal URL configured",
@@ -197,14 +226,16 @@ Deno.serve(async (req) => {
     }
 
     // 5. Fetch iCal feed (server-side, no CORS)
+    console.log(`[gcal-sync] Fetching iCal from Google...`);
     const icalResponse = await fetch(settings.ical_url, {
       headers: { "User-Agent": "SuperAgencia-GCal-Sensor/1.0" },
     });
 
     if (!icalResponse.ok) {
+      console.error(`[gcal-sync] Google responded with: ${icalResponse.status}`);
       return new Response(JSON.stringify({
         events: [],
-        error: `Google Calendar responded with ${icalResponse.status}`,
+        error: `Google Calendar responde: ${icalResponse.status} ${icalResponse.statusText}`,
       }), {
         status: 502,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -214,19 +245,25 @@ Deno.serve(async (req) => {
     const icalData = await icalResponse.text();
 
     // 6. Parse with ical.js (RFC 5545 compliant)
+    console.log(`[gcal-sync] Parsing iCal data (${icalData.length} chars)...`);
     const events = parseICalFeed(icalData);
 
     // 7. Update cache
-    const now = new Date().toISOString();
-    await serviceClient.from("gcal_cache").upsert({
+    const nowTimestamp = new Date().toISOString();
+    const { error: cacheUpsertError } = await serviceClient.from("gcal_cache").upsert({
       user_id: userId,
       events_json: events,
-      fetched_at: now,
+      fetched_at: nowTimestamp,
     }, { onConflict: "user_id" });
 
+    if (cacheUpsertError) {
+        console.error(`[gcal-sync] DB Error updating cache:`, cacheUpsertError);
+    }
+
+    console.log(`[gcal-sync] Success! Found ${events.length} events.`);
     return new Response(JSON.stringify({
       events,
-      cachedAt: now,
+      cachedAt: nowTimestamp,
       fromCache: false,
       count: events.length,
     }), {
@@ -234,7 +271,7 @@ Deno.serve(async (req) => {
     });
 
   } catch (err) {
-    console.error("[gcal-sync] Error:", err);
+    console.error("[gcal-sync] Fatal Error:", err);
     return new Response(JSON.stringify({
       error: err instanceof Error ? err.message : "Internal server error",
       events: [],
