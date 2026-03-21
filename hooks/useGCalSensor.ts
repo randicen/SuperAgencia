@@ -34,52 +34,59 @@ export const useGCalSensor = (): UseGCalSensorReturn => {
     const intervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
     const fetchEvents = useCallback(async () => {
-        // Use a functional update to check loading state without depending on it
         setState(prev => {
             if (prev.isLoading) return prev;
-            
-            // We can't do async inside setState functional updates, 
-            // but we can trigger the flow. For simplicity here:
             return { ...prev, isLoading: true, error: null };
         });
 
         try {
             const { data: { session } } = await supabase.auth.getSession();
-            if (!session) {
+            
+            // Get provider token directly from session
+            const providerToken = (session as any)?.provider_token;
+
+            if (!session || !providerToken) {
+                console.log('[GCal Sensor] No Google session or provider token found.');
                 setState(prev => ({ ...prev, isLoading: false }));
                 return;
             }
 
-            const { data, error } = await supabase.functions.invoke(EDGE_FUNCTION_NAME, {
-                body: { action: 'fetch' },
-            });
+            // Fetch DIRECTLY from Google API
+            const response = await fetch(
+                `https://www.googleapis.com/calendar/v3/calendars/primary/events?timeMin=${new Date().toISOString()}&maxResults=50&singleEvents=true&orderBy=startTime`,
+                {
+                    headers: { Authorization: `Bearer ${providerToken}` },
+                }
+            );
 
-            if (error) throw new Error(error.message);
-
-            if (data?.error === 'No Google account connected') {
-                setState(prev => ({ ...prev, isLoading: false, events: [], error: null }));
-                return;
+            if (!response.ok) {
+                const errorData = await response.json();
+                // If token expired, sign out or prompt reconnect
+                if (response.status === 401) {
+                    throw new Error('Sextion de Google expirada. Por favor, vuelve a vincular tu cuenta.');
+                }
+                throw new Error(errorData.error?.message || 'Error al conectar con Google');
             }
 
-            if (data?.error) throw new Error(data.error);
-
-            const events: SpaceEvent[] = (data.events || []).map((e: any) => ({
-                id: e.id,
-                nombre: e.nombre,
-                startDate: e.startDate,
-                endDate: e.endDate,
-                description: e.description,
+            const data = await response.json();
+            
+            const events: SpaceEvent[] = (data.items || []).map((item: any) => ({
+                id: item.id,
+                nombre: item.summary || 'Evento sin título',
+                startDate: item.start.dateTime || item.start.date,
+                endDate: item.end.dateTime || item.end.date,
+                description: item.description || '',
             }));
 
             setState({
                 events,
                 isLoading: false,
                 error: null,
-                lastSynced: data.cachedAt || new Date().toISOString(),
-                fromCache: data.fromCache || false,
+                lastSynced: new Date().toISOString(),
+                fromCache: false,
             });
 
-            console.log(`[GCal Sensor] ${events.length} Google events loaded.`);
+            console.log(`[GCal Sensor] ${events.length} Google events fetched directly.`);
         } catch (err) {
             console.error('[GCal Sensor] Error:', err);
             setState(prev => ({
@@ -88,7 +95,7 @@ export const useGCalSensor = (): UseGCalSensorReturn => {
                 error: err instanceof Error ? err.message : 'Error desconocido',
             }));
         }
-    }, []); // Empty dependencies to prevent infinite loops
+    }, []);
 
     const connectOAuth = useCallback(async () => {
         setState(prev => ({ ...prev, isLoading: true, error: null }));

@@ -101,40 +101,38 @@ Deno.serve(async (req) => {
     // Map to SpaceEvents
     const events = googleEvents.map(ge => {
       const start = ge.start.dateTime || ge.start.date || "";
-      const end = ge.end.dateTime || ge.end.date || "";
+      )
+
+      if (!response.ok) {
+        const errorData = await response.json()
+        throw new Error(`Google API error: ${errorData.error?.message || response.statusText}`)
+      }
+
+      const gData = await response.json()
       
-      // Convert to local ISO format (remove Z or offset if needed, but our app prefers ISO)
-      return {
-        id: `gcal-${ge.id}`,
-        nombre: ge.summary || "Evento Google",
-        startDate: start.substring(0, 16), // Format: YYYY-MM-DDTHH:mm
-        endDate: end.substring(0, 16),
-        description: ge.description
-      };
-    });
+      const events = (gData.items || []).map((item: any) => ({
+        id: item.id,
+        nombre: item.summary || 'Evento sin título',
+        startDate: item.start.dateTime || item.start.date,
+        endDate: item.end.dateTime || item.end.date,
+        description: item.description || '',
+      }))
 
-    // Cache the result
-    const nowIso = new Date().toISOString();
-    await supabase.from("gcal_cache").upsert({
-      user_id: userId,
-      events_json: events,
-      fetched_at: nowIso,
-    });
+      // Return unified format
+      return new Response(JSON.stringify({ events, fromCache: false, cachedAt: new Date().toISOString() }), {
+        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      })
+    }
 
-    return new Response(JSON.stringify({
-      events,
-      cachedAt: nowIso,
-      fromCache: false,
-      count: events.length
-    }), {
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+    return new Response(JSON.stringify({ ok: true }), {
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
 
-  } catch (err) {
-    console.error("[gcal-sync] Fatal Error:", err);
-    return new Response(JSON.stringify({ error: err.message, events: [] }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
-    });
+  } catch (error) {
+    console.error('Edge Function Error:', error.message)
+    return new Response(JSON.stringify({ error: error.message }), {
+      status: 200, // Return 200 to let the client handle the error JSON
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
   }
-});
+})
