@@ -359,6 +359,16 @@ const ListaView: React.FC<{
                             className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${task.estado === 'DONE' ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-blue-500'}`}>
                             {task.estado === 'DONE' && <i className="fa-solid fa-check text-[8px]"></i>}
                         </button>
+                        
+                        {/* Quick Delete Trash (Moved to left for accessibility) */}
+                        <button 
+                            onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }}
+                            className="w-5 h-5 flex items-center justify-center text-slate-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 -ml-1"
+                            title="Eliminar Tarea"
+                        >
+                            <i className="fa-solid fa-trash-can text-[10px]"></i>
+                        </button>
+
                         <span className={`text-sm font-medium truncate ${task.estado === 'DONE' ? 'line-through text-slate-400' : 'text-slate-700'}`}>{task.nombre}</span>
                         {task.hasConflict && task.estado !== 'DONE' && (
                             <span className="text-[10px] text-red-500 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 flex items-center gap-1">
@@ -483,7 +493,6 @@ const ListaView: React.FC<{
                                                     {orderedColumns.map(col => (<div key={col.id} className={`${col.width} px-2`}>{renderCell(task, col.id, level)}</div>))}
                                                     <div className="w-16 flex items-center gap-1 opacity-0 group-hover:opacity-100">
                                                         <button onClick={(e) => { e.stopPropagation(); onAddSubtask(task); }} className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-blue-600 rounded"><i className="fa-solid fa-plus text-[10px]"></i></button>
-                                                        <button onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }} className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-red-500 rounded"><i className="fa-solid fa-trash text-[10px]"></i></button>
                                                     </div>
                                                 </div>
                                                 {/* Render subtasks if expanded */}
