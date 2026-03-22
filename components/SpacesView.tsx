@@ -2144,15 +2144,25 @@ const SpacesView: React.FC = () => {
                                                             <div className="grid grid-cols-2 gap-3">
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="text-[9px] font-black text-slate-500 uppercase w-12">Inicio</span>
-                                                                    <button type="button" onClick={() => setTempWorkStart(adjustTime(tempWorkStart, -60))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">−</button>
-                                                                    <span className="text-xs font-black text-slate-800 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 min-w-[80px] text-center">{fmt12(tempWorkStart)}</span>
-                                                                    <button type="button" onClick={() => setTempWorkStart(adjustTime(tempWorkStart, 60))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">+</button>
+                                                                    <button type="button" onClick={() => setTempWorkStart(adjustTime(tempWorkStart, -15))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">−</button>
+                                                                    <input 
+                                                                        type="time" 
+                                                                        value={tempWorkStart} 
+                                                                        onChange={(e) => setTempWorkStart(e.target.value)}
+                                                                        className="text-xs font-black text-slate-800 bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-200 min-w-[90px] text-center focus:ring-2 focus:ring-amber-500 outline-none"
+                                                                    />
+                                                                    <button type="button" onClick={() => setTempWorkStart(adjustTime(tempWorkStart, 15))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">+</button>
                                                                 </div>
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="text-[9px] font-black text-slate-500 uppercase w-12">Fin</span>
-                                                                    <button type="button" onClick={() => setTempWorkEnd(adjustTime(tempWorkEnd, -60))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">−</button>
-                                                                    <span className="text-xs font-black text-slate-800 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 min-w-[80px] text-center">{fmt12(tempWorkEnd)}</span>
-                                                                    <button type="button" onClick={() => setTempWorkEnd(adjustTime(tempWorkEnd, 60))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">+</button>
+                                                                    <button type="button" onClick={() => setTempWorkEnd(adjustTime(tempWorkEnd, -15))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">−</button>
+                                                                    <input 
+                                                                        type="time" 
+                                                                        value={tempWorkEnd} 
+                                                                        onChange={(e) => setTempWorkEnd(e.target.value)}
+                                                                        className="text-xs font-black text-slate-800 bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-200 min-w-[90px] text-center focus:ring-2 focus:ring-amber-500 outline-none"
+                                                                    />
+                                                                    <button type="button" onClick={() => setTempWorkEnd(adjustTime(tempWorkEnd, 15))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">+</button>
                                                                 </div>
                                                             </div>
                                                             {!isValid && <p className="text-[9px] text-red-500 font-bold mt-2"><i className="fa-solid fa-triangle-exclamation mr-1"></i>El fin debe ser al menos 1h después del inicio.</p>}
