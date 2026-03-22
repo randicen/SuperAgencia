@@ -30,6 +30,7 @@ const SpacesSidebar: React.FC = () => {
     const [deleteModal, setDeleteModal] = useState<{ type: string; payload: any; message: string; subMessage: string } | null>(null);
 
     const [showUpcoming, setShowUpcoming] = useState(true);
+    const [urgencyLevel, setUrgencyLevel] = useState<'ALL' | 'CRITICAL' | 'SOON' | 'WEEK'>('ALL');
     const [, setTick] = useState(0);
 
     // Auto-update timer for "Próximas Tareas"
@@ -83,11 +84,31 @@ const SpacesSidebar: React.FC = () => {
         // Smart Sorting Algorithm
         return collected
             .filter(t => t.estado !== 'DONE' && t.dueDate)
-            .sort((a, b) => {
+            .map(t => {
                 const now = new Date().getTime();
-                const dueA = new Date(a.dueDate!).getTime();
-                const dueB = new Date(b.dueDate!).getTime();
+                const dueTime = new Date(t.dueDate!).getTime();
+                const hoursLeft = (dueTime - now) / (1000 * 3600);
                 
+                let bucket = 3; // L3: Future (Next 7 days)
+                if (dueTime < now) bucket = 0; // L0: Overdue
+                else if (hoursLeft <= 24) bucket = 1; // L1: Next 24h
+                else if (hoursLeft <= 72) bucket = 2; // L2: Next 3 days
+                
+                return { ...t, _bucket: bucket, _hoursLeft: hoursLeft };
+            })
+            // Filter by selected level
+            .filter(t => {
+                if (urgencyLevel === 'CRITICAL') return t._bucket === 0;
+                if (urgencyLevel === 'SOON') return t._bucket === 0 || t._bucket === 1;
+                if (urgencyLevel === 'WEEK') return t._bucket <= 3 && t._hoursLeft <= 168; // Max 7 days
+                // ALL: Also limit to max 10 days to avoid "infinity"
+                return t._hoursLeft <= 240 || t._bucket === 0;
+            })
+            .sort((a, b) => {
+                // 1. Urgency Bucket determines primary order
+                if (a._bucket !== b._bucket) return a._bucket - b._bucket;
+
+                // 2. Within same bucket, Priority rules
                 const getPriorityScore = (p: string | undefined): number => {
                     switch (p) {
                         case 'ASAP': return 4;
@@ -97,31 +118,15 @@ const SpacesSidebar: React.FC = () => {
                         default: return 0;
                     }
                 };
-
-                const getUrgencyBucket = (dueTime: number) => {
-                    if (dueTime < now) return 0; // Overdue: Maximum urgency
-                    const hoursLeft = (dueTime - now) / (1000 * 3600);
-                    if (hoursLeft <= 24) return 1; // Due next 24 hours
-                    if (hoursLeft <= 72) return 2; // Due next 3 days
-                    return 3; // Due later
-                };
-
-                const bucketA = getUrgencyBucket(dueA);
-                const bucketB = getUrgencyBucket(dueB);
-
-                // 1. Urgency Bucket determines primary order
-                if (bucketA !== bucketB) return bucketA - bucketB;
-
-                // 2. Within same bucket, Priority rules
                 const pA = getPriorityScore(a.priority);
                 const pB = getPriorityScore(b.priority);
                 if (pA !== pB) return pB - pA; // Descending priority
 
                 // 3. If everything is equal, strict chronological order
-                return dueA - dueB;
+                return new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime();
             })
-            .slice(0, 6); // Increment to top 6
-    }, [espacios, state.activeSpaceId, state.activeFolderId, state.activeListId]);
+            .slice(0, 8); // Showing up to 8 now
+    }, [espacios, state.activeSpaceId, state.activeFolderId, state.activeListId, urgencyLevel]);
 
     const handleRenameSpace = (id: string) => {
         if (!editName.trim()) return;
@@ -631,17 +636,50 @@ const SpacesSidebar: React.FC = () => {
             {/* UPCOMING TASKS MINI-TABLE */}
             {upcomingTasks.length > 0 && (
                 <div className="border-t border-[#1E293B] px-3 py-3 shrink-0">
-                    <button 
-                        onClick={() => setShowUpcoming(!showUpcoming)} 
-                        className="flex items-center justify-between w-full group mb-2"
-                    >
-                        <div className="flex items-center gap-2">
+                    <div className="flex items-center justify-between w-full mb-2">
+                        <button 
+                            onClick={() => setShowUpcoming(!showUpcoming)} 
+                            className="flex items-center gap-2 group"
+                        >
                             <i className="fa-solid fa-clock text-blue-400 text-[10px]"></i>
-                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Próximas Tareas</span>
+                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Próximas Tarea</span>
+                            <i className={`fa-solid fa-chevron-${showUpcoming ? 'down' : 'up'} text-[8px] text-slate-600 group-hover:text-slate-400 transition-colors`}></i>
+                        </button>
+                    </div>
+
+                    {showUpcoming && (
+                        <div className="flex items-center gap-1 mb-3 bg-[#1A1C23] p-1 rounded-lg">
+                            <button 
+                                onClick={() => setUrgencyLevel('CRITICAL')}
+                                title="Críticas / Vencidas"
+                                className={`flex-1 text-[8px] py-1 rounded transition-all font-black ${urgencyLevel === 'CRITICAL' ? 'bg-red-500/20 text-red-400' : 'text-slate-500 hover:text-slate-300'}`}
+                            >
+                                L1
+                            </button>
+                            <button 
+                                onClick={() => setUrgencyLevel('SOON')}
+                                title="Próximas 24h"
+                                className={`flex-1 text-[8px] py-1 rounded transition-all font-black ${urgencyLevel === 'SOON' ? 'bg-amber-500/20 text-amber-400' : 'text-slate-500 hover:text-slate-300'}`}
+                            >
+                                L2
+                            </button>
+                            <button 
+                                onClick={() => setUrgencyLevel('WEEK')}
+                                title="Esta Semana"
+                                className={`flex-1 text-[8px] py-1 rounded transition-all font-black ${urgencyLevel === 'WEEK' ? 'bg-blue-500/20 text-blue-400' : 'text-slate-500 hover:text-slate-300'}`}
+                            >
+                                L3
+                            </button>
+                            <button 
+                                onClick={() => setUrgencyLevel('ALL')}
+                                title="Todo (Máx 10 días)"
+                                className={`flex-1 text-[8px] py-1 rounded transition-all font-black ${urgencyLevel === 'ALL' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                            >
+                                ALL
+                            </button>
                         </div>
-                        <i className={`fa-solid fa-chevron-${showUpcoming ? 'down' : 'up'} text-[8px] text-slate-600 group-hover:text-slate-400 transition-colors`}></i>
-                    </button>
-                    
+                    )}
+
                     {showUpcoming && (
                         <div className="space-y-1 animate-in slide-in-from-bottom-2 duration-300">
                             {upcomingTasks.map((t) => {
