@@ -16,6 +16,7 @@ const initialState: SpacesState = {
     expandedIds: [],
     rules: DEFAULT_RULES,
     gcalEvents: [],
+    rulesOverride: null,
 };
 
 // Helper: Run scheduling on the active workspace
@@ -102,8 +103,16 @@ const recalculateScheduling = (state: SpacesState): SpacesState => {
     console.log('[Scheduler] Events passed:', allEvents.length, allEvents);
     console.log('[Scheduler] Tasks to schedule:', allTasks.length);
 
-    // 2. Run Scheduling (now includes subtasks AND events)
-    const scheduledProjects = runAutoScheduling(allTasks, state.rules, allEvents);
+    // 2. Compute effective rules (merge temporary override if active)
+    const now = new Date();
+    const override = state.rulesOverride;
+    const isOverrideActive = override && new Date(override.expiresAt) > now;
+    const effectiveRules = isOverrideActive
+        ? { ...state.rules, ...(override.workingHoursStart ? { workingHoursStart: override.workingHoursStart } : {}), ...(override.workingHoursEnd ? { workingHoursEnd: override.workingHoursEnd } : {}) }
+        : state.rules;
+
+    // 3. Run Scheduling with effective rules (now includes subtasks AND events)
+    const scheduledProjects = runAutoScheduling(allTasks, effectiveRules, allEvents);
 
     // DEBUG: Log conflict status
     const conflicts = scheduledProjects.filter(p => p.hasConflict);
@@ -226,6 +235,14 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
         // Migration Check: Ensure rules exist
         if (!loadedState.rules) {
             loadedState.rules = DEFAULT_RULES;
+        }
+
+        // Auto-clean expired rulesOverride
+        if (loadedState.rulesOverride) {
+            const expiresAt = new Date(loadedState.rulesOverride.expiresAt);
+            if (expiresAt <= new Date()) {
+                loadedState.rulesOverride = null;
+            }
         }
 
         return recalculateScheduling(loadedState);
@@ -542,6 +559,12 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
                 gcalEvents: action.payload.events
             };
             break;
+        case 'SET_RULES_OVERRIDE':
+            newState = {
+                ...state,
+                rulesOverride: action.payload
+            };
+            break;
     }
 
     // Construct new state with updated workspace
@@ -552,7 +575,7 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
     };
 
     // Run scheduling if task operation, data, rules or GCal changed
-    if (['ADD_TASK', 'UPDATE_TASK', 'DELETE_TASK', 'ADD_EVENT', 'UPDATE_EVENT', 'DELETE_EVENT', 'UPDATE_RULES', 'SET_GCAL_EVENTS'].includes(action.type)) {
+    if (['ADD_TASK', 'UPDATE_TASK', 'DELETE_TASK', 'ADD_EVENT', 'UPDATE_EVENT', 'DELETE_EVENT', 'UPDATE_RULES', 'SET_GCAL_EVENTS', 'SET_RULES_OVERRIDE'].includes(action.type)) {
         return recalculateScheduling(newState);
     }
 

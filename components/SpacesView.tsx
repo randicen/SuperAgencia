@@ -1172,6 +1172,9 @@ const SpacesView: React.FC = () => {
     const [groupBy, setGroupBy] = useState<GroupBy>('estado');
     const [taskToDelete, setTaskToDelete] = useState<SpaceTask | null>(null);
     const [subtaskWarning, setSubtaskWarning] = useState<{ task: SpaceTask, missingCount: number } | null>(null);
+    const [showWorkHoursQuickfix, setShowWorkHoursQuickfix] = useState(false);
+    const [tempWorkStart, setTempWorkStart] = useState(state.rules.workingHoursStart);
+    const [tempWorkEnd, setTempWorkEnd] = useState(state.rules.workingHoursEnd);
 
     // CLIENTS STATE (read from localStorage, synced with App.tsx)
     const [clients, setClients] = useState<Client[]>(() => {
@@ -1798,6 +1801,33 @@ const SpacesView: React.FC = () => {
 
     return (
         <div className="flex-1 flex flex-col bg-[#F4F5F8] overflow-hidden">
+            {/* Temporary Work Hours Override Banner */}
+            {state.rulesOverride && new Date(state.rulesOverride.expiresAt) > new Date() && (() => {
+                const fmt12 = (t: string) => { const [h, m] = t.split(':').map(Number); return `${h % 12 || 12}:${String(m).padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`; };
+                return (
+                    <div className="bg-gradient-to-r from-amber-50 to-amber-100 border-b border-amber-200 px-6 py-2.5 flex items-center justify-between shrink-0 animate-in slide-in-from-top-2">
+                        <div className="flex items-center gap-3">
+                            <div className="w-7 h-7 bg-amber-400 rounded-lg flex items-center justify-center shadow-sm">
+                                <i className="fa-solid fa-clock text-white text-xs"></i>
+                            </div>
+                            <div>
+                                <span className="text-[10px] font-black uppercase text-amber-800 tracking-wider">
+                                    Jornada extendida temporalmente
+                                </span>
+                                <span className="text-[10px] text-amber-600 font-bold ml-2">
+                                    {fmt12(state.rulesOverride.workingHoursStart || state.rules.workingHoursStart)} – {fmt12(state.rulesOverride.workingHoursEnd || state.rules.workingHoursEnd)}
+                                </span>
+                                <span className="text-[9px] text-amber-500 ml-2 italic">
+                                    (expira automáticamente mañana)
+                                </span>
+                            </div>
+                        </div>
+                        <button onClick={() => dispatch({ type: 'SET_RULES_OVERRIDE', payload: null })} className="w-7 h-7 rounded-lg hover:bg-amber-200 flex items-center justify-center text-amber-600 hover:text-amber-800 transition-colors" title="Cancelar extensión temporal">
+                            <i className="fa-solid fa-xmark text-sm"></i>
+                        </button>
+                    </div>
+                );
+            })()}
             {/* Header with breadcrumb and view switcher */}
             <div className="bg-white border-b border-gray-200 px-6 py-4 shrink-0">
                 <div className="flex items-center gap-2 text-sm mb-3">
@@ -2078,7 +2108,71 @@ const SpacesView: React.FC = () => {
                                                     <button type="button" onClick={() => setEditingTask({ ...editingTask, duration: Math.max(30, Math.round(editingTask.duration * 0.75)) })} className="px-3 py-1.5 bg-white/60 rounded-lg text-[9px] font-black uppercase text-red-700 border border-red-200 hover:bg-white hover:border-red-400 transition-all shadow-sm">
                                                         <i className="fa-solid fa-compress mr-1"></i> -25% Esfuerzo
                                                     </button>
+                                                    <button type="button" onClick={() => {
+                                                        setTempWorkStart(state.rulesOverride?.workingHoursStart || state.rules.workingHoursStart);
+                                                        setTempWorkEnd(state.rulesOverride?.workingHoursEnd || state.rules.workingHoursEnd);
+                                                        setShowWorkHoursQuickfix(!showWorkHoursQuickfix);
+                                                    }} className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase border transition-all shadow-sm ${showWorkHoursQuickfix ? 'bg-amber-500 text-white border-amber-600' : 'bg-white/60 text-red-700 border-red-200 hover:bg-white hover:border-red-400'}`}>
+                                                        <i className="fa-solid fa-business-time mr-1"></i> Ampliar Jornada
+                                                    </button>
                                                 </div>
+                                                {/* Inline Work Hours Quickfix Panel */}
+                                                {showWorkHoursQuickfix && (() => {
+                                                    const adjustHour = (timeStr: string, delta: number): string => {
+                                                        const [h, m] = timeStr.split(':').map(Number);
+                                                        const newH = Math.max(0, Math.min(23, h + delta));
+                                                        return `${String(newH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                                                    };
+                                                    const fmt12 = (timeStr: string): string => {
+                                                        const [h, m] = timeStr.split(':').map(Number);
+                                                        const h12 = h % 12 || 12;
+                                                        const ampm = h >= 12 ? 'pm' : 'am';
+                                                        return `${h12}:${String(m).padStart(2, '0')} ${ampm}`;
+                                                    };
+                                                    const startNum = parseInt(tempWorkStart.split(':')[0]) * 60 + parseInt(tempWorkStart.split(':')[1]);
+                                                    const endNum = parseInt(tempWorkEnd.split(':')[0]) * 60 + parseInt(tempWorkEnd.split(':')[1]);
+                                                    const isValid = endNum > startNum + 60; // At least 1h gap
+                                                    const isChanged = tempWorkStart !== state.rules.workingHoursStart || tempWorkEnd !== state.rules.workingHoursEnd;
+                                                    return (
+                                                        <div className="mt-3 p-4 bg-white rounded-2xl border-2 border-amber-200 shadow-lg animate-in slide-in-from-top-2 duration-300">
+                                                            <div className="flex items-center gap-2 mb-3">
+                                                                <i className="fa-solid fa-clock text-amber-500"></i>
+                                                                <span className="text-[9px] font-black uppercase text-amber-700 tracking-widest">Ajustar Jornada Laboral (Temporal)</span>
+                                                            </div>
+                                                            <div className="grid grid-cols-2 gap-3">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-[9px] font-black text-slate-500 uppercase w-12">Inicio</span>
+                                                                    <button type="button" onClick={() => setTempWorkStart(adjustHour(tempWorkStart, -1))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">−</button>
+                                                                    <span className="text-xs font-black text-slate-800 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 min-w-[80px] text-center">{fmt12(tempWorkStart)}</span>
+                                                                    <button type="button" onClick={() => setTempWorkStart(adjustHour(tempWorkStart, 1))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">+</button>
+                                                                </div>
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-[9px] font-black text-slate-500 uppercase w-12">Fin</span>
+                                                                    <button type="button" onClick={() => setTempWorkEnd(adjustHour(tempWorkEnd, -1))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">−</button>
+                                                                    <span className="text-xs font-black text-slate-800 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 min-w-[80px] text-center">{fmt12(tempWorkEnd)}</span>
+                                                                    <button type="button" onClick={() => setTempWorkEnd(adjustHour(tempWorkEnd, 1))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">+</button>
+                                                                </div>
+                                                            </div>
+                                                            {!isValid && <p className="text-[9px] text-red-500 font-bold mt-2"><i className="fa-solid fa-triangle-exclamation mr-1"></i>El fin debe ser al menos 1h después del inicio.</p>}
+                                                            <div className="flex items-center gap-2 mt-3">
+                                                                <button type="button" disabled={!isValid || !isChanged} onClick={() => {
+                                                                    const endOfToday = new Date();
+                                                                    endOfToday.setHours(23, 59, 59, 999);
+                                                                    dispatch({ type: 'SET_RULES_OVERRIDE', payload: {
+                                                                        workingHoursStart: tempWorkStart,
+                                                                        workingHoursEnd: tempWorkEnd,
+                                                                        expiresAt: endOfToday.toISOString()
+                                                                    }});
+                                                                    setShowWorkHoursQuickfix(false);
+                                                                }} className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${isValid && isChanged ? 'bg-amber-500 text-white shadow-lg shadow-amber-200 hover:bg-amber-600 cursor-pointer' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}>
+                                                                    <i className="fa-solid fa-check mr-1"></i> Aplicar solo hoy
+                                                                </button>
+                                                                <button type="button" onClick={() => setShowWorkHoursQuickfix(false)} className="px-3 py-2 rounded-xl text-[9px] font-black uppercase text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors">Cancelar</button>
+                                                            </div>
+                                                            <p className="text-[8px] text-slate-400 mt-2 italic"><i className="fa-solid fa-info-circle mr-1"></i>Tus reglas permanentes ({fmt12(state.rules.workingHoursStart)} – {fmt12(state.rules.workingHoursEnd)}) no se modificarán. Este cambio expira automáticamente mañana.</p>
+                                                        </div>
+                                                    );
+                                                })()}
                                             </div>
                                         </div>
                                     </div>

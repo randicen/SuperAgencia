@@ -75,6 +75,12 @@ export interface Workspace {
     espacios: Space[];
 }
 
+export interface RulesOverride {
+    workingHoursStart?: string;
+    workingHoursEnd?: string;
+    expiresAt: string; // ISO date string
+}
+
 export interface SpacesState {
     workspaces: Workspace[];
     activeWorkspaceId: string | null;
@@ -85,6 +91,7 @@ export interface SpacesState {
     expandedIds: string[];
     rules: BusinessRules;
     gcalEvents: SpaceEvent[];
+    rulesOverride?: RulesOverride | null;
 }
 
 export type SpacesAction =
@@ -116,5 +123,6 @@ export type SpacesAction =
     | { type: 'UPDATE_RULES'; payload: BusinessRules }
     | { type: 'LOAD_STATE'; payload: SpacesState }
     | { type: 'SET_GCAL_EVENTS'; payload: { events: SpaceEvent[] } }
+    | { type: 'SET_RULES_OVERRIDE'; payload: RulesOverride | null }
     // MIGRATION HELPER
     | { type: 'MIGRATE_OLD_STATE'; payload: { oldEspacios: Space[] } };
