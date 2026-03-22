@@ -363,19 +363,19 @@ const ListaView: React.FC<{
 
                         {/* Quick Action Cluster */}
                         <div className="flex items-center gap-2.5 w-14 shrink-0">
-                            {/* Checkbox */}
-                            <button onClick={(e) => { e.stopPropagation(); onToggleTask(task.id); }}
-                                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${task.estado === 'DONE' ? 'bg-green-500 border-green-500 text-white shadow-sm' : 'border-slate-300 hover:border-blue-500 hover:bg-blue-50'}`}>
-                                {task.estado === 'DONE' && <i className="fa-solid fa-check text-[8px]"></i>}
-                            </button>
-                            
-                            {/* Quick Delete Trash */}
+                            {/* Quick Delete Trash (Now on the far left) */}
                             <button 
                                 onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }}
                                 className="w-6 h-6 flex items-center justify-center text-slate-200 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 rounded-lg hover:bg-red-50"
                                 title="Eliminar Tarea"
                             >
                                 <i className="fa-solid fa-trash-can text-[10px]"></i>
+                            </button>
+
+                            {/* Checkbox */}
+                            <button onClick={(e) => { e.stopPropagation(); onToggleTask(task.id); }}
+                                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${task.estado === 'DONE' ? 'bg-green-500 border-green-500 text-white shadow-sm' : 'border-slate-300 hover:border-blue-500 hover:bg-blue-50'}`}>
+                                {task.estado === 'DONE' && <i className="fa-solid fa-check text-[8px]"></i>}
                             </button>
                         </div>
 
