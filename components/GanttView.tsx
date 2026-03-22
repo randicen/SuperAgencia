@@ -149,7 +149,9 @@ const SchedulingQueue = ({ projects, onEditTask }: { projects: Project[], onEdit
                                     <div className="flex flex-col items-end text-right">
                                         <span className="text-[8px] font-black text-slate-600 uppercase mb-0.5">Fin Estimado:</span>
                                         <span className="text-[10px] font-bold text-slate-400">
-                                            {p.autoSchedule && p.endDate ? p.endDate.replace('T', ', ').substring(0, 16) : p.dueDate.substring(0, 10)}
+                                            {p.autoSchedule && p.endDate 
+                                                ? new Date(p.endDate).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
+                                                : p.dueDate.substring(0, 10)}
                                             {p.autoSchedule && <i className="fa-solid fa-robot text-blue-500 text-[8px] ml-1 opacity-70"></i>}
                                         </span>
                                     </div>
@@ -503,9 +505,9 @@ const GanttView: React.FC<GanttViewProps> = ({
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                         {editingProject.scheduledSlots.map((s, idx) => (
                                             <div key={idx} className="text-[10px] font-bold text-slate-700 bg-white p-2 rounded-lg border flex justify-between items-center">
-                                                <span>{new Date(s.start).toLocaleString([], { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' })}</span>
+                                                <span>{new Date(s.start).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()}</span>
                                                 <i className="fa-solid fa-arrow-right text-[8px] text-slate-300"></i>
-                                                <span>{new Date(s.end).toLocaleString([], { hour: '2-digit', minute: '2-digit' })}</span>
+                                                <span>{new Date(s.end).toLocaleString('es-ES', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()}</span>
                                             </div>
                                         ))}
                                     </div>

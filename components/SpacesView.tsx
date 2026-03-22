@@ -380,7 +380,7 @@ const ListaView: React.FC<{
                         {task.autoSchedule && task.startDate && task.endDate && (
                             <span className="text-[9px] text-slate-400 whitespace-nowrap mt-0.5" title="Horario programado por IA">
                                 <i className="fa-solid fa-robot text-blue-400 mr-1"></i>
-                                {new Date(task.startDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {new Date(task.endDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                {new Date(task.startDate).toLocaleTimeString('en-US', {hour: 'numeric', minute:'2-digit', hour12: true}).toLowerCase()} - {new Date(task.endDate).toLocaleTimeString('en-US', {hour: 'numeric', minute:'2-digit', hour12: true}).toLowerCase()}
                                 {new Date(task.endDate) > new Date(task.dueDate!) && (
                                     <span className="text-red-500 font-bold ml-1" title="La IA estima que terminarás después del deadline">¡Riesgo!</span>
                                 )}
@@ -993,7 +993,7 @@ const CalendarViewComponent: React.FC<{
                                             <div className="flex-1">
                                                 <div className="flex justify-between items-center mb-1">
                                                     <span className="text-[10px] font-black text-orange-500 uppercase tracking-tighter">Evento en agenda</span>
-                                                    <span className="text-[10px] font-bold text-slate-400">{event.startDate.includes('T') ? new Date(event.startDate).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : 'Todo el día'}</span>
+                                                    <span className="text-[10px] font-bold text-slate-400">{event.startDate.includes('T') ? new Date(event.startDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase() : 'Todo el día'}</span>
                                                 </div>
                                                 <h6 className="font-bold text-slate-800 text-lg group-hover:text-orange-600 transition-colors">{event.nombre}</h6>
                                                 {event.description && <p className="text-xs text-slate-400 mt-2 line-clamp-2 italic">{event.description}</p>}
@@ -2140,13 +2140,17 @@ const SpacesView: React.FC = () => {
                                                             <span>{(() => {
                                                                 const d = new Date(s.start);
                                                                 const h = d.getHours();
-                                                                return `${d.getDate()}/${d.getMonth() + 1} ${h % 12 || 12}:${d.getMinutes().toString().padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`;
+                                                                const h12 = h % 12 || 12;
+                                                                const ampm = h >= 12 ? 'pm' : 'am';
+                                                                return `${d.getDate()}/${d.getMonth() + 1} ${h12}:${d.getMinutes().toString().padStart(2, '0')} ${ampm}`;
                                                             })()}</span>
                                                             <i className="fa-solid fa-arrow-right text-[8px] text-slate-300 mx-2"></i>
                                                             <span>{(() => {
                                                                 const d = new Date(s.end);
                                                                 const h = d.getHours();
-                                                                return `${h % 12 || 12}:${d.getMinutes().toString().padStart(2, '0')} ${h >= 12 ? 'pm' : 'am'}`;
+                                                                const h12 = h % 12 || 12;
+                                                                const ampm = h >= 12 ? 'pm' : 'am';
+                                                                return `${h12}:${d.getMinutes().toString().padStart(2, '0')} ${ampm}`;
                                                             })()}</span>
                                                         </div>
                                                     ))}
