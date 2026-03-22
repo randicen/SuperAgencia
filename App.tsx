@@ -17,6 +17,7 @@ import ActiveWorkspaceName from './components/ActiveWorkspaceName';
 import { supabase } from './contexts/AuthContext';
 import { useAuth } from './contexts/AuthContext';
 import LoginView from './components/LoginView';
+import { useAgencyStore } from './stores/useAgencyStore';
 
 const App: React.FC = () => {
   const { session, isLoading: isAuthLoading } = useAuth();
@@ -27,41 +28,22 @@ const App: React.FC = () => {
   const [showBriefing, setShowBriefing] = useState(false);
   const [briefingData, setBriefingData] = useState<{ overdue: Project[], upcoming: Project[], income: number } | null>(null);
 
-  const [projects, setProjects] = useState<Project[]>(() => {
-    const saved = localStorage.getItem('coo_projects');
-    return saved ? JSON.parse(saved) : TEMPLATE_PROJECTS;
-  });
-
-  const [transactions, setTransactions] = useState<Transaction[]>(() => {
-    const saved = localStorage.getItem('coo_transactions');
-    return saved ? JSON.parse(saved) : TEMPLATE_TRANSACTIONS;
-  });
-
-  const [clients, setClients] = useState<Client[]>(() => {
-    const saved = localStorage.getItem('coo_clients');
-    return saved ? JSON.parse(saved) : TEMPLATE_CLIENTS;
-  });
-
-  const [rules, setRules] = useState<BusinessRules>(() => {
-    const saved = localStorage.getItem('coo_rules');
-    return saved ? JSON.parse(saved) : DEFAULT_RULES;
-  });
-
-  const [notes, setNotes] = useState<Note[]>(() => {
-    const saved = localStorage.getItem('coo_notes');
-    return saved ? JSON.parse(saved) : [];
-  });
-
-  const [chatSessions, setChatSessions] = useState<ChatSession[]>(() => {
-    const saved = localStorage.getItem('coo_chat_sessions');
-    if (saved) return JSON.parse(saved);
-    return [{ id: 'default', title: 'Nuevo Chat', messages: [], lastModified: Date.now() }];
-  });
-
-  const [currentChatId, setCurrentChatId] = useState<string>(() => {
-    const saved = localStorage.getItem('coo_current_chat_id');
-    return saved || 'default';
-  });
+  const {
+    projects, setProjects,
+    transactions, setTransactions,
+    clients, setClients,
+    rules, setRules,
+    notes, setNotes,
+    chatSessions, setChatSessions,
+    currentChatId, setCurrentChatId,
+    updateLastMod,
+    handleAddProject, handleUpdateProject, handleDeleteProject,
+    handleAddTransaction, handleDeleteTransaction,
+    handleUpdateClients, handleDeleteClient,
+    handleSaveNote, handleDeleteNote,
+    handleSetMessages, handleNewChat, handleDeleteChat,
+    tickAutoScheduling
+  } = useAgencyStore();
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error' | 'offline'>('idle');
@@ -73,9 +55,6 @@ const App: React.FC = () => {
   const lastUploadedState = React.useRef<string>(''); // Reflete el último estado guardado/descargado para evitar uploads redundantes
 
 
-  const updateLastMod = () => {
-    localStorage.setItem('coo_last_local_mod', Date.now().toString());
-  };
 
   const replicateToOtherTabs = (payload: string) => {
     // Comunicar a otras pestañas que NO deben re-subir este estado específico
@@ -441,30 +420,13 @@ const App: React.FC = () => {
 
     setProjects(updatedProjects);
 
-    const interval = setInterval(() => {
-      setProjects(prev => {
-        const hasActiveProjects = prev.some(p => p.status !== 'completed');
-        if (hasActiveProjects) {
-          // Pass current events to keep it consistent
-          return runAutoScheduling(prev, rules);
-        }
-        return prev;
-      });
-    }, 60000);
+    const interval = setInterval(tickAutoScheduling, 60000);
 
     return () => clearInterval(interval);
   }, [rules]);
 
 
-  // Persistencia Local (LA BASE DE TODO)
-  // NOTA: Quitamos Date.now() de aquí. Solo se actualiza en handleAcciones reales del usuario.
-  useEffect(() => { localStorage.setItem('coo_projects', JSON.stringify(projects)); }, [projects]);
-  useEffect(() => { localStorage.setItem('coo_transactions', JSON.stringify(transactions)); }, [transactions]);
-  useEffect(() => { localStorage.setItem('coo_clients', JSON.stringify(clients)); }, [clients]);
-  useEffect(() => { localStorage.setItem('coo_rules', JSON.stringify(rules)); }, [rules]);
-  useEffect(() => { localStorage.setItem('coo_chat_sessions', JSON.stringify(chatSessions)); }, [chatSessions]);
-  useEffect(() => { localStorage.setItem('coo_current_chat_id', currentChatId); }, [currentChatId]);
-  useEffect(() => { localStorage.setItem('coo_notes', JSON.stringify(notes)); }, [notes]);
+  // Persistencia Local manejada enteramente por Zustand (useAgencyStore)
 
 
   // --- DATA PORTABILITY (BACKUP & RESTORE) ---
@@ -547,110 +509,7 @@ const App: React.FC = () => {
     reader.readAsText(file);
   };
 
-  const handleUpdateProject = (updatedProject: Project) => {
-    let updatedList = projects.map(p => p.id === updatedProject.id ? updatedProject : p);
-    if (updatedProject.autoSchedule) { updatedList = runAutoScheduling(updatedList, rules); }
-    setProjects(updatedList);
-    updateLastMod();
-  };
-
-  const handleAddProject = (newProject: Project) => {
-    let updatedList = [...projects, newProject];
-    if (newProject.autoSchedule) { updatedList = runAutoScheduling(updatedList, rules); }
-    setProjects(updatedList);
-    updateLastMod();
-  };
-
-  const handleAddTransaction = (t: Transaction) => {
-    setTransactions(prev => [...prev, t]);
-    updateLastMod();
-  };
-
-  const handleDeleteProject = (projectId: string) => {
-    setProjects(prev => {
-      const filtered = prev.filter(p => p.id !== projectId);
-      return runAutoScheduling(filtered, rules);
-    });
-    updateLastMod();
-  };
-
-  const handleDeleteClient = (clientId: string) => {
-    setClients(prev => prev.filter(c => c.id !== clientId));
-    setProjects(prev => {
-      const filtered = prev.filter(p => p.clientId !== clientId);
-      return runAutoScheduling(filtered, rules);
-    });
-    updateLastMod();
-  };
-
-  const handleUpdateClients = (newClients: Client[]) => {
-    setClients(newClients);
-    updateLastMod();
-  };
-
-  const handleSaveNote = (n: Note) => {
-    setNotes(prev => {
-        const exists = prev.find(note => note.id === n.id);
-        if (exists) return prev.map(note => note.id === n.id ? n : note);
-        return [...prev, n];
-    });
-    updateLastMod();
-  };
-
-  const handleDeleteNote = (id: string) => {
-    setNotes(prev => prev.filter(n => n.id !== id));
-    updateLastMod();
-  };
-
-  const handleDeleteTransaction = (id: string) => {
-    setTransactions(prev => prev.filter(t => t.id !== id));
-    updateLastMod();
-  };
-
-  const handleUpdateNotes = (newNotes: Note[]) => {
-    setNotes(newNotes);
-    updateLastMod();
-  };
-
-  const handleSetMessages = (action: React.SetStateAction<Message[]>) => {
-    updateLastMod(); // SELLO CRÍTICO PARA EVITAR REVERSIÓN AL RECARGAR
-    setChatSessions(prev => {
-      const index = prev.findIndex(s => s.id === currentChatId);
-      if (index === -1) return prev;
-
-      const session = prev[index];
-      const newMessages = typeof action === 'function' ? action(session.messages) : action;
-
-      const updatedSessions = [...prev];
-      updatedSessions[index] = { ...session, messages: newMessages, lastModified: Date.now() };
-      return updatedSessions;
-    });
-  };
-
-  const handleNewChat = () => {
-    updateLastMod();
-    setChatSessions(prev => {
-      const newSession: ChatSession = { id: Math.random().toString(36).substr(2, 9), title: 'Nuevo Chat', messages: [], lastModified: Date.now() };
-      setCurrentChatId(newSession.id);
-      return [newSession, ...prev];
-    });
-  };
-
-  const handleDeleteChat = (id: string) => {
-    updateLastMod();
-    setChatSessions(prev => {
-      const filtered = prev.filter(s => s.id !== id);
-      if (filtered.length === 0) {
-        const newSession: ChatSession = { id: Math.random().toString(36).substr(2, 9), title: 'Nuevo Chat', messages: [], lastModified: Date.now() };
-        setCurrentChatId(newSession.id);
-        return [newSession];
-      }
-      if (currentChatId === id) {
-        setCurrentChatId(filtered[0].id);
-      }
-      return filtered;
-    });
-  };
+  // Acciones globales migradas centralmente al stores/useAgencyStore
 
   const activeMessages = chatSessions.find(s => s.id === currentChatId)?.messages || [];
 
