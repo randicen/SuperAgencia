@@ -375,11 +375,16 @@ const ListaView: React.FC<{
                 return (
                     <div className="flex flex-col">
                         <span className="text-xs text-slate-700 font-bold whitespace-nowrap">
-                            {formatFriendlyDate(task.autoSchedule && task.endDate ? task.endDate : task.dueDate)}
-                            {task.autoSchedule && <i className="fa-solid fa-robot text-blue-500 text-[9px] ml-1 opacity-70" title="Calculado automático"></i>}
+                            {formatFriendlyDate(task.dueDate)}
                         </span>
-                        {task.autoSchedule && task.endDate && (
-                            <span className="text-[9px] text-slate-400 whitespace-nowrap">Límite: {formatFriendlyDate(task.dueDate)}</span>
+                        {task.autoSchedule && task.startDate && task.endDate && (
+                            <span className="text-[9px] text-slate-400 whitespace-nowrap mt-0.5" title="Horario programado por IA">
+                                <i className="fa-solid fa-robot text-blue-400 mr-1"></i>
+                                {new Date(task.startDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})} - {new Date(task.endDate).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                {new Date(task.endDate) > new Date(task.dueDate!) && (
+                                    <span className="text-red-500 font-bold ml-1" title="La IA estima que terminarás después del deadline">¡Riesgo!</span>
+                                )}
+                            </span>
                         )}
                     </div>
                 );
