@@ -96,14 +96,6 @@ const SpacesSidebar: React.FC = () => {
                 
                 return { ...t, _bucket: bucket, _hoursLeft: hoursLeft };
             })
-            // Filter by selected level
-            .filter(t => {
-                if (urgencyLevel === 'CRITICAL') return t._bucket === 0;
-                if (urgencyLevel === 'SOON') return t._bucket === 0 || t._bucket === 1;
-                if (urgencyLevel === 'WEEK') return t._bucket <= 3 && t._hoursLeft <= 168; // Max 7 days
-                // ALL: Also limit to max 10 days to avoid "infinity"
-                return t._hoursLeft <= 240 || t._bucket === 0;
-            })
             .sort((a, b) => {
                 // 1. Urgency Bucket determines primary order
                 if (a._bucket !== b._bucket) return a._bucket - b._bucket;
@@ -124,9 +116,21 @@ const SpacesSidebar: React.FC = () => {
 
                 // 3. If everything is equal, strict chronological order
                 return new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime();
+            });
+    }, [espacios, state.activeSpaceId, state.activeFolderId, state.activeListId]);
+
+    // Apply urgency level filter after useMemo so UI doesn't disappear when a bucket is empty
+    const filteredUpcomingTasks = useMemo(() => {
+        return upcomingTasks
+            .filter(t => {
+                if (urgencyLevel === 'CRITICAL') return t._bucket === 0;
+                if (urgencyLevel === 'SOON') return t._bucket === 0 || t._bucket === 1;
+                if (urgencyLevel === 'WEEK') return t._bucket <= 3 && t._hoursLeft <= 168; // Max 7 days
+                // ALL: Also limit to max 10 days to avoid "infinity"
+                return t._hoursLeft <= 240 || t._bucket === 0;
             })
             .slice(0, 8); // Showing up to 8 now
-    }, [espacios, state.activeSpaceId, state.activeFolderId, state.activeListId, urgencyLevel]);
+    }, [upcomingTasks, urgencyLevel]);
 
     const handleRenameSpace = (id: string) => {
         if (!editName.trim()) return;
@@ -636,84 +640,86 @@ const SpacesSidebar: React.FC = () => {
             {/* UPCOMING TASKS MINI-TABLE */}
             {upcomingTasks.length > 0 && (
                 <div className="border-t border-[#1E293B] px-3 py-3 shrink-0">
-                    <div className="flex items-center justify-between w-full mb-2">
+                    <div className="flex items-center justify-between w-full mb-3">
                         <button 
                             onClick={() => setShowUpcoming(!showUpcoming)} 
                             className="flex items-center gap-2 group"
                         >
                             <i className="fa-solid fa-clock text-blue-400 text-[10px]"></i>
-                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider">Próximas Tarea</span>
+                            <span className="text-[9px] font-black text-slate-500 uppercase tracking-wider group-hover:text-slate-300 transition-colors">Próximas Tareas</span>
                             <i className={`fa-solid fa-chevron-${showUpcoming ? 'down' : 'up'} text-[8px] text-slate-600 group-hover:text-slate-400 transition-colors`}></i>
                         </button>
                     </div>
 
                     {showUpcoming && (
-                        <div className="flex items-center gap-1 mb-3 bg-[#1A1C23] p-1 rounded-lg">
+                        <div className="flex bg-[#0F1117] p-1 rounded-lg border border-[#1E293B] mb-3 shadow-inner">
                             <button 
                                 onClick={() => setUrgencyLevel('CRITICAL')}
-                                title="Críticas / Vencidas"
-                                className={`flex-1 text-[8px] py-1 rounded transition-all font-black ${urgencyLevel === 'CRITICAL' ? 'bg-red-500/20 text-red-400' : 'text-slate-500 hover:text-slate-300'}`}
+                                className={`flex-1 text-[9px] py-1.5 rounded transition-all font-medium ${urgencyLevel === 'CRITICAL' ? 'bg-red-500/10 text-red-500 shadow-sm border border-red-500/20' : 'text-slate-500 hover:text-slate-300 hover:bg-[#1A1C23]'}`}
                             >
-                                L1
+                                Vencidas
                             </button>
                             <button 
                                 onClick={() => setUrgencyLevel('SOON')}
-                                title="Próximas 24h"
-                                className={`flex-1 text-[8px] py-1 rounded transition-all font-black ${urgencyLevel === 'SOON' ? 'bg-amber-500/20 text-amber-400' : 'text-slate-500 hover:text-slate-300'}`}
+                                className={`flex-1 text-[9px] py-1.5 rounded transition-all font-medium ${urgencyLevel === 'SOON' ? 'bg-amber-500/10 text-amber-500 shadow-sm border border-amber-500/20' : 'text-slate-500 hover:text-slate-300 hover:bg-[#1A1C23]'}`}
                             >
-                                L2
+                                Hoy
                             </button>
                             <button 
                                 onClick={() => setUrgencyLevel('WEEK')}
-                                title="Esta Semana"
-                                className={`flex-1 text-[8px] py-1 rounded transition-all font-black ${urgencyLevel === 'WEEK' ? 'bg-blue-500/20 text-blue-400' : 'text-slate-500 hover:text-slate-300'}`}
+                                className={`flex-1 text-[9px] py-1.5 rounded transition-all font-medium ${urgencyLevel === 'WEEK' ? 'bg-blue-500/10 text-blue-500 shadow-sm border border-blue-500/20' : 'text-slate-500 hover:text-slate-300 hover:bg-[#1A1C23]'}`}
                             >
-                                L3
+                                Semana
                             </button>
                             <button 
                                 onClick={() => setUrgencyLevel('ALL')}
-                                title="Todo (Máx 10 días)"
-                                className={`flex-1 text-[8px] py-1 rounded transition-all font-black ${urgencyLevel === 'ALL' ? 'bg-slate-700 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                                className={`flex-1 text-[9px] py-1.5 rounded transition-all font-medium ${urgencyLevel === 'ALL' ? 'bg-[#2A2D35] text-slate-200 shadow-sm border border-[#3A3D45]' : 'text-slate-500 hover:text-slate-300 hover:bg-[#1A1C23]'}`}
                             >
-                                ALL
+                                Todas
                             </button>
                         </div>
                     )}
 
                     {showUpcoming && (
-                        <div className="space-y-1 animate-in slide-in-from-bottom-2 duration-300">
-                            {upcomingTasks.map((t) => {
-                                const due = new Date(t.dueDate);
-                                const now = new Date();
-                                const diffMs = due.getTime() - now.getTime();
-                                const isOverdue = diffMs < 0;
-                                const absDiff = Math.abs(diffMs);
-                                const daysLeft = Math.floor(absDiff / (1000 * 3600 * 24));
-                                const hoursLeft = Math.floor((absDiff % (1000 * 3600 * 24)) / (1000 * 3600));
-                                const minsLeft = Math.floor((absDiff % (1000 * 3600)) / (1000 * 60));
+                        <div className="space-y-1 animate-in slide-in-from-bottom-2 duration-300 min-h-[50px]">
+                            {filteredUpcomingTasks.length === 0 ? (
+                                <div className="text-center py-4">
+                                    <p className="text-[10px] text-slate-500 italic">No hay tareas en esta categoría.</p>
+                                </div>
+                            ) : (
+                                filteredUpcomingTasks.map((t) => {
+                                    const due = new Date(t.dueDate!);
+                                    const now = new Date();
+                                    const diffMs = due.getTime() - now.getTime();
+                                    const isOverdue = diffMs < 0;
+                                    const absDiff = Math.abs(diffMs);
+                                    const daysLeft = Math.floor(absDiff / (1000 * 3600 * 24));
+                                    const hoursLeft = Math.floor((absDiff % (1000 * 3600 * 24)) / (1000 * 3600));
+                                    const minsLeft = Math.floor((absDiff % (1000 * 3600)) / (1000 * 60));
 
-                                let timeLabel = '';
-                                if (daysLeft > 0) timeLabel = `${daysLeft}d ${hoursLeft}h`;
-                                else if (hoursLeft > 0) timeLabel = `${hoursLeft}h ${minsLeft}m`;
-                                else timeLabel = `${minsLeft}m`;
+                                    let timeLabel = '';
+                                    if (daysLeft > 0) timeLabel = `${daysLeft}d ${hoursLeft}h`;
+                                    else if (hoursLeft > 0) timeLabel = `${hoursLeft}h ${minsLeft}m`;
+                                    else timeLabel = `${minsLeft}m`;
 
-                                const priorityColor = t.priority === 'ASAP' ? 'bg-purple-500' : t.priority === 'High' ? 'bg-red-500' : t.priority === 'Medium' ? 'bg-orange-400' : 'bg-emerald-500';
+                                    const priorityColor = t.priority === 'ASAP' ? 'bg-purple-500' : t.priority === 'High' ? 'bg-red-500' : t.priority === 'Medium' ? 'bg-orange-400' : 'bg-emerald-500';
 
-                                return (
-                                    <div
-                                        key={t.id}
-                                        className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-[#1A1C23] transition-colors group cursor-default"
-                                    >
-                                        <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityColor}`}></div>
-                                        <span className="text-[10px] text-slate-300 truncate flex-1 font-medium" title={t.nombre}>
-                                            {t.nombre}
-                                        </span>
-                                        <span className={`text-[9px] font-bold shrink-0 ${isOverdue ? 'text-red-400' : daysLeft === 0 ? 'text-amber-400' : 'text-slate-500'}`}>
-                                            {isOverdue ? `-${timeLabel}` : timeLabel}
-                                        </span>
-                                    </div>
-                                );
-                            })}
+                                    return (
+                                        <div
+                                            key={t.id}
+                                            className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-[#1A1C23] transition-colors group cursor-default"
+                                        >
+                                            <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityColor}`}></div>
+                                            <span className="text-[10px] text-slate-300 truncate flex-1 font-medium" title={t.nombre}>
+                                                {t.nombre}
+                                            </span>
+                                            <span className={`text-[9px] font-bold shrink-0 ${isOverdue ? 'text-red-400' : t._bucket! === 1 ? 'text-amber-400' : 'text-slate-500'}`}>
+                                                {isOverdue ? `-${timeLabel}` : timeLabel}
+                                            </span>
+                                        </div>
+                                    );
+                                })
+                            )}
                         </div>
                     )}
                 </div>
