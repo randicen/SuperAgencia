@@ -350,20 +350,20 @@ const ListaView: React.FC<{
                 const hasSubtasks = task.subtasks && task.subtasks.length > 0;
                 const isExpanded = expandedTasks[task.id];
                 return (
-                    <div className="flex items-center gap-2" style={{ paddingLeft: level * 20 }}>
-                        {/* Expand/Collapse Chevron (Leftmost) */}
-                        <div className="w-5 shrink-0 flex items-center justify-center">
-                            {hasSubtasks && (
-                                <button onClick={(e) => { e.stopPropagation(); toggleTaskExpand(task.id); }}
-                                    className="w-5 h-5 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-100 transition-colors">
-                                    <i className={`fa-solid fa-chevron-${isExpanded ? 'down' : 'right'} text-[9px]`}></i>
-                                </button>
-                            )}
-                        </div>
+                    <div className="flex items-center" style={{ paddingLeft: level * 20 }}>
+                        {/* Unified Action Zone (Fixed Width for Symmetry) */}
+                        <div className="flex items-center gap-2 w-24 shrink-0">
+                            {/* Expand/Collapse Chevron */}
+                            <div className="w-5 flex items-center justify-center">
+                                {hasSubtasks && (
+                                    <button onClick={(e) => { e.stopPropagation(); toggleTaskExpand(task.id); }}
+                                        className="w-5 h-5 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-100 transition-colors">
+                                        <i className={`fa-solid fa-chevron-${isExpanded ? 'down' : 'right'} text-[9px]`}></i>
+                                    </button>
+                                )}
+                            </div>
 
-                        {/* Quick Action Cluster */}
-                        <div className="flex items-center gap-2 w-12 shrink-0">
-                            {/* Quick Delete Trash (Far Left) */}
+                            {/* Quick Delete Trash */}
                             <button 
                                 onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }}
                                 className="w-6 h-6 flex items-center justify-center text-slate-200 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 rounded-lg hover:bg-red-50"
@@ -379,7 +379,7 @@ const ListaView: React.FC<{
                             </button>
                         </div>
 
-                        <span className={`text-sm font-bold truncate tracking-tight transition-colors ${task.estado === 'DONE' ? 'line-through text-slate-400' : 'text-slate-700'}`}>{task.nombre}</span>
+                        <span className={`text-sm font-bold truncate tracking-tight transition-colors pl-1 ${task.estado === 'DONE' ? 'line-through text-slate-400' : 'text-slate-700'}`}>{task.nombre}</span>
                         {task.hasConflict && task.estado !== 'DONE' && (
                             <span className="text-[10px] text-red-500 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 flex items-center gap-1">
                                 <i className="fa-solid fa-triangle-exclamation"></i>
@@ -478,14 +478,8 @@ const ListaView: React.FC<{
                                     {orderedColumns.map(col => (
                                         <div
                                             key={col.id}
-                                            className={`${col.width} text-[9px] font-black uppercase px-2 ${col.id === 'nombre' ? 'text-slate-400' : 'text-slate-400 cursor-grab hover:text-slate-600 hover:bg-slate-100 rounded'} ${draggedColumn === col.id ? 'opacity-50' : ''}`}
-                                            draggable={col.id !== 'nombre'}
-                                            onDragStart={() => handleDragStart(col.id)}
-                                            onDragOver={(e) => handleDragOver(e, col.id)}
-                                            onDrop={() => handleDrop(col.id)}
-                                            onDragEnd={() => setDraggedColumn(null)}
+                                            className={`${col.width} text-[9px] font-black uppercase px-2 ${col.id === 'nombre' ? 'text-slate-400 pl-24' : 'text-slate-400 pl-1'}`}
                                         >
-                                            {col.id !== 'nombre' && <i className="fa-solid fa-grip-vertical mr-1 text-[8px] text-slate-300"></i>}
                                             {col.label}
                                         </div>
                                     ))}
