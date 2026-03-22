@@ -80,11 +80,47 @@ const SpacesSidebar: React.FC = () => {
             activeSpace.carpetas.forEach(f => { f.listas.forEach(l => { collected.push(...flattenTasks(l.tareas)); }); });
         }
 
-        // Filter out DONE and tasks without dueDate, then sort by dueDate ascending
+        // Smart Sorting Algorithm
         return collected
             .filter(t => t.estado !== 'DONE' && t.dueDate)
-            .sort((a, b) => new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime())
-            .slice(0, 5);
+            .sort((a, b) => {
+                const now = new Date().getTime();
+                const dueA = new Date(a.dueDate!).getTime();
+                const dueB = new Date(b.dueDate!).getTime();
+                
+                const getPriorityScore = (p: string | undefined): number => {
+                    switch (p) {
+                        case 'ASAP': return 4;
+                        case 'High': return 3;
+                        case 'Medium': return 2;
+                        case 'Low': return 1;
+                        default: return 0;
+                    }
+                };
+
+                const getUrgencyBucket = (dueTime: number) => {
+                    if (dueTime < now) return 0; // Overdue: Maximum urgency
+                    const hoursLeft = (dueTime - now) / (1000 * 3600);
+                    if (hoursLeft <= 24) return 1; // Due next 24 hours
+                    if (hoursLeft <= 72) return 2; // Due next 3 days
+                    return 3; // Due later
+                };
+
+                const bucketA = getUrgencyBucket(dueA);
+                const bucketB = getUrgencyBucket(dueB);
+
+                // 1. Urgency Bucket determines primary order
+                if (bucketA !== bucketB) return bucketA - bucketB;
+
+                // 2. Within same bucket, Priority rules
+                const pA = getPriorityScore(a.priority);
+                const pB = getPriorityScore(b.priority);
+                if (pA !== pB) return pB - pA; // Descending priority
+
+                // 3. If everything is equal, strict chronological order
+                return dueA - dueB;
+            })
+            .slice(0, 6); // Increment to top 6
     }, [espacios, state.activeSpaceId, state.activeFolderId, state.activeListId]);
 
     const handleRenameSpace = (id: string) => {
