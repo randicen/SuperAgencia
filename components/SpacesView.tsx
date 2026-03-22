@@ -350,7 +350,7 @@ const ListaView: React.FC<{
                 const hasSubtasks = task.subtasks && task.subtasks.length > 0;
                 const isExpanded = expandedTasks[task.id];
                 return (
-                    <div className="flex items-center gap-3" style={{ paddingLeft: level * 20 }}>
+                    <div className="flex items-center gap-2" style={{ paddingLeft: level * 20 }}>
                         {/* Expand/Collapse Chevron (Leftmost) */}
                         <div className="w-5 shrink-0 flex items-center justify-center">
                             {hasSubtasks && (
@@ -362,8 +362,8 @@ const ListaView: React.FC<{
                         </div>
 
                         {/* Quick Action Cluster */}
-                        <div className="flex items-center gap-2.5 w-14 shrink-0">
-                            {/* Quick Delete Trash (Now on the far left) */}
+                        <div className="flex items-center gap-2 w-12 shrink-0">
+                            {/* Quick Delete Trash (Far Left) */}
                             <button 
                                 onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }}
                                 className="w-6 h-6 flex items-center justify-center text-slate-200 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 rounded-lg hover:bg-red-50"
@@ -499,7 +499,7 @@ const ListaView: React.FC<{
                                         const isDeleting = deletingTaskId === task.id;
                                         return (
                                             <React.Fragment key={task.id}>
-                                                <div onClick={() => onEditTask(task)} className={`flex items-center gap-2 px-4 py-2.5 border-b border-slate-50 hover:bg-blue-50/50 cursor-pointer group min-w-max transition-all duration-300 ${isDeleting ? 'translate-x-full opacity-0 scale-95' : ''} ${level > 0 ? 'bg-slate-50/30' : ''}`}>
+                                                <div onClick={() => onEditTask(task)} className={`flex items-center gap-2 px-0 py-2.5 border-b border-slate-50 hover:bg-blue-50/50 cursor-pointer group min-w-max transition-all duration-300 ${isDeleting ? 'translate-x-full opacity-0 scale-95' : ''} ${level > 0 ? 'bg-slate-50/30' : ''}`}>
                                                     {orderedColumns.map(col => (<div key={col.id} className={`${col.width} px-2`}>{renderCell(task, col.id, level)}</div>))}
                                                     <div className="w-16 flex items-center gap-1 opacity-0 group-hover:opacity-100">
                                                         <button onClick={(e) => { e.stopPropagation(); onAddSubtask(task); }} className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-blue-600 rounded"><i className="fa-solid fa-plus text-[10px]"></i></button>
