@@ -2149,7 +2149,7 @@ const SpacesView: React.FC = () => {
                                                                         type="time" 
                                                                         value={tempWorkStart} 
                                                                         onChange={(e) => setTempWorkStart(e.target.value)}
-                                                                        className="text-xs font-black text-slate-800 bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-200 min-w-[90px] text-center focus:ring-2 focus:ring-amber-500 outline-none"
+                                                                        className="text-xs font-black text-slate-800 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 min-w-[120px] text-center focus:ring-2 focus:ring-amber-500 outline-none transition-all"
                                                                     />
                                                                     <button type="button" onClick={() => setTempWorkStart(adjustTime(tempWorkStart, 15))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">+</button>
                                                                 </div>
@@ -2160,7 +2160,7 @@ const SpacesView: React.FC = () => {
                                                                         type="time" 
                                                                         value={tempWorkEnd} 
                                                                         onChange={(e) => setTempWorkEnd(e.target.value)}
-                                                                        className="text-xs font-black text-slate-800 bg-slate-50 px-2 py-1.5 rounded-lg border border-slate-200 min-w-[90px] text-center focus:ring-2 focus:ring-amber-500 outline-none"
+                                                                        className="text-xs font-black text-slate-800 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 min-w-[120px] text-center focus:ring-2 focus:ring-amber-500 outline-none transition-all"
                                                                     />
                                                                     <button type="button" onClick={() => setTempWorkEnd(adjustTime(tempWorkEnd, 15))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">+</button>
                                                                 </div>
