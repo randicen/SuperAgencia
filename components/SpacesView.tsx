@@ -244,7 +244,8 @@ const ListaView: React.FC<{
     onDeleteTask: (task: SpaceTask) => void;
     onAddSubtask: (parentTask: SpaceTask) => void;
     onAddTask: (defaults: Partial<SpaceTask>) => void;
-}> = ({ tasks, rules, groupBy, onEditTask, onToggleTask, onDeleteTask, onAddSubtask, onAddTask }) => {
+    deletingTaskId?: string | null;
+}> = ({ tasks, rules, groupBy, onEditTask, onToggleTask, onDeleteTask, onAddSubtask, onAddTask, deletingTaskId }) => {
     const [columnOrder, setColumnOrder] = useState<ColumnId[]>(() => {
         try {
             const saved = localStorage.getItem('lista_column_order');
@@ -475,9 +476,10 @@ const ListaView: React.FC<{
                                     const renderTaskRow = (task: SpaceTask, level: number = 0): React.ReactNode => {
                                         const hasSubtasks = task.subtasks && task.subtasks.length > 0;
                                         const isExpanded = expandedTasks[task.id];
+                                        const isDeleting = deletingTaskId === task.id;
                                         return (
                                             <React.Fragment key={task.id}>
-                                                <div onClick={() => onEditTask(task)} className={`flex items-center gap-2 px-4 py-2.5 border-b border-slate-50 hover:bg-blue-50/50 cursor-pointer group min-w-max ${level > 0 ? 'bg-slate-50/30' : ''}`}>
+                                                <div onClick={() => onEditTask(task)} className={`flex items-center gap-2 px-4 py-2.5 border-b border-slate-50 hover:bg-blue-50/50 cursor-pointer group min-w-max transition-all duration-300 ${isDeleting ? 'translate-x-full opacity-0 scale-95' : ''} ${level > 0 ? 'bg-slate-50/30' : ''}`}>
                                                     {orderedColumns.map(col => (<div key={col.id} className={`${col.width} px-2`}>{renderCell(task, col.id, level)}</div>))}
                                                     <div className="w-16 flex items-center gap-1 opacity-0 group-hover:opacity-100">
                                                         <button onClick={(e) => { e.stopPropagation(); onAddSubtask(task); }} className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-blue-600 rounded"><i className="fa-solid fa-plus text-[10px]"></i></button>
@@ -523,7 +525,9 @@ const KanbanView: React.FC<{
     groupBy: GroupBy;
     onEditTask: (t: SpaceTask) => void;
     onUpdateTask: (id: string, updates: Partial<SpaceTask>) => void;
-}> = ({ tasks, groupBy, onEditTask, onUpdateTask }) => {
+    onDeleteTask: (t: SpaceTask) => void;
+    deletingTaskId?: string | null;
+}> = ({ tasks, groupBy, onEditTask, onUpdateTask, onDeleteTask, deletingTaskId }) => {
 
     // Drag & Drop Handlers
     const handleDragStart = (e: React.DragEvent, taskId: string) => {
@@ -616,6 +620,7 @@ const KanbanView: React.FC<{
                         <div className="flex-1 space-y-3 overflow-y-auto custom-scrollbar pr-1">
                             {tasks.filter(col.filterFn).map(task => {
                                 const slack = getFormattedSlack({ dueDate: task.dueDate, duration: task.duration });
+                                const isDeleting = deletingTaskId === task.id;
 
                                 return (
                                     <div
@@ -623,13 +628,22 @@ const KanbanView: React.FC<{
                                         draggable
                                         onDragStart={(e) => handleDragStart(e, task.id)}
                                         onClick={() => onEditTask(task)}
-                                        className={`bg-white p-5 rounded-2xl border shadow-sm hover:shadow-md transition-all cursor-pointer group relative overflow-hidden ${task.hasConflict && task.estado !== 'DONE' ? 'border-red-400 ring-1 ring-red-400 hover:border-red-500 hover:ring-red-500' : 'border-slate-200 hover:border-blue-200'}`}
+                                        className={`bg-white p-5 rounded-2xl border shadow-sm hover:shadow-md cursor-pointer group relative overflow-hidden transition-all duration-300 ${isDeleting ? 'scale-90 opacity-0 -translate-y-4' : ''} ${task.hasConflict && task.estado !== 'DONE' ? 'border-red-400 ring-1 ring-red-400 hover:border-red-500 hover:ring-red-500' : 'border-slate-200 hover:border-blue-200'}`}
                                     >
                                         {/* Priority Indicator Line */}
                                         <div className={`absolute top-0 left-0 w-1 h-full ${task.priority === 'ASAP' ? 'bg-purple-500' :
                                             task.priority === 'High' ? 'bg-red-500' :
                                                 task.priority === 'Medium' ? 'bg-orange-400' : 'bg-emerald-400'
                                             }`}></div>
+
+                                        {/* Quick Delete Button */}
+                                        <button 
+                                            onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }}
+                                            className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-xl bg-red-50 text-red-500 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500 hover:text-white z-10 shadow-sm border border-red-100"
+                                            title="Eliminar Tarea"
+                                        >
+                                            <i className="fa-solid fa-trash-can text-[10px]"></i>
+                                        </button>
 
                                         <div className="flex justify-between items-start mb-3 pl-2">
                                             <h4 className="font-bold text-slate-800 text-sm leading-tight group-hover:text-blue-600 transition-colors line-clamp-2">
@@ -1171,6 +1185,7 @@ const SpacesView: React.FC = () => {
     const [notification, setNotification] = useState<{ message: string, type: 'error' | 'success' } | null>(null);
     const [groupBy, setGroupBy] = useState<GroupBy>('estado');
     const [taskToDelete, setTaskToDelete] = useState<SpaceTask | null>(null);
+    const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
     const [subtaskWarning, setSubtaskWarning] = useState<{ task: SpaceTask, missingCount: number } | null>(null);
     const [showWorkHoursQuickfix, setShowWorkHoursQuickfix] = useState(false);
     const [tempWorkStart, setTempWorkStart] = useState(state.rules.workingHoursStart);
@@ -1908,7 +1923,7 @@ const SpacesView: React.FC = () => {
             {/* Content area */}
             <div className="flex-1 overflow-y-auto p-6">
                 <div className="max-w-5xl mx-auto h-full">
-                    {viewMode === 'lista' && <ListaView tasks={tasks} rules={state.rules} groupBy={groupBy} onEditTask={openEditModal} onToggleTask={handleToggleTask} onDeleteTask={(t) => setTaskToDelete(t)} onAddTask={(defaults) => {
+                    {viewMode === 'lista' && <ListaView tasks={tasks} rules={state.rules} groupBy={groupBy} onEditTask={openEditModal} onToggleTask={handleToggleTask} onDeleteTask={(t) => setTaskToDelete(t)} deletingTaskId={deletingTaskId} onAddTask={(defaults) => {
                         setNewTask({ ...getDefaultTask(), ...defaults });
                         setShowModal(true);
                     }} onAddSubtask={(p) => {
@@ -1929,7 +1944,7 @@ const SpacesView: React.FC = () => {
                         setEditingTask(subtask);
                     }}
                     />}
-                    {viewMode === 'kanban' && <KanbanView tasks={tasks} groupBy={groupBy} onEditTask={openEditModal} onUpdateTask={(id, updates) => {
+                    {viewMode === 'kanban' && <KanbanView tasks={tasks} groupBy={groupBy} onEditTask={openEditModal} onDeleteTask={(t) => setTaskToDelete(t)} deletingTaskId={deletingTaskId} onUpdateTask={(id, updates) => {
                         // FIX: Aggregated tasks update needs to locate the correct list of the task
                         const taskToUpdate = tasks.find(t => t.id === id);
                         if (!taskToUpdate) return;
@@ -2406,9 +2421,16 @@ const SpacesView: React.FC = () => {
                             </button>
                             <button
                                 onClick={() => {
-                                    handleDeleteTask(taskToDelete.id);
+                                    const id = taskToDelete.id;
+                                    setDeletingTaskId(id);
                                     setTaskToDelete(null);
-                                    if (editingTask?.id === taskToDelete.id) setEditingTask(null);
+                                    if (editingTask?.id === id) setEditingTask(null);
+                                    
+                                    // Give time for animation
+                                    setTimeout(() => {
+                                        handleDeleteTask(id);
+                                        setDeletingTaskId(null);
+                                    }, 400);
                                 }}
                                 className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-red-200 hover:bg-red-600 transition-colors"
                             >
