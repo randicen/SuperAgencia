@@ -1822,8 +1822,8 @@ const SpacesView: React.FC = () => {
                                 </span>
                             </div>
                         </div>
-                        <button onClick={() => dispatch({ type: 'SET_RULES_OVERRIDE', payload: null })} className="w-7 h-7 rounded-lg hover:bg-amber-200 flex items-center justify-center text-amber-600 hover:text-amber-800 transition-colors" title="Cancelar extensión temporal">
-                            <i className="fa-solid fa-xmark text-sm"></i>
+                        <button onClick={() => dispatch({ type: 'SET_RULES_OVERRIDE', payload: null })} className="px-4 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/40 text-amber-800 text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 border border-amber-300 hover:border-amber-400">
+                            <i className="fa-solid fa-rotate-left text-[8px]"></i> Restaurar horario normal
                         </button>
                     </div>
                 );
@@ -2118,10 +2118,12 @@ const SpacesView: React.FC = () => {
                                                 </div>
                                                 {/* Inline Work Hours Quickfix Panel */}
                                                 {showWorkHoursQuickfix && (() => {
-                                                    const adjustHour = (timeStr: string, delta: number): string => {
+                                                    const adjustTime = (timeStr: string, deltaMinutes: number): string => {
                                                         const [h, m] = timeStr.split(':').map(Number);
-                                                        const newH = Math.max(0, Math.min(23, h + delta));
-                                                        return `${String(newH).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                                                        const totalMins = Math.max(0, Math.min(23 * 60 + 59, h * 60 + m + deltaMinutes));
+                                                        const newH = Math.floor(totalMins / 60);
+                                                        const newM = totalMins % 60;
+                                                        return `${String(newH).padStart(2, '0')}:${String(newM).padStart(2, '0')}`;
                                                     };
                                                     const fmt12 = (timeStr: string): string => {
                                                         const [h, m] = timeStr.split(':').map(Number);
@@ -2142,15 +2144,15 @@ const SpacesView: React.FC = () => {
                                                             <div className="grid grid-cols-2 gap-3">
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="text-[9px] font-black text-slate-500 uppercase w-12">Inicio</span>
-                                                                    <button type="button" onClick={() => setTempWorkStart(adjustHour(tempWorkStart, -1))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">−</button>
+                                                                    <button type="button" onClick={() => setTempWorkStart(adjustTime(tempWorkStart, -60))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">−</button>
                                                                     <span className="text-xs font-black text-slate-800 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 min-w-[80px] text-center">{fmt12(tempWorkStart)}</span>
-                                                                    <button type="button" onClick={() => setTempWorkStart(adjustHour(tempWorkStart, 1))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">+</button>
+                                                                    <button type="button" onClick={() => setTempWorkStart(adjustTime(tempWorkStart, 60))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">+</button>
                                                                 </div>
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="text-[9px] font-black text-slate-500 uppercase w-12">Fin</span>
-                                                                    <button type="button" onClick={() => setTempWorkEnd(adjustHour(tempWorkEnd, -1))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">−</button>
+                                                                    <button type="button" onClick={() => setTempWorkEnd(adjustTime(tempWorkEnd, -60))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">−</button>
                                                                     <span className="text-xs font-black text-slate-800 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 min-w-[80px] text-center">{fmt12(tempWorkEnd)}</span>
-                                                                    <button type="button" onClick={() => setTempWorkEnd(adjustHour(tempWorkEnd, 1))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">+</button>
+                                                                    <button type="button" onClick={() => setTempWorkEnd(adjustTime(tempWorkEnd, 60))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">+</button>
                                                                 </div>
                                                             </div>
                                                             {!isValid && <p className="text-[9px] text-red-500 font-bold mt-2"><i className="fa-solid fa-triangle-exclamation mr-1"></i>El fin debe ser al menos 1h después del inicio.</p>}
