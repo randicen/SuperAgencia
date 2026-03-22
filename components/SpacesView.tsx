@@ -1363,7 +1363,23 @@ const SpacesView: React.FC = () => {
     };
 
     const handleUpdateTask = () => {
-        if (!editingTask || !state.activeSpaceId || !state.activeListId) return;
+        if (!editingTask || !state.activeSpaceId) return;
+
+        let foundListId = state.activeListId;
+        let foundFolderId = state.activeFolderId;
+        
+        const taskExistsNested = (tasks: SpaceTask[], idSearch: string): boolean => {
+            return tasks.some(t => t.id === idSearch || (t.subtasks && taskExistsNested(t.subtasks, idSearch)));
+        };
+
+        if (!foundListId && activeSpace) {
+            activeSpace.listas.forEach(l => { if (taskExistsNested(l.tareas, editingTask.id)) foundListId = l.id; });
+            if (!foundListId) {
+                activeSpace.carpetas.forEach(f => { f.listas.forEach(l => { if (taskExistsNested(l.tareas, editingTask.id)) { foundListId = l.id; foundFolderId = f.id; } }); });
+            }
+        }
+
+        if (!foundListId) return;
 
         // STRICT VALIDATION: Parent Constraint Check
         // Helper to find parent of the current editingTask
@@ -1450,8 +1466,8 @@ const SpacesView: React.FC = () => {
             type: 'UPDATE_TASK',
             payload: {
                 spaceId: state.activeSpaceId,
-                folderId: state.activeFolderId || undefined,
-                listId: state.activeListId,
+                folderId: foundFolderId || undefined,
+                listId: foundListId,
                 task: finalTask,
             },
         });
@@ -1459,7 +1475,25 @@ const SpacesView: React.FC = () => {
     };
 
     const handleToggleTask = (taskId: string, forceAction?: 'RESOLVE_ALL' | 'IGNORE' | 'CANCEL') => {
-        if (!state.activeSpaceId || !state.activeListId || !activeList) return;
+        if (!state.activeSpaceId) return;
+
+        let foundListId = state.activeListId;
+        let foundFolderId = state.activeFolderId;
+        
+        const taskExistsNested = (tasks: SpaceTask[], idSearch: string): boolean => {
+            return tasks.some(t => t.id === idSearch || (t.subtasks && taskExistsNested(t.subtasks, idSearch)));
+        };
+
+        let targetList = activeList;
+
+        if (!foundListId && activeSpace) {
+            activeSpace.listas.forEach(l => { if (taskExistsNested(l.tareas, taskId)) { foundListId = l.id; targetList = l; } });
+            if (!foundListId) {
+                activeSpace.carpetas.forEach(f => { f.listas.forEach(l => { if (taskExistsNested(l.tareas, taskId)) { foundListId = l.id; foundFolderId = f.id; targetList = l; } }); });
+            }
+        }
+
+        if (!foundListId || !targetList) return;
 
         // 1. Recursive helper to find task and its FULL LINEAGE (path of parents)
         const findTaskPath = (tasks: SpaceTask[], id: string, path: SpaceTask[] = []): { task: SpaceTask, path: SpaceTask[] } | null => {
@@ -1473,7 +1507,7 @@ const SpacesView: React.FC = () => {
             return null;
         };
 
-        const result = findTaskPath(activeList.tareas, taskId);
+        const result = findTaskPath(targetList.tareas, taskId);
         if (!result) return;
         const { task, path } = result;
 
@@ -1522,33 +1556,8 @@ const SpacesView: React.FC = () => {
             } else if (forceAction === 'IGNORE') {
                 // Do NOT touch children
             } else {
-                // Standard toggle behavior (if no warning triggered, meaning all were likely done or user is unchecking)
-                // If unchecking (DONE -> TODO), we usually uncheck children too? Or leave them?
-                // The prompt asked for specific completion logic.
-                // Let's assume standard behavior:
-                // - If completing (and passed check): children are already done, so no change needed.
-                // - If un-completing: Let's set children to TODO as well to be safe, or keep them?
-                // Let's keep a simple rule: Toggle affects children only if we are un-completing?
-                // Actually the previous code forced children to newStatus.
-                // "si se cumplen todas las subtareas, no necesariamente la tarea padre se marca como hecho".
-                // BUT if parent is marked done manually, what happens to children?
-                // 'Resolver' -> marks all as done.
-                // 'Continuar sin resolver' -> Parent done, children stay.
-                // So standard toggle (no warning needed) implies children are already done.
-                // If unchecking: let's uncheck children for consistency with previous behavior unless requested otherwise.
                 if (newStatus === 'TODO') {
                     // USER REQUEST CHANGE: When un-checking a parent, do NOT un-check children automatically.
-                    // Keep them as they are (likely DONE).
-
-                    /* 
-                    const updateChildren = (st: SpaceTask[]): SpaceTask[] => st.map(child => ({
-                        ...child,
-                        estado: 'TODO',
-                        progress: 0,
-                        subtasks: child.subtasks ? updateChildren(child.subtasks) : []
-                    }));
-                    updatedTask.subtasks = updateChildren(updatedTask.subtasks);
-                    */
                 }
             }
         }
@@ -1562,19 +1571,6 @@ const SpacesView: React.FC = () => {
             for (const ancestor of ancestors) {
                 const updatedSubtasks = ancestor.subtasks!.map(st => st.id === currentChild.id ? currentChild : st);
 
-                // Calculate ancestor's new status based on siblings
-                // RULE CHANGE: Parent Auto-Completion is DISABLED.
-                // Parent status is ONLY updated if it was already DONE and now needs to be undone because a child became active?
-                // Or purely manual? "eso debe ser manual para el usuario".
-                // So if I finish a subtask, parent stays as is ( ACTIVE or TODO).
-                // If I un-finish a subtask, parent MIGHT need to go from DONE to ACTIVE?
-                // Typically yes, if a child is not done, parent cannot be done?
-                // But wait, the user explicitly allows "Continuar sin resolver" (Parent DONE, child TODO).
-                // So we should NOT enforce parent state logic strictly.
-                // WE ONLY UPDATE PROGRESS % of parent, but NOT status, unless...
-                // actually simpler: Do not touch parent status at all automatically.
-
-                // Let's just update progress average.
                 const totalCount = updatedSubtasks.length;
                 const totalProgressSum = updatedSubtasks.reduce((acc, curr) => acc + (curr.progress || 0), 0);
                 const newParentProgress = Math.round(totalProgressSum / totalCount);
@@ -1582,7 +1578,6 @@ const SpacesView: React.FC = () => {
                 currentChild = {
                     ...ancestor,
                     subtasks: updatedSubtasks,
-                    // valid: keep existing state, only update progress
                     progress: newParentProgress
                 };
             }
@@ -1593,8 +1588,8 @@ const SpacesView: React.FC = () => {
             type: 'UPDATE_TASK',
             payload: {
                 spaceId: state.activeSpaceId,
-                folderId: state.activeFolderId || undefined,
-                listId: state.activeListId,
+                folderId: foundFolderId || undefined,
+                listId: foundListId,
                 task: finalTaskToDispatch,
             },
         });
