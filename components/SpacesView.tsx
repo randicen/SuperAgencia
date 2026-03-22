@@ -347,29 +347,39 @@ const ListaView: React.FC<{
         const isExpanded = expandedTasks[task.id];
         switch (colId) {
             case 'nombre':
+                const hasSubtasks = task.subtasks && task.subtasks.length > 0;
+                const isExpanded = expandedTasks[task.id];
                 return (
-                    <div className="flex items-center gap-2" style={{ paddingLeft: level * 20 }}>
-                        {hasSubtasks ? (
-                            <button onClick={(e) => { e.stopPropagation(); toggleTaskExpand(task.id); }}
-                                className="w-5 h-5 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded hover:bg-slate-100">
-                                <i className={`fa-solid fa-chevron-${isExpanded ? 'down' : 'right'} text-[9px]`}></i>
-                            </button>
-                        ) : <div className="w-5"></div>}
-                        <button onClick={(e) => { e.stopPropagation(); onToggleTask(task.id); }}
-                            className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 ${task.estado === 'DONE' ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-blue-500'}`}>
-                            {task.estado === 'DONE' && <i className="fa-solid fa-check text-[8px]"></i>}
-                        </button>
-                        
-                        {/* Quick Delete Trash (Moved to left for accessibility) */}
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }}
-                            className="w-5 h-5 flex items-center justify-center text-slate-300 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 -ml-1"
-                            title="Eliminar Tarea"
-                        >
-                            <i className="fa-solid fa-trash-can text-[10px]"></i>
-                        </button>
+                    <div className="flex items-center gap-3" style={{ paddingLeft: level * 20 }}>
+                        {/* Expand/Collapse Chevron (Leftmost) */}
+                        <div className="w-5 shrink-0 flex items-center justify-center">
+                            {hasSubtasks && (
+                                <button onClick={(e) => { e.stopPropagation(); toggleTaskExpand(task.id); }}
+                                    className="w-5 h-5 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-md hover:bg-slate-100 transition-colors">
+                                    <i className={`fa-solid fa-chevron-${isExpanded ? 'down' : 'right'} text-[9px]`}></i>
+                                </button>
+                            )}
+                        </div>
 
-                        <span className={`text-sm font-medium truncate ${task.estado === 'DONE' ? 'line-through text-slate-400' : 'text-slate-700'}`}>{task.nombre}</span>
+                        {/* Quick Action Cluster */}
+                        <div className="flex items-center gap-2.5 w-14 shrink-0">
+                            {/* Checkbox */}
+                            <button onClick={(e) => { e.stopPropagation(); onToggleTask(task.id); }}
+                                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${task.estado === 'DONE' ? 'bg-green-500 border-green-500 text-white shadow-sm' : 'border-slate-300 hover:border-blue-500 hover:bg-blue-50'}`}>
+                                {task.estado === 'DONE' && <i className="fa-solid fa-check text-[8px]"></i>}
+                            </button>
+                            
+                            {/* Quick Delete Trash */}
+                            <button 
+                                onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }}
+                                className="w-6 h-6 flex items-center justify-center text-slate-200 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 rounded-lg hover:bg-red-50"
+                                title="Eliminar Tarea"
+                            >
+                                <i className="fa-solid fa-trash-can text-[10px]"></i>
+                            </button>
+                        </div>
+
+                        <span className={`text-sm font-bold truncate tracking-tight transition-colors ${task.estado === 'DONE' ? 'line-through text-slate-400' : 'text-slate-700'}`}>{task.nombre}</span>
                         {task.hasConflict && task.estado !== 'DONE' && (
                             <span className="text-[10px] text-red-500 bg-red-50 px-1.5 py-0.5 rounded border border-red-100 flex items-center gap-1">
                                 <i className="fa-solid fa-triangle-exclamation"></i>
@@ -645,10 +655,10 @@ const KanbanView: React.FC<{
                                                 task.priority === 'Medium' ? 'bg-orange-400' : 'bg-emerald-400'
                                             }`}></div>
 
-                                        {/* Quick Delete Button */}
+                                        {/* Quick Delete Button - Refined Premium Styling */}
                                         <button 
                                             onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }}
-                                            className="absolute top-3 right-3 w-7 h-7 flex items-center justify-center rounded-xl bg-red-50 text-red-500 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500 hover:text-white z-10 shadow-sm border border-red-100"
+                                            className="absolute top-2.5 right-2.5 w-7 h-7 flex items-center justify-center rounded-xl bg-white/80 backdrop-blur-sm border border-slate-100 text-slate-300 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500 hover:text-white z-10 shadow-sm"
                                             title="Eliminar Tarea"
                                         >
                                             <i className="fa-solid fa-trash-can text-[10px]"></i>
