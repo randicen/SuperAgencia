@@ -50,6 +50,7 @@ const App: React.FC = () => {
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error' | 'offline'>('idle');
   const [isLoadingCloud, setIsLoadingCloud] = useState(false);
   const hasCheckedCloud = React.useRef(false); // Bloqueo de seguridad reparado (Ref)
+  const isDownloading = React.useRef(false); // Mutex para carrera asíncrona
   const [spacesSyncTrigger, setSpacesSyncTrigger] = useState(0);
   const [debugMsg, setDebugMsg] = useState<string | null>(null); // DEBUG HUD
   const isInternalUpdate = React.useRef(false); // Ref para evitar bucles de subida tras descarga
@@ -211,9 +212,15 @@ const App: React.FC = () => {
   // --- CLOUD DOWNLOAD LOGIC (INITIAL LOAD) ---
   const handleInitialDownload = useCallback(async (isSilent = false) => {
     if (!session?.user?.id) {
-      setIsLoadingCloud(false);
+      if (!isSilent) setIsLoadingCloud(false);
       return;
     }
+
+    if (isDownloading.current) {
+      console.warn("🛡️ Descarga paralela prevenida por Cerrojo (Mutex Activo)");
+      return;
+    }
+    isDownloading.current = true;
 
     try {
       const { data, error } = await supabase
@@ -325,6 +332,7 @@ const App: React.FC = () => {
     } finally {
       if (!isSilent) setIsLoadingCloud(false);
       hasCheckedCloud.current = true; 
+      isDownloading.current = false; // Liberar el cerrojo Mutex
       // Si este download fue provocado por un sync manual, el status se resetea en handleCloudSync
     }
   }, []); // Remove all state dependencies to avoid infinite loops and reversion
