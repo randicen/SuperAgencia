@@ -49,7 +49,7 @@ const App: React.FC = () => {
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error' | 'offline'>('idle');
   const [isLoadingCloud, setIsLoadingCloud] = useState(false);
-  const [hasCheckedCloud, setHasCheckedCloud] = useState(false); // Bloqueo de seguridad
+  const hasCheckedCloud = React.useRef(false); // Bloqueo de seguridad reparado (Ref)
   const [spacesSyncTrigger, setSpacesSyncTrigger] = useState(0);
   const [debugMsg, setDebugMsg] = useState<string | null>(null); // DEBUG HUD
   const isInternalUpdate = React.useRef(false); // Ref para evitar bucles de subida tras descarga
@@ -85,7 +85,7 @@ const App: React.FC = () => {
 
     try {
       // --- SEGURIDAD: NO SUBIR SI NO HEMOS DESCARGADO PRIMERO ---
-      if (!hasCheckedCloud) {
+      if (!hasCheckedCloud.current) {
           console.warn("Sincronización bloqueada: Aún no se ha verificado la nube. Verificando...");
           await handleInitialDownload(true);
           setSyncStatus('idle'); // REPARADO: No se queda pegado
@@ -319,12 +319,12 @@ const App: React.FC = () => {
           isInternalUpdate.current = true;
           setTimeout(() => isInternalUpdate.current = false, 1500);
       }
-      setHasCheckedCloud(true);
+      hasCheckedCloud.current = true;
     } catch (err) {
       if (!isSilent) console.error("Download Error:", err);
     } finally {
       if (!isSilent) setIsLoadingCloud(false);
-      setHasCheckedCloud(true); 
+      hasCheckedCloud.current = true; 
       // Si este download fue provocado por un sync manual, el status se resetea en handleCloudSync
     }
   }, []); // Remove all state dependencies to avoid infinite loops and reversion
