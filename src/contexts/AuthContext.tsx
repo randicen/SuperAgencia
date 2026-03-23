@@ -2,17 +2,13 @@ import React, { createContext, useContext, useEffect, useState, ReactNode } from
 import { createClient, User, Session, SupabaseClient } from '@supabase/supabase-js';
 
 // Inicializar cliente
-const envUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('coo_supabase_url');
-const envKey = import.meta.env.VITE_SUPABASE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || localStorage.getItem('coo_supabase_key');
+const envUrl = import.meta.env.VITE_SUPABASE_URL || localStorage.getItem('coo_supabase_url') || 'https://kpauvbelnstbprvnnbaz.supabase.co';
+const envKey = import.meta.env.VITE_SUPABASE_KEY || import.meta.env.VITE_SUPABASE_ANON_KEY || localStorage.getItem('coo_supabase_key') || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImtwYXV2YmVsbnN0YnBydm5uYmF6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzM3MDQ0MTUsImV4cCI6MjA4OTI4MDQxNX0.wmrs6PWhlzBCtros7xOoNWH7ZYMD-HnA5QAGPM8IpIA';
 
-export const isUsingDummyKeys = !envUrl || !envKey;
+export const isUsingDummyKeys = false;
 
-// Fallback dummy para evitar que 'createClient' crashee toda la App de React en un "White Screen"
-// La UI cargará y permitirá al usuario introducir las credenciales reales en el menú lateral.
-export const supabase: SupabaseClient = createClient(
-  envUrl || 'https://dummy.supabase.co', 
-  envKey || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.dummy'
-);
+// Cliente oficial permanentemente conectado con tu anon key
+export const supabase: SupabaseClient = createClient(envUrl, envKey);
 
 interface AuthContextType {
   user: User | null;
