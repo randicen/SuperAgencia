@@ -1,7 +1,7 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, BusinessRules, Message, Transaction, Priority, Client, Attachment, ChatSession, Note } from '../types';
-import { calculateQuote } from '../geminiService';
+import { calculateQuote } from '../aiService';
 import { useSpaces } from '../contexts/SpacesContext';
 
 interface AIChatProps {

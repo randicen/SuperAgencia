@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { SeasonalityData, Project } from '../types';
-import { analyzeSeasonality } from '../geminiService';
+import { analyzeSeasonality } from '../aiService';
 
 interface InsightsViewProps {
   seasonality: SeasonalityData[];
