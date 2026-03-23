@@ -230,6 +230,10 @@ const App: React.FC = () => {
         .eq('user_id', session?.user?.id)
         .maybeSingle();
 
+      if (error) {
+        throw new Error(`Supabase API Error: ${error.message}`);
+      }
+
       if (data && data.data) {
         const cloudSyncMeta = data.data as any;
         const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
