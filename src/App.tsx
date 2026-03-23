@@ -335,7 +335,7 @@ const App: React.FC = () => {
       isDownloading.current = false; // Liberar el cerrojo Mutex
       // Si este download fue provocado por un sync manual, el status se resetea en handleCloudSync
     }
-  }, []); // Remove all state dependencies to avoid infinite loops and reversion
+  }, [session]); // El arreglo de dependencias vacío causaba que session fuese null por siempre.
 
   useEffect(() => {
     handleInitialDownload();
