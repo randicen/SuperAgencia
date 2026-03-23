@@ -13,37 +13,8 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="theme-color" content="#0F1117">
     
-    <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
-    <script>
-      tailwind.config = {
-        theme: {
-          extend: {
-            fontFamily: { sans: ['Inter', 'sans-serif'] },
-            colors: {
-              plane: {
-                dark: '#0F1117',
-                sidebar: '#1A1C23',
-                gray: '#F4F5F8',
-                border: '#E5E7EB',
-                primary: '#3A57E8'
-              }
-            }
-          }
-        }
-      }
-    </script>
-    <style>
-      body { font-family: 'Inter', sans-serif; background-color: #F4F5F8; overflow: hidden; }
-      /* Scrollbar estilo Plane/Slack */
-      ::-webkit-scrollbar { width: 6px; height: 6px; }
-      ::-webkit-scrollbar-track { background: transparent; }
-      ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
-      ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
-      
-      .glass-panel { background: white; border: 1px solid #E2E8F0; }
-    </style>
 </head>
   <body class="text-slate-900 antialiased select-none">
     <div id="root" class="h-screen w-screen overflow-hidden"></div>
