@@ -18,6 +18,7 @@ import { supabase } from './contexts/AuthContext';
 import { useAuth } from './contexts/AuthContext';
 import LoginView from './components/LoginView';
 import { useAgencyStore } from './stores/useAgencyStore';
+import { uploadRelationalState, downloadRelationalState } from './utils/syncManager';
 
 const App: React.FC = () => {
   const { session, isLoading: isAuthLoading } = useAuth();
@@ -166,13 +167,20 @@ const App: React.FC = () => {
       // so if the realtime listener fires instantly, localLastSync is already up-to-date.
       localStorage.setItem('coo_last_local_mod', lastMod.toString());
 
+      // 1. DISTRIBUTE RELATIONAL STATE TO 7 TABLES
+      await uploadRelationalState(
+        session.user.id, projects, clients, transactions, 
+        rules, notes, chatSessions, spacesData
+      );
+
+      // 2. UPDATE LIGHTWEIGHT SYNC META
       const { data: returnData, error } = await supabase
         .from('app_state_dump')
         .upsert(
           { 
             id: 'coo_master_state_v2', 
             user_id: session?.user?.id,
-            data: fullState,
+            data: { lastModified: lastMod },
             updated_at: new Date().toISOString()
           }, 
           { onConflict: 'id,user_id' }
@@ -216,47 +224,78 @@ const App: React.FC = () => {
         .maybeSingle();
 
       if (data && data.data) {
-        const cloudState = data.data;
+        const cloudSyncMeta = data.data as any;
         const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
         
-        // Solo descargar si la nube es estrictamente más nueva
-        if (!cloudState.lastModified || cloudState.lastModified > localLastSync) {
-          if (cloudState.lastModified && localLastSync > 0) {
-              setDebugMsg(`REVERT_REALTIME: Cloud(${cloudState.lastModified}) > Local(${localLastSync})`);
+        // Solo descargar si la nube es estrictamente más nueva (o si está vacía localmente)
+        if (!cloudSyncMeta.lastModified || cloudSyncMeta.lastModified > localLastSync) {
+          if (cloudSyncMeta.lastModified && localLastSync > 0) {
+              setDebugMsg(`REVERT_REALTIME: Cloud(${cloudSyncMeta.lastModified}) > Local(${localLastSync})`);
           }
           isInternalUpdate.current = true; // Bloqueamos subidas temporales
           
-          if (cloudState.projects) setProjects(cloudState.projects);
+          let stateToApply: any;
 
-          if (cloudState.clients) setClients(cloudState.clients);
-          if (cloudState.transactions) setTransactions(cloudState.transactions);
-          if (cloudState.rules) setRules(cloudState.rules);
-          if (cloudState.notes) setNotes(cloudState.notes);
-          if (cloudState.chatSessions) setChatSessions(cloudState.chatSessions);
-          if (cloudState.spaces) {
-            localStorage.setItem('coo_spaces', JSON.stringify(cloudState.spaces));
-            window.dispatchEvent(new Event('coo_cloud_data_received'));
+          // LOGICA DE AUTO-MIGRACIÓN
+          if (cloudSyncMeta.projects) { // Si data contiene "projects", es un dump viejo no relacional aún
+            console.log("♻️ Detectado dump de JSON viejo. Migrando a Base de Datos Relacional de forma silenciosa...");
+            await uploadRelationalState(
+               session.user.id, 
+               cloudSyncMeta.projects || [], cloudSyncMeta.clients || [], cloudSyncMeta.transactions || [], 
+               { ...DEFAULT_RULES, ...cloudSyncMeta.rules }, cloudSyncMeta.notes || [], 
+               cloudSyncMeta.chatSessions || [], cloudSyncMeta.spaces || {}
+            );
+            
+            // Re-escribir metadato ligero
+            await supabase.from('app_state_dump').upsert({ id: 'coo_master_state_v2', user_id: session.user.id, data: { lastModified: cloudSyncMeta.lastModified } });
+            
+            stateToApply = cloudSyncMeta; // Usamos esto en memoria para evitar redescargar
+          } else {
+            console.log("☁️ Obteniendo Estado Relacional desde Múltiples Tablas...");
+            stateToApply = await downloadRelationalState(session.user.id);
           }
-          if (!isSilent) console.log("✅ Datos sincronizados desde la nube.");
+          
+          if (!stateToApply.isEmpty || cloudSyncMeta.projects) {
+              if (stateToApply.projects) setProjects(stateToApply.projects);
+              if (stateToApply.clients) setClients(stateToApply.clients);
+              if (stateToApply.transactions) setTransactions(stateToApply.transactions);
+              if (stateToApply.rules) setRules({ ...DEFAULT_RULES, ...(stateToApply.rules) });
+              if (stateToApply.notes) setNotes(stateToApply.notes);
+              if (stateToApply.chatSessions) setChatSessions(stateToApply.chatSessions);
+              if (stateToApply.spaces) {
+                localStorage.setItem('coo_spaces', JSON.stringify(stateToApply.spaces));
+                window.dispatchEvent(new Event('coo_cloud_data_received'));
+              }
+          }
+          
+          if (!isSilent) console.log("✅ Datos sincronizados transversalmente desde Supabase.");
           
           // Actualizar el estado fantasma de comparación ignorando el ruido temporal
           const cloudStateForCompare = {
-              ...cloudState,
-              lastModified: 0,
-              projects: (cloudState.projects || []).map((p: any) => ({
-                  ...p,
-                  scheduledSlots: [],
-                  startDate: p.autoSchedule ? '' : p.startDate,
-                  endDate: p.autoSchedule ? '' : p.endDate,
-                  hasConflict: false,
-                  conflictDescription: ''
-              }))
+              projects: stateToApply.projects || [],
+              clients: stateToApply.clients || [],
+              transactions: stateToApply.transactions || [],
+              rules: stateToApply.rules || {},
+              notes: stateToApply.notes || [],
+              chatSessions: stateToApply.chatSessions || [],
+              spaces: stateToApply.spaces || {},
+              lastModified: 0
           };
+          
+          cloudStateForCompare.projects = cloudStateForCompare.projects.map((p: any) => ({
+              ...p,
+              scheduledSlots: [],
+              startDate: p.autoSchedule ? '' : p.startDate,
+              endDate: p.autoSchedule ? '' : p.endDate,
+              hasConflict: false,
+              conflictDescription: ''
+          }));
+
           lastUploadedState.current = JSON.stringify(cloudStateForCompare);
           localStorage.setItem('coo_last_sync_fingerprint', lastUploadedState.current);
 
           // Importante: Actualizar el timestamp local para evitar un re-upload inmediato
-          localStorage.setItem('coo_last_local_mod', (cloudState.lastModified || Date.now()).toString());
+          localStorage.setItem('coo_last_local_mod', (cloudSyncMeta.lastModified || Date.now()).toString());
           
           // Liberamos el bloqueo tras un safety delay mayor que el debounce (1500ms)
           setTimeout(() => {
