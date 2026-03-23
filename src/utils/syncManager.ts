@@ -122,6 +122,57 @@ export const downloadRelationalState = async (userId: string) => {
         supabase.from('spaces_store').select('*').eq('user_id', userId).maybeSingle()
     ]);
 
+    const relationalIsEmpty = !projects?.length && !clients?.length && !transactions?.length;
+
+    // ── FALLBACK: Si las tablas relacionales están vacías, intentar migrar desde app_state_dump ──
+    if (relationalIsEmpty) {
+        console.log('🔄 Tablas relacionales vacías. Buscando datos en app_state_dump (blob legacy)...');
+        const { data: legacyRow } = await supabase
+            .from('app_state_dump')
+            .select('data')
+            .eq('user_id', userId)
+            .order('updated_at', { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+        if (legacyRow?.data) {
+            const d = legacyRow.data as any;
+            console.log('✅ Datos legacy encontrados. Migrando a tablas relacionales...');
+
+            // Devolver datos del blob al App.tsx  
+            const legacyState = {
+                projects: d.projects || [],
+                clients: d.clients || [],
+                transactions: d.transactions || [],
+                notes: d.notes || [],
+                chatSessions: d.chatSessions || [],
+                rules: d.rules || null,
+                spaces: d.spaces || null,
+                isEmpty: false,
+                _migratedFromLegacy: true  // Flag para que App.tsx sepa que debe disparar upload
+            };
+
+            // Auto-migración: escribir los datos legacy en las tablas relacionales
+            try {
+                await uploadRelationalState(
+                    userId,
+                    legacyState.projects,
+                    legacyState.clients,
+                    legacyState.transactions,
+                    legacyState.rules || {} as any,
+                    legacyState.notes,
+                    legacyState.chatSessions,
+                    legacyState.spaces
+                );
+                console.log('✅ Migración legacy → relacional completada.');
+            } catch (migErr) {
+                console.warn('⚠️ Migración automática falló (los datos aún se cargaron desde el blob):', migErr);
+            }
+
+            return legacyState;
+        }
+    }
+
     return {
         projects: projects?.map((p: any) => ({
             id: p.id, clientId: p.client_id, clientName: p.client_name,
@@ -161,6 +212,6 @@ export const downloadRelationalState = async (userId: string) => {
             historicalSeasonality: rules.historical_seasonality
         } : null,
         spaces: spaces?.spaces_data || null,
-        isEmpty: !projects?.length && !clients?.length && !transactions?.length
+        isEmpty: relationalIsEmpty
     };
 };
