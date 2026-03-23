@@ -288,11 +288,11 @@ const App: React.FC = () => {
       setHasCheckedCloud(true); 
       // Si este download fue provocado por un sync manual, el status se resetea en handleCloudSync
     }
-  }, []); // Remove all state dependencies to avoid infinite loops and reversion
+  }, [session]); // CRITICAL: session MUST be here or the function will always see null
 
   useEffect(() => {
     handleInitialDownload();
-  }, []); // Run ONLY on mount
+  }, [handleInitialDownload]); // Re-run when session changes (which recreates handleInitialDownload)
 
   // Monitorear conexión y suscripción Real-time
   useEffect(() => {
