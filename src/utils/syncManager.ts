@@ -23,12 +23,10 @@ export const uploadRelationalState = async (
     }));
     if (projectPayload.length > 0) await supabase.from('projects').upsert(projectPayload);
 
-    // Hard-delete removed projects
+    // Hard-delete removed projects — ONLY if local list has items (safety guard against empty-wipe)
     const pIds = projects.map(p => p.id);
     if (pIds.length > 0) {
         await supabase.from('projects').delete().eq('user_id', userId).not('id', 'in', `(${pIds.join(',')})`);
-    } else {
-        await supabase.from('projects').delete().eq('user_id', userId);
     }
 
     // 2. Clients
@@ -36,11 +34,11 @@ export const uploadRelationalState = async (
         id: c.id, user_id: userId, name: c.name, email: c.email, phone: c.phone
     }));
     if (clientPayload.length > 0) await supabase.from('clients').upsert(clientPayload);
+
+    // Hard-delete removed clients — ONLY if local list has items (safety guard)
     const cIds = clients.map(c => c.id);
     if (cIds.length > 0) {
         await supabase.from('clients').delete().eq('user_id', userId).not('id', 'in', `(${cIds.join(',')})`);
-    } else {
-        await supabase.from('clients').delete().eq('user_id', userId);
     }
 
     // 3. Transactions
@@ -50,11 +48,11 @@ export const uploadRelationalState = async (
         is_predictive: t.isPredictive, project_id: t.projectId
     }));
     if (txPayload.length > 0) await supabase.from('transactions').upsert(txPayload);
+
+    // Hard-delete removed transactions — ONLY if local list has items (safety guard)
     const tIds = transactions.map(t => t.id);
     if (tIds.length > 0) {
         await supabase.from('transactions').delete().eq('user_id', userId).not('id', 'in', `(${tIds.join(',')})`);
-    } else {
-        await supabase.from('transactions').delete().eq('user_id', userId);
     }
 
     // 4. Notes
@@ -63,11 +61,11 @@ export const uploadRelationalState = async (
         last_modified: n.lastModified, tags: n.tags
     }));
     if (notesPayload.length > 0) await supabase.from('notes').upsert(notesPayload);
+
+    // Hard-delete removed notes — ONLY if local list has items (safety guard)
     const nIds = notes.map(n => n.id);
     if (nIds.length > 0) {
         await supabase.from('notes').delete().eq('user_id', userId).not('id', 'in', `(${nIds.join(',')})`);
-    } else {
-        await supabase.from('notes').delete().eq('user_id', userId);
     }
 
     // 5. Chat Sessions
@@ -76,11 +74,11 @@ export const uploadRelationalState = async (
         last_modified: cs.lastModified
     }));
     if (chatPayload.length > 0) await supabase.from('chat_sessions').upsert(chatPayload);
+
+    // Hard-delete removed chat sessions — ONLY if local list has items (safety guard)
     const csIds = chatSessions.map(cs => cs.id);
     if (csIds.length > 0) {
         await supabase.from('chat_sessions').delete().eq('user_id', userId).not('id', 'in', `(${csIds.join(',')})`);
-    } else {
-        await supabase.from('chat_sessions').delete().eq('user_id', userId);
     }
 
     // 6. Business Rules (Singular)
