@@ -373,9 +373,13 @@ const ListaView: React.FC<{
                             </button>
 
                             {/* Checkbox */}
-                            <button onClick={(e) => { e.stopPropagation(); onToggleTask(task.id); }}
-                                className={`w-4 h-4 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${task.estado === 'DONE' ? 'bg-green-500 border-green-500 text-white shadow-sm' : 'border-slate-300 hover:border-blue-500 hover:bg-blue-50'}`}>
-                                {task.estado === 'DONE' && <i className="fa-solid fa-check text-[8px]"></i>}
+                            <button 
+                                type="button"
+                                onClick={(e) => { e.preventDefault(); e.stopPropagation(); onToggleTask(task.id); }}
+                                className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all cursor-pointer z-10 ${task.estado === 'DONE' ? 'bg-green-500 border-green-500 text-white shadow-sm' : 'border-slate-300 hover:border-blue-500 hover:bg-blue-50'}`}
+                                title={task.estado === 'DONE' ? 'Marcar como pendiente' : 'Marcar como completada'}
+                            >
+                                {task.estado === 'DONE' && <i className="fa-solid fa-check text-[10px]"></i>}
                             </button>
                         </div>
 
