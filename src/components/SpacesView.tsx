@@ -497,7 +497,7 @@ const ListaView: React.FC<{
                                         const isDeleting = deletingTaskId === task.id;
                                         return (
                                             <React.Fragment key={task.id}>
-                                                <div onClick={() => onEditTask(task)} className={`flex items-center gap-2 px-0 py-2.5 border-b border-slate-50 hover:bg-blue-50/50 cursor-pointer group min-w-max transition-all duration-300 ${isDeleting ? 'translate-x-full opacity-0 scale-95' : ''} ${level > 0 ? 'bg-slate-50/30' : ''}`}>
+                                                <div onClick={(e) => { e.stopPropagation(); onEditTask(task); }} className={`flex items-center gap-2 px-0 py-2.5 border-b border-slate-50 hover:bg-blue-50/50 cursor-pointer group min-w-max transition-all duration-300 ${isDeleting ? 'translate-x-full opacity-0 scale-95' : ''} ${level > 0 ? 'bg-slate-50/30' : ''}`}>
                                                     {orderedColumns.map(col => (<div key={col.id} className={`${col.width} px-2`}>{renderCell(task, col.id, level)}</div>))}
                                                     <div className="w-16 flex items-center gap-1 opacity-0 group-hover:opacity-100">
                                                         <button onClick={(e) => { e.stopPropagation(); onAddSubtask(task); }} className="w-6 h-6 flex items-center justify-center text-slate-400 hover:text-blue-600 rounded"><i className="fa-solid fa-plus text-[10px]"></i></button>
