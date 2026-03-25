@@ -429,9 +429,9 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
           return a.start < projectDueDate && a.end > taskWindowStart;
         });
 
-      // Calculate pure time window
+      // Calculate pure time window available
       const windowStart = parseLocal(project.startDate) || currentTime.getTime();
-      const windowMinutes = Math.max(0, Math.floor((projectDueDate - windowStart) / 60000));
+      const windowMinutes = getWorkingMinutesBetween(new Date(windowStart), new Date(projectDueDate), rules);
       const effortMinutes = Math.round(project.duration * ((100 - project.progress) / 100));
 
       if (remainingMinutes > 0) {
@@ -457,7 +457,7 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
           if (parseLocal(calculatedStart) > projectDueDate) {
             conflictDescription = `⏳ Límite Vencido: Esta tarea no se completó a tiempo. La IA propone empezarla ahora mismo (${fmtDate(calculatedStart)}), pero supera la Fecha Límite original (${fmtDate(project.dueDate)}).\n\nTerminaría a las ${fmtDate(lastSlotEnd.toISOString())}, retrasada por ${fmtMins(overflowMins)}.\n\n💡 Soluciones:\n1. Extiende la Fecha Límite.\n2. Marca progreso si ya la empezaste.`;
           } else {
-            conflictDescription = `⏱️ Margen insuficiente: La tarea requiere ${fmtMins(effortMinutes)} de esfuerzo, pero entre el inicio (${fmtDate(calculatedStart)}) y el límite (${fmtDate(project.dueDate)}) solo hay ${fmtMins(windowMinutes)} disponibles.\n\nTerminaría a las ${fmtDate(lastSlotEnd.toISOString())}, excediendo por ${fmtMins(overflowMins)}.\n\n💡 Soluciones:\n1. Extiende la Fecha Límite.\n2. Reduce el esfuerzo a ≤${fmtMins(windowMinutes)}.`;
+            conflictDescription = `⏱️ Margen laboral insuficiente: La tarea requiere ${fmtMins(effortMinutes)} de esfuerzo, pero entre su fecha inicial (${fmtDate(windowStart)}) y su límite (${fmtDate(project.dueDate)}) solo cuentas con ${fmtMins(windowMinutes)} laborales.\n\nTerminaría a las ${fmtDate(lastSlotEnd.toISOString())}, excediendo por ${fmtMins(overflowMins)}.\n\n💡 Soluciones:\n1. Extiende la Fecha Límite.\n2. Reduce el esfuerzo estimado.`;
           }
         }
       }
