@@ -118,6 +118,12 @@ export const addWorkingMinutes = (start: Date, minutes: number, rules: BusinessR
       continue;
     }
 
+    const dayStart = new Date(current);
+    dayStart.setHours(startHour, startMin, 0, 0);
+    if (current < dayStart) {
+      current = new Date(dayStart);
+    }
+
     const minutesAvailable = (dayEnd.getTime() - current.getTime()) / 60000;
     if (remaining <= minutesAvailable) {
       return new Date(current.getTime() + remaining * 60000);
@@ -434,6 +440,13 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
       const windowMinutes = getWorkingMinutesBetween(new Date(windowStart), new Date(projectDueDate), rules);
       const effortMinutes = Math.round(project.duration * ((100 - project.progress) / 100));
 
+      let displayStart = new Date(windowStart);
+      const startOfDay = new Date(displayStart);
+      startOfDay.setHours(startHour, startMin, 0, 0);
+      if (displayStart < startOfDay) {
+        displayStart = startOfDay;
+      }
+
       if (remainingMinutes > 0) {
         // Could not fit all effort
         if (blockingAnchors.length > 0) {
@@ -457,7 +470,7 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
           if (parseLocal(calculatedStart) > projectDueDate) {
             conflictDescription = `⏳ Límite Vencido: Esta tarea no se completó a tiempo. La IA propone empezarla ahora mismo (${fmtDate(calculatedStart)}), pero supera la Fecha Límite original (${fmtDate(project.dueDate)}).\n\nTerminaría a las ${fmtDate(lastSlotEnd.toISOString())}, retrasada por ${fmtMins(overflowMins)}.\n\n💡 Soluciones:\n1. Extiende la Fecha Límite.\n2. Marca progreso si ya la empezaste.`;
           } else {
-            conflictDescription = `⏱️ Margen laboral insuficiente: La tarea requiere ${fmtMins(effortMinutes)} de esfuerzo, pero entre su fecha inicial (${fmtDate(windowStart)}) y su límite (${fmtDate(project.dueDate)}) solo cuentas con ${fmtMins(windowMinutes)} laborales.\n\nTerminaría a las ${fmtDate(lastSlotEnd.toISOString())}, excediendo por ${fmtMins(overflowMins)}.\n\n💡 Soluciones:\n1. Extiende la Fecha Límite.\n2. Reduce el esfuerzo estimado.`;
+            conflictDescription = `⏱️ Margen laboral insuficiente: La tarea requiere ${fmtMins(effortMinutes)} de esfuerzo, pero entre su fecha inicial (${fmtDate(displayStart)}) y su límite (${fmtDate(project.dueDate)}) solo cuentas con ${fmtMins(windowMinutes)} laborales.\n\nTerminaría a las ${fmtDate(lastSlotEnd.toISOString())}, excediendo por ${fmtMins(overflowMins)}.\n\n💡 Soluciones:\n1. Extiende la Fecha Límite.\n2. Reduce el esfuerzo estimado.`;
           }
         }
       }
