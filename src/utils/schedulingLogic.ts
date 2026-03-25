@@ -421,9 +421,17 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
       };
 
       const fmtMins = (mins: number) => {
-        const h = Math.floor(Math.abs(mins) / 60);
+        const totalH = Math.floor(Math.abs(mins) / 60);
+        const d = Math.floor(totalH / 24);
+        const h = totalH % 24;
         const m = Math.round(Math.abs(mins) % 60);
-        return h > 0 ? (m > 0 ? `${h}h ${m}m` : `${h}h`) : `${m}m`;
+
+        const parts = [];
+        if (d > 0) parts.push(`${d}d`);
+        if (h > 0) parts.push(`${h}h`);
+        if (m > 0 || parts.length === 0) parts.push(`${m}m`);
+
+        return parts.join(' ');
       };
 
       // Determine: did any other task/event actually block us?
