@@ -243,7 +243,7 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
 
   // 2. Registrar anclas de Tareas (bloques manuales o completados)
   projects.forEach(p => {
-    if (p.status === 'completed' || !p.autoSchedule) {
+    if (p.status !== 'completed' && !p.autoSchedule) {
       (p.scheduledSlots || []).forEach(s => anchors.push({
         id: p.id,
         start: parseLocal(s.start),
