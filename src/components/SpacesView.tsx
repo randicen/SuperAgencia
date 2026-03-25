@@ -120,7 +120,7 @@ const EffortInput = ({ duration, onChange, className = "" }: { duration: number,
             <div className="flex items-center gap-2">
                 <div className="relative flex-1">
                     <input
-                        type="number" min="0" 
+                        type="number" min="0"
                         className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all pr-8"
                         value={hours || ''} placeholder="0"
                         onChange={e => {
@@ -133,7 +133,7 @@ const EffortInput = ({ duration, onChange, className = "" }: { duration: number,
                 </div>
                 <div className="relative flex-1">
                     <input
-                        type="number" min="0" max="59" 
+                        type="number" min="0" max="59"
                         className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs font-bold outline-none focus:ring-4 ring-blue-500/10 transition-all pr-8"
                         value={minutes === 0 && hours === 0 ? '' : minutes} placeholder="0"
                         onChange={e => {
@@ -163,7 +163,7 @@ const ProgressInput = ({ progress, onChange, className = "" }: { progress: numbe
                     {progress}%
                 </span>
             </div>
-            
+
             <div className="flex items-center gap-3">
                 <input
                     type="range" min="0" max="100" step="1"
@@ -182,7 +182,7 @@ const ProgressInput = ({ progress, onChange, className = "" }: { progress: numbe
                     }}
                 />
             </div>
-            
+
             <div className="flex gap-1 justify-between mt-2">
                 {[0, 25, 50, 75, 100].map(p => (
                     <button key={p} type="button" onClick={() => onChange(p)} className={`flex-1 text-[9px] font-black py-1.5 rounded-lg transition-colors ${progress === p ? 'bg-slate-800 text-white shadow-md' : 'bg-white border border-slate-200 text-slate-400 hover:bg-slate-50 hover:text-slate-600'}`}>
@@ -262,10 +262,10 @@ const ListaView: React.FC<{
         try {
             const saved = localStorage.getItem('lista_columns');
             if (saved) {
-                 const parsed = JSON.parse(saved);
-                 // If we find that the newly added mandatory columns were missed from a previous save, we add them at the front?
-                 // Or just trust the current toggle. 
-                 return parsed;
+                const parsed = JSON.parse(saved);
+                // If we find that the newly added mandatory columns were missed from a previous save, we add them at the front?
+                // Or just trust the current toggle. 
+                return parsed;
             }
             return ['nombre', 'clientName', 'totalValue', 'financialProgress', 'startDate', 'dueDate', 'priority', 'slack', 'estado'];
         } catch { return ['nombre', 'clientName', 'totalValue', 'financialProgress', 'startDate', 'dueDate', 'priority', 'slack', 'estado']; }
@@ -347,8 +347,6 @@ const ListaView: React.FC<{
         const isExpanded = expandedTasks[task.id];
         switch (colId) {
             case 'nombre':
-                const hasSubtasks = task.subtasks && task.subtasks.length > 0;
-                const isExpanded = expandedTasks[task.id];
                 return (
                     <div className="flex items-center" style={{ paddingLeft: level * 20 }}>
                         {/* Unified Action Zone (Fixed Width for Symmetry) */}
@@ -364,7 +362,7 @@ const ListaView: React.FC<{
                             </div>
 
                             {/* Quick Delete Trash */}
-                            <button 
+                            <button
                                 onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }}
                                 className="w-6 h-6 flex items-center justify-center text-slate-200 hover:text-red-500 transition-all opacity-0 group-hover:opacity-100 rounded-lg hover:bg-red-50"
                                 title="Eliminar Tarea"
@@ -392,7 +390,7 @@ const ListaView: React.FC<{
                     </div>
                 );
             case 'startDate': return <span className="text-xs text-slate-500 whitespace-nowrap">{formatFriendlyDate(task.startDate)}</span>;
-            case 'dueDate': 
+            case 'dueDate':
                 return (
                     <div className="flex flex-col">
                         <span className="text-xs text-slate-700 font-bold whitespace-nowrap">
@@ -401,7 +399,7 @@ const ListaView: React.FC<{
                         {task.autoSchedule && task.startDate && task.endDate && (
                             <span className="text-[9px] text-slate-400 whitespace-nowrap mt-0.5" title="Horario programado por IA">
                                 <i className="fa-solid fa-robot text-blue-400 mr-1"></i>
-                                {new Date(task.startDate).toLocaleTimeString('en-US', {hour: 'numeric', minute:'2-digit', hour12: true}).toLowerCase()} - {new Date(task.endDate).toLocaleTimeString('en-US', {hour: 'numeric', minute:'2-digit', hour12: true}).toLowerCase()}
+                                {new Date(task.startDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()} - {new Date(task.endDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()}
                                 {new Date(task.endDate) > new Date(task.dueDate!) && (
                                     <span className="text-red-500 font-bold ml-1" title="La IA estima que terminarás después del deadline">¡Riesgo!</span>
                                 )}
@@ -427,7 +425,7 @@ const ListaView: React.FC<{
                 if (fp < 0) return <span className="text-xs text-slate-300">-</span>;
                 return (
                     <div className="flex items-center gap-1.5">
-                        <div className="w-12 bg-slate-100 h-1.5 rounded-full overflow-hidden"><div className="bg-emerald-500 h-full" style={{width: `${fp}%`}}></div></div>
+                        <div className="w-12 bg-slate-100 h-1.5 rounded-full overflow-hidden"><div className="bg-emerald-500 h-full" style={{ width: `${fp}%` }}></div></div>
                         <span className="text-[9px] font-bold text-emerald-600">{fp}%</span>
                     </div>
                 );
@@ -650,7 +648,7 @@ const KanbanView: React.FC<{
                                             }`}></div>
 
                                         {/* Quick Delete Button - Refined Premium Styling */}
-                                        <button 
+                                        <button
                                             onClick={(e) => { e.stopPropagation(); onDeleteTask(task); }}
                                             className="absolute top-2.5 right-2.5 w-7 h-7 flex items-center justify-center rounded-xl bg-white/80 backdrop-blur-sm border border-slate-100 text-slate-300 opacity-0 group-hover:opacity-100 transition-all hover:bg-red-500 hover:text-white z-10 shadow-sm"
                                             title="Eliminar Tarea"
@@ -714,15 +712,17 @@ const KanbanView: React.FC<{
                                                         <span className="text-[9px] font-bold text-blue-600">${task.totalValue.toLocaleString()}</span>
                                                     </div>
                                                 )}
-                                                {(() => { const fp = getFinancialProgress(task); return fp >= 0 ? (
-                                                    <div className="flex justify-between items-center">
-                                                        <span className="text-[9px] font-black text-slate-400 uppercase">Pago</span>
-                                                        <div className="flex items-center gap-1.5">
-                                                            <div className="w-10 bg-slate-200 h-1 rounded-full overflow-hidden"><div className="bg-emerald-500 h-full" style={{width: `${fp}%`}}></div></div>
-                                                            <span className="text-[9px] font-bold text-emerald-600">{fp}%</span>
+                                                {(() => {
+                                                    const fp = getFinancialProgress(task); return fp >= 0 ? (
+                                                        <div className="flex justify-between items-center">
+                                                            <span className="text-[9px] font-black text-slate-400 uppercase">Pago</span>
+                                                            <div className="flex items-center gap-1.5">
+                                                                <div className="w-10 bg-slate-200 h-1 rounded-full overflow-hidden"><div className="bg-emerald-500 h-full" style={{ width: `${fp}%` }}></div></div>
+                                                                <span className="text-[9px] font-bold text-emerald-600">{fp}%</span>
+                                                            </div>
                                                         </div>
-                                                    </div>
-                                                ) : null; })()}
+                                                    ) : null;
+                                                })()}
                                             </div>
 
                                             {/* Progress Bar */}
@@ -915,8 +915,8 @@ const CalendarViewComponent: React.FC<{
                     const isWorkingDay = rules.workingDays.includes(date.getDay());
 
                     return (
-                        <div 
-                            key={idx} 
+                        <div
+                            key={idx}
                             onClick={() => {
                                 if (view !== 'day') setSelectedDay(idx);
                             }}
@@ -933,7 +933,7 @@ const CalendarViewComponent: React.FC<{
                                     {date.getDate()} {view === 'day' && date.toLocaleDateString('es-ES', { weekday: 'long' })}
                                 </span>
                             </div>
-                            
+
                             <div className="space-y-1 overflow-y-auto flex-1 custom-scrollbar">
                                 {activeEvents.slice(0, 3).map(event => (
                                     <div
@@ -964,13 +964,13 @@ const CalendarViewComponent: React.FC<{
 
             {/* MODERN EXPANDED DAY MODAL - PREMIUM UI */}
             {selectedDay !== null && dayExpanded && (
-                <div 
+                <div
                     className="fixed inset-0 z-[100] flex items-center justify-center p-4 md:p-8 animate-in fade-in duration-300"
                     onClick={() => setSelectedDay(null)}
                 >
                     <div className="absolute inset-0 bg-slate-900/60 backdrop-blur-xl"></div>
-                    
-                    <div 
+
+                    <div
                         className="relative w-full max-w-2xl bg-white rounded-[3rem] shadow-2xl shadow-black/20 overflow-hidden flex flex-col animate-in zoom-in-95 slide-in-from-bottom-10 duration-500"
                         onClick={e => e.stopPropagation()}
                     >
@@ -990,7 +990,7 @@ const CalendarViewComponent: React.FC<{
                                     </p>
                                 </div>
                             </div>
-                            <button 
+                            <button
                                 onClick={() => setSelectedDay(null)}
                                 className="w-12 h-12 bg-white rounded-2xl shadow-sm border border-slate-100 flex items-center justify-center text-slate-400 hover:text-slate-900 hover:bg-slate-50 transition-all active:scale-90"
                             >
@@ -1011,7 +1011,7 @@ const CalendarViewComponent: React.FC<{
                                         <p className="text-xs italic text-slate-300">No hay eventos para este día.</p>
                                     )}
                                     {events.filter(e => isEventActiveOnDay(e, dayExpanded)).map(event => (
-                                        <div 
+                                        <div
                                             key={event.id}
                                             onClick={() => { onEditEvent?.(event); }}
                                             className="group bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md hover:border-orange-200 transition-all cursor-pointer flex items-center gap-6"
@@ -1042,7 +1042,7 @@ const CalendarViewComponent: React.FC<{
                                         <p className="text-xs italic text-slate-300">No hay tareas pendientes.</p>
                                     )}
                                     {tasks.filter(t => isTaskActiveOnDay(t, dayExpanded) && t.estado !== 'DONE').map(task => (
-                                        <div 
+                                        <div
                                             key={task.id}
                                             onClick={() => onEditTask(task)}
                                             className="group bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md hover:border-blue-200 transition-all cursor-pointer flex items-center gap-6"
@@ -1216,7 +1216,7 @@ const SpacesView: React.FC = () => {
     useEffect(() => {
         const handleStorage = (e: StorageEvent) => {
             if (e.key === 'coo_clients' && e.newValue) {
-                try { setClients(JSON.parse(e.newValue)); } catch {}
+                try { setClients(JSON.parse(e.newValue)); } catch { }
             }
         };
         window.addEventListener('storage', handleStorage);
@@ -1229,7 +1229,7 @@ const SpacesView: React.FC = () => {
             try {
                 const raw = localStorage.getItem('coo_clients');
                 if (raw) setClients(JSON.parse(raw));
-            } catch {}
+            } catch { }
         };
         window.addEventListener('focus', refreshClients);
         return () => window.removeEventListener('focus', refreshClients);
@@ -1264,16 +1264,16 @@ const SpacesView: React.FC = () => {
     // LIVE PREVIEW: Recalculate scheduledSlots when user changes scheduling fields
     useEffect(() => {
         if (!editingTask || !editingTask.autoSchedule) return;
-        
+
         const timer = setTimeout(() => {
             try {
                 // Collect all tasks from the workspace to respect the global queue
                 const allProjects: any[] = [];
                 const allEvents: { nombre: string, startDate: string, endDate: string }[] = [];
-                
+
                 const ws = state.workspaces.find(w => w.id === state.activeWorkspaceId);
                 if (!ws) return;
-                
+
                 const extractTasks = (tasks: SpaceTask[]) => {
                     const now = new Date();
                     const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
@@ -1304,7 +1304,7 @@ const SpacesView: React.FC = () => {
                         if (t.subtasks) extractTasks(t.subtasks);
                     });
                 };
-                
+
                 ws.espacios.forEach(s => {
                     s.listas.forEach(l => {
                         extractTasks(l.tareas);
@@ -1315,10 +1315,10 @@ const SpacesView: React.FC = () => {
                         l.eventos?.forEach(e => allEvents.push({ nombre: e.nombre, startDate: e.startDate, endDate: e.endDate }));
                     }));
                 });
-                
+
                 const scheduled = runAutoScheduling(allProjects, state.rules, allEvents);
                 const updated = scheduled.find(p => p.id === editingTask.id);
-                
+
                 if (updated) {
                     setEditingTask(prev => prev ? {
                         ...prev,
@@ -1331,14 +1331,14 @@ const SpacesView: React.FC = () => {
                 console.error('[LivePreview] Error recalculating slots:', e);
             }
         }, 300); // 300ms debounce
-        
+
         return () => clearTimeout(timer);
     }, [
-        editingTask?.startDate, 
-        editingTask?.dueDate, 
-        editingTask?.duration, 
-        editingTask?.elasticity, 
-        editingTask?.priority, 
+        editingTask?.startDate,
+        editingTask?.dueDate,
+        editingTask?.duration,
+        editingTask?.elasticity,
+        editingTask?.priority,
         editingTask?.autoSchedule,
         editingTask?.deadlineType,
     ]);
@@ -1403,7 +1403,7 @@ const SpacesView: React.FC = () => {
 
         let foundListId = state.activeListId;
         let foundFolderId = state.activeFolderId;
-        
+
         const taskExistsNested = (tasks: SpaceTask[], idSearch: string): boolean => {
             return tasks.some(t => t.id === idSearch || (t.subtasks && taskExistsNested(t.subtasks, idSearch)));
         };
@@ -1511,23 +1511,24 @@ const SpacesView: React.FC = () => {
     };
 
     const handleToggleTask = (taskId: string, forceAction?: 'RESOLVE_ALL' | 'IGNORE' | 'CANCEL') => {
-        if (!state.activeSpaceId) return;
+        if (!state.activeSpaceId || !activeWorkspace) return;
 
-        let foundListId = state.activeListId;
-        let foundFolderId = state.activeFolderId;
-        
+        let foundListId: string | null = null;
+        let foundFolderId: string | null = null;
+        let targetList: SpaceList | null = null;
+
         const taskExistsNested = (tasks: SpaceTask[], idSearch: string): boolean => {
             return tasks.some(t => t.id === idSearch || (t.subtasks && taskExistsNested(t.subtasks, idSearch)));
         };
 
-        let targetList = activeList;
-
-        if (!foundListId && activeSpace) {
-            activeSpace.listas.forEach(l => { if (taskExistsNested(l.tareas, taskId)) { foundListId = l.id; targetList = l; } });
+        // Robust Search
+        activeWorkspace.espacios.forEach(s => {
+            if (s.id !== state.activeSpaceId) return;
+            s.listas.forEach(l => { if (taskExistsNested(l.tareas, taskId)) { foundListId = l.id; targetList = l; foundFolderId = null; } });
             if (!foundListId) {
-                activeSpace.carpetas.forEach(f => { f.listas.forEach(l => { if (taskExistsNested(l.tareas, taskId)) { foundListId = l.id; foundFolderId = f.id; targetList = l; } }); });
+                s.carpetas.forEach(f => f.listas.forEach(l => { if (taskExistsNested(l.tareas, taskId)) { foundListId = l.id; foundFolderId = f.id; targetList = l; } }));
             }
-        }
+        });
 
         if (!foundListId || !targetList) return;
 
@@ -1636,21 +1637,21 @@ const SpacesView: React.FC = () => {
 
     const handleDeleteTask = (taskId: string) => {
         if (!state.activeSpaceId) return;
-        
+
         let foundListId = state.activeListId;
         let foundFolderId = state.activeFolderId;
-        
+
         const taskExistsNested = (tasks: SpaceTask[], idSearch: string): boolean => {
             return tasks.some(t => t.id === idSearch || (t.subtasks && taskExistsNested(t.subtasks, idSearch)));
         };
-        
+
         if (!foundListId && activeSpace) {
             activeSpace.listas.forEach(l => { if (taskExistsNested(l.tareas, taskId)) foundListId = l.id; });
             if (!foundListId) {
                 activeSpace.carpetas.forEach(f => { f.listas.forEach(l => { if (taskExistsNested(l.tareas, taskId)) { foundListId = l.id; foundFolderId = f.id; } }); });
             }
         }
-        
+
         if (!foundListId) return;
 
         dispatch({
@@ -1724,17 +1725,17 @@ const SpacesView: React.FC = () => {
 
     const handleDeleteEvent = (eventId: string) => {
         if (!state.activeSpaceId) return;
-        
+
         let foundListId = state.activeListId;
         let foundFolderId = state.activeFolderId;
-        
+
         if (!foundListId && activeSpace) {
             activeSpace.listas.forEach(l => { if (l.eventos?.some(e => e.id === eventId)) foundListId = l.id; });
             if (!foundListId) {
                 activeSpace.carpetas.forEach(f => { f.listas.forEach(l => { if (l.eventos?.some(e => e.id === eventId)) { foundListId = l.id; foundFolderId = f.id; } }); });
             }
         }
-        
+
         if (!foundListId) return;
 
         dispatch({
@@ -1912,18 +1913,18 @@ const SpacesView: React.FC = () => {
                     </div>
                     <div className="flex gap-2">
                         <button
-                            onClick={() => { 
+                            onClick={() => {
                                 if (!activeList) { alert('Debes seleccionar una lista específica en el panel izquierdo para crear un evento.'); return; }
-                                setNewEvent({ nombre: '', startDate: '', endDate: '', description: '' }); setShowEventModal(true); 
+                                setNewEvent({ nombre: '', startDate: '', endDate: '', description: '' }); setShowEventModal(true);
                             }}
                             className="px-4 py-2 bg-orange-500 text-white rounded-xl text-[10px] font-black uppercase shadow-lg shadow-orange-200 hover:bg-orange-600 transition-colors"
                         >
                             <i className="fa-solid fa-calendar-plus mr-2"></i>Evento
                         </button>
                         <button
-                            onClick={() => { 
+                            onClick={() => {
                                 if (!activeList) { alert('Debes seleccionar una lista específica en el panel izquierdo para crear una tarea.'); return; }
-                                setNewTask(getDefaultTask()); setShowModal(true); 
+                                setNewTask(getDefaultTask()); setShowModal(true);
                             }}
                             className="px-6 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase shadow-lg shadow-blue-200 hover:bg-blue-700 transition-colors"
                         >
@@ -2173,9 +2174,9 @@ const SpacesView: React.FC = () => {
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="text-[9px] font-black text-slate-500 uppercase w-12">Inicio</span>
                                                                     <button type="button" onClick={() => setTempWorkStart(adjustTime(tempWorkStart, -15))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">−</button>
-                                                                    <input 
-                                                                        type="time" 
-                                                                        value={tempWorkStart} 
+                                                                    <input
+                                                                        type="time"
+                                                                        value={tempWorkStart}
                                                                         onChange={(e) => setTempWorkStart(e.target.value)}
                                                                         className="text-xs font-black text-slate-800 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 min-w-[120px] text-center focus:ring-2 focus:ring-amber-500 outline-none transition-all"
                                                                     />
@@ -2184,9 +2185,9 @@ const SpacesView: React.FC = () => {
                                                                 <div className="flex items-center gap-2">
                                                                     <span className="text-[9px] font-black text-slate-500 uppercase w-12">Fin</span>
                                                                     <button type="button" onClick={() => setTempWorkEnd(adjustTime(tempWorkEnd, -15))} className="w-7 h-7 rounded-lg bg-slate-100 text-slate-500 font-black text-xs hover:bg-slate-200 transition-colors">−</button>
-                                                                    <input 
-                                                                        type="time" 
-                                                                        value={tempWorkEnd} 
+                                                                    <input
+                                                                        type="time"
+                                                                        value={tempWorkEnd}
                                                                         onChange={(e) => setTempWorkEnd(e.target.value)}
                                                                         className="text-xs font-black text-slate-800 bg-slate-50 px-3 py-1.5 rounded-lg border border-slate-200 min-w-[120px] text-center focus:ring-2 focus:ring-amber-500 outline-none transition-all"
                                                                     />
@@ -2198,11 +2199,13 @@ const SpacesView: React.FC = () => {
                                                                 <button type="button" disabled={!isValid || !isChanged} onClick={() => {
                                                                     const endOfToday = new Date();
                                                                     endOfToday.setHours(23, 59, 59, 999);
-                                                                    dispatch({ type: 'SET_RULES_OVERRIDE', payload: {
-                                                                        workingHoursStart: tempWorkStart,
-                                                                        workingHoursEnd: tempWorkEnd,
-                                                                        expiresAt: endOfToday.toISOString()
-                                                                    }});
+                                                                    dispatch({
+                                                                        type: 'SET_RULES_OVERRIDE', payload: {
+                                                                            workingHoursStart: tempWorkStart,
+                                                                            workingHoursEnd: tempWorkEnd,
+                                                                            expiresAt: endOfToday.toISOString()
+                                                                        }
+                                                                    });
                                                                     setShowWorkHoursQuickfix(false);
                                                                 }} className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${isValid && isChanged ? 'bg-amber-500 text-white shadow-lg shadow-amber-200 hover:bg-amber-600 cursor-pointer' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}>
                                                                     <i className="fa-solid fa-check mr-1"></i> Aplicar solo hoy
@@ -2350,11 +2353,11 @@ const SpacesView: React.FC = () => {
                             </div>
 
                             <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
-                                <ProgressInput 
-                                    progress={editingTask.progress} 
+                                <ProgressInput
+                                    progress={editingTask.progress}
                                     onChange={(val) => {
                                         setEditingTask({ ...editingTask, progress: val, estado: getStatusFromProgress(val) });
-                                    }} 
+                                    }}
                                     className="flex-1 p-4 bg-slate-50 rounded-2xl border border-slate-200"
                                 />
                                 <div className="space-y-1.5 flex-1">
@@ -2438,7 +2441,7 @@ const SpacesView: React.FC = () => {
                                     setDeletingTaskId(id);
                                     setTaskToDelete(null);
                                     if (editingTask?.id === id) setEditingTask(null);
-                                    
+
                                     // Give time for animation
                                     setTimeout(() => {
                                         handleDeleteTask(id);
