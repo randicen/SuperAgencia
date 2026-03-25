@@ -29,13 +29,13 @@ const recalculateScheduling = (state: SpacesState): SpacesState => {
     // 1. Flatten ALL tasks AND events from active workspace
     const allTasks: Project[] = [];
     const allEvents: { nombre: string, startDate: string, endDate: string }[] = [];
-    
+
     // Add Google Calendar Events as fixed anchors
     state.gcalEvents.forEach(e => {
-        allEvents.push({ 
-            nombre: `[GCal] ${e.nombre}`, 
-            startDate: e.startDate, 
-            endDate: e.endDate 
+        allEvents.push({
+            nombre: `[GCal] ${e.nombre}`,
+            startDate: e.startDate,
+            endDate: e.endDate
         });
     });
 
@@ -135,6 +135,12 @@ const recalculateScheduling = (state: SpacesState): SpacesState => {
                 newTask.scheduledSlots = p.scheduledSlots;
                 newTask.startDate = p.startDate;
                 newTask.endDate = p.endDate;
+            } else {
+                // For MANUAL mode, we strictly preserve what the user put in the Task object
+                // although we still update conflict status.
+                newTask.startDate = t.startDate;
+                newTask.endDate = t.endDate;
+                newTask.dueDate = t.dueDate;
             }
             // Always update conflict status (informational)
             newTask.hasConflict = p.hasConflict;

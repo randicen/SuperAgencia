@@ -1398,7 +1398,7 @@ const SpacesView: React.FC = () => {
         setShowModal(false);
     };
 
-    const handleUpdateTask = () => {
+    const handleUpdateTask = (): boolean => {
         if (!editingTask || !state.activeSpaceId) return;
 
         let foundListId = state.activeListId;
@@ -1415,7 +1415,7 @@ const SpacesView: React.FC = () => {
             }
         }
 
-        if (!foundListId) return;
+        if (!foundListId) return false;
 
         // STRICT VALIDATION: Parent Constraint Check
         // Helper to find parent of the current editingTask
@@ -1455,7 +1455,7 @@ const SpacesView: React.FC = () => {
                     message: `La subtarea no puede empezar el ${editingTask.startDate} porque la tarea padre comienza el ${parent.startDate}.`,
                     type: 'error'
                 });
-                return; // BLOCK SAVE
+                return false; // BLOCK SAVE
             }
 
             // Validation 2: Child DEADLINE > Parent DEADLINE (Logical Inconsistency)
@@ -1466,7 +1466,7 @@ const SpacesView: React.FC = () => {
                         message: `La fecha límite de la subtarea (${editingTask.dueDate}) no puede ser posterior a la de la tarea padre (${parent.dueDate || parent.endDate}).`,
                         type: 'error'
                     });
-                    return; // BLOCK SAVE
+                    return false; // BLOCK SAVE
                 }
             }
 
@@ -1476,7 +1476,7 @@ const SpacesView: React.FC = () => {
                     message: `La subtarea no puede terminar después del ${editingTask.endDate || editingTask.dueDate} porque la fecha límite de la tarea padre es el ${parent.dueDate || parent.endDate}.`,
                     type: 'error'
                 });
-                return; // BLOCK SAVE
+                return false; // BLOCK SAVE
             }
         }
 
@@ -1508,6 +1508,7 @@ const SpacesView: React.FC = () => {
             },
         });
         setEditingTask(null);
+        return true;
     };
 
     const handleToggleTask = (taskId: string, forceAction?: 'RESOLVE_ALL' | 'IGNORE' | 'CANCEL') => {
@@ -2081,13 +2082,13 @@ const SpacesView: React.FC = () => {
 
             {/* EDIT TASK MODAL */}
             {editingTask && (
-                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={() => setEditingTask(null)}>
+                <div className="fixed inset-0 bg-slate-900/90 backdrop-blur-md z-50 flex items-center justify-center p-4" onClick={() => handleUpdateTask()}>
                     <div onClick={(e) => e.stopPropagation()} className="bg-white w-full max-w-2xl rounded-[2.5rem] p-10 space-y-6 shadow-2xl animate-in zoom-in-95 overflow-y-auto max-h-[90vh] custom-scrollbar">
                         <div className="flex justify-between items-center">
                             <div className="flex items-center gap-4">
                                 <h2 className="text-3xl font-black text-slate-800 uppercase tracking-tighter">Mi Entorno</h2>
                             </div>
-                            <button type="button" onClick={() => setEditingTask(null)} className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100">
+                            <button type="button" onClick={() => handleUpdateTask()} className="w-10 h-10 flex items-center justify-center text-slate-400 hover:text-slate-600 rounded-full hover:bg-slate-100">
                                 <i className="fa-solid fa-xmark text-xl"></i>
                             </button>
                         </div>
@@ -2376,8 +2377,8 @@ const SpacesView: React.FC = () => {
                         </div>
 
                         <div className="flex gap-4 pt-4">
-                            <button type="button" onClick={() => setEditingTask(null)} className="flex-1 font-black text-slate-400 uppercase text-[10px]">Cancelar</button>
-                            <button type="button" onClick={handleUpdateTask} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl">Guardar Cambios</button>
+                            <button type="button" onClick={() => setEditingTask(null)} className="flex-1 font-black text-slate-400 uppercase text-[10px]">Descartar</button>
+                            <button type="button" onClick={handleUpdateTask} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl">Guardar y Cerrar</button>
                         </div>
 
                         <button

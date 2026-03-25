@@ -207,7 +207,20 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
   // Helper local para parsear fechas respetando la zona horaria del usuario
   const parseLocal = (dateStr: string, endOfDay: boolean = false): number => {
     if (!dateStr) return 0;
-    // Normalizar: Cambiar espacio por 'T' para que sea interpretable como ISO local si tiene hora
+
+    // 1. Handle DD/MM/YYYY format if present
+    if (dateStr.includes('/') && !dateStr.includes('T') && !dateStr.includes(':')) {
+      const parts = dateStr.split('/');
+      if (parts.length === 3) {
+        const [day, month, year] = parts.map(Number);
+        const date = new Date(year, month - 1, day);
+        if (endOfDay) date.setHours(23, 59, 59, 999);
+        else date.setHours(0, 0, 0, 0);
+        return date.getTime();
+      }
+    }
+
+    // 2. Normalizar: Cambiar espacio por 'T' para que sea interpretable como ISO local si tiene hora
     const normalized = dateStr.replace(' ', 'T');
 
     if (normalized.includes('T')) {
@@ -215,7 +228,7 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
       if (!isNaN(d.getTime())) return d.getTime();
     }
 
-    // Fallback: YYYY-MM-DD
+    // 3. Fallback: YYYY-MM-DD
     const parts = normalized.split('T')[0].split('-');
     if (parts.length === 3) {
       const [y, m, d] = parts.map(Number);
