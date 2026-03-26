@@ -18,6 +18,7 @@ export interface SpaceTask {
     estado: TaskStatus;
     orden: number;
     progress: number;
+    startedAt?: string;
     // SCHEDULING
     autoSchedule: boolean;
     startDate: string;

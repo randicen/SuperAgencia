@@ -14,6 +14,18 @@ const getInitialState = <T>(key: string, fallback: T): T => {
   }
 };
 
+const stampProjectStartedAt = (project: Project, previousProject?: Project): Project => {
+  const previousProgress = previousProject?.progress ?? 0;
+  if (project.startedAt || project.progress <= 0 || previousProgress > 0) {
+    return project;
+  }
+
+  return {
+    ...project,
+    startedAt: !project.autoSchedule && project.startDate ? project.startDate : new Date().toISOString()
+  };
+};
+
 interface AgencyState {
   projects: Project[];
   transactions: Transaction[];
@@ -77,7 +89,7 @@ export const useAgencyStore = create<AgencyState>()(
 
       handleAddProject: (newProject) => {
         const { projects, rules, updateLastMod } = get();
-        let updatedList = [...projects, newProject];
+        let updatedList = [...projects, stampProjectStartedAt(newProject)];
         if (newProject.autoSchedule) { updatedList = runAutoScheduling(updatedList, rules); }
         set({ projects: updatedList });
         updateLastMod();
@@ -85,7 +97,7 @@ export const useAgencyStore = create<AgencyState>()(
 
       handleUpdateProject: (updatedProject) => {
         const { projects, rules, updateLastMod } = get();
-        let updatedList = projects.map(p => p.id === updatedProject.id ? updatedProject : p);
+        let updatedList = projects.map(p => p.id === updatedProject.id ? stampProjectStartedAt(updatedProject, p) : p);
         if (updatedProject.autoSchedule) { updatedList = runAutoScheduling(updatedList, rules); }
         set({ projects: updatedList });
         updateLastMod();

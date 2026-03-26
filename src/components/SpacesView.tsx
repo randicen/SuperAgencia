@@ -1285,6 +1285,7 @@ const SpacesView: React.FC = () => {
                             clientId: '',
                             clientName: src.clientName || '',
                             projectName: src.nombre,
+                            startedAt: src.startedAt,
                             startDate: src.startDate || localToday,
                             endDate: src.endDate || localToday,
                             priority: src.priority === 'ASAP' ? 'ASAP' : src.priority === 'High' ? 'High' : src.priority === 'Medium' ? 'Medium' : 'Low',
@@ -1339,6 +1340,7 @@ const SpacesView: React.FC = () => {
         editingTask?.duration,
         editingTask?.elasticity,
         editingTask?.priority,
+        editingTask?.progress,
         editingTask?.autoSchedule,
         editingTask?.deadlineType,
     ]);
@@ -2376,7 +2378,14 @@ const SpacesView: React.FC = () => {
                                 <ProgressInput
                                     progress={editingTask.progress}
                                     onChange={(val) => {
-                                        setEditingTask({ ...editingTask, progress: val, estado: getStatusFromProgress(val) });
+                                        setEditingTask({
+                                            ...editingTask,
+                                            progress: val,
+                                            estado: getStatusFromProgress(val),
+                                            startedAt: !editingTask.startedAt && val > 0
+                                                ? new Date().toISOString()
+                                                : editingTask.startedAt
+                                        });
                                     }}
                                     className="flex-1 p-4 bg-slate-50 rounded-2xl border border-slate-200"
                                 />

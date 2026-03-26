@@ -33,6 +33,7 @@ export interface Project {
   clientId: string;
   clientName: string;
   projectName: string;
+  startedAt?: string;
   startDate: string;
   endDate: string;
   priority: Priority;

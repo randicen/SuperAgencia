@@ -407,7 +407,9 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
       }
     }
 
-    const calculatedStart = slots.length > 0 ? getLocalDateTimeString(slots[0].start) : project.startDate;
+    const calculatedStart = project.progress > 0 && project.startedAt
+      ? getLocalDateTimeString(project.startedAt)
+      : slots.length > 0 ? getLocalDateTimeString(slots[0].start) : project.startDate;
     const calculatedEnd = slots.length > 0 ? getLocalDateTimeString(slots[slots.length - 1].end) : project.endDate;
     const endAfterDue = slots.length > 0 && new Date(slots[slots.length - 1].end).getTime() > projectDueDate;
     const hasConflict = remainingMinutes > 0 || endAfterDue;

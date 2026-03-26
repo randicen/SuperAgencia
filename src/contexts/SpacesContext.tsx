@@ -7,6 +7,25 @@ import { Project, Priority } from '../types';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
+const stampTaskStartedAtRecursive = (task: SpaceTask, previousTask?: SpaceTask): SpaceTask => {
+    const previousProgress = previousTask?.progress ?? 0;
+    const shouldStampCurrent = !task.startedAt && task.progress > 0 && previousProgress <= 0;
+    const startedAt = shouldStampCurrent
+        ? (!task.autoSchedule && task.startDate ? task.startDate : new Date().toISOString())
+        : task.startedAt;
+
+    const previousSubtasksById = new Map((previousTask?.subtasks || []).map(subtask => [subtask.id, subtask]));
+    const subtasks = task.subtasks?.map(subtask =>
+        stampTaskStartedAtRecursive(subtask, previousSubtasksById.get(subtask.id))
+    );
+
+    return {
+        ...task,
+        startedAt,
+        ...(subtasks ? { subtasks } : {})
+    };
+};
+
 const initialState: SpacesState = {
     workspaces: [],
     activeWorkspaceId: null,
@@ -55,6 +74,7 @@ const recalculateScheduling = (state: SpacesState): SpacesState => {
                 clientId: '',
                 clientName: t.clientName || '',
                 projectName: t.nombre,
+                startedAt: t.startedAt,
                 startDate: t.startDate || localToday,
                 endDate: t.endDate || localToday,
                 priority: t.priority === 'ASAP' ? Priority.ASAP : t.priority === 'High' ? Priority.HIGH : t.priority === 'Medium' ? Priority.MEDIUM : Priority.LOW,
@@ -440,7 +460,7 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
             break;
         }
         case 'ADD_TASK': {
-            const newTask: SpaceTask = { ...action.payload.task, id: generateId(), orden: Date.now() };
+            const newTask = stampTaskStartedAtRecursive({ ...action.payload.task, id: generateId(), orden: Date.now() });
             const updateList = (l: SpaceList) => l.id === action.payload.listId ? { ...l, tareas: [...l.tareas, newTask] } : l;
             updatedEspacios = updatedEspacios.map(s => {
                 if (s.id !== action.payload.spaceId) return s;
@@ -456,7 +476,7 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
             const updateTasksRecursive = (tasks: SpaceTask[]): SpaceTask[] => {
                 return tasks.map(t => {
                     if (t.id === action.payload.task.id) {
-                        return action.payload.task; // Use the payload
+                        return stampTaskStartedAtRecursive(action.payload.task, t);
                     }
                     if (t.subtasks && t.subtasks.length > 0) {
                         return { ...t, subtasks: updateTasksRecursive(t.subtasks) }; // Recurse

@@ -517,7 +517,14 @@ const GanttView: React.FC<GanttViewProps> = ({
                                 <ProgressInput 
                                     progress={editingProject.progress} 
                                     onChange={(val) => {
-                                        setEditingProject({ ...editingProject, progress: val, status: getStatusFromProgress(val) });
+                                        setEditingProject({
+                                            ...editingProject,
+                                            progress: val,
+                                            status: getStatusFromProgress(val),
+                                            startedAt: !editingProject.startedAt && val > 0
+                                                ? new Date().toISOString()
+                                                : editingProject.startedAt
+                                        });
                                     }} 
                                     className="p-4 bg-slate-50 rounded-2xl border border-slate-200"
                                 />
