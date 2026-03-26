@@ -1362,6 +1362,30 @@ const SpacesView: React.FC = () => {
         activeList = activeSpace.listas.find(l => l.id === state.activeListId);
     }
 
+    const findTaskContainer = (taskId: string) => {
+        if (!activeSpace) return null;
+
+        const taskExistsNested = (tasks: SpaceTask[], idSearch: string): boolean => {
+            return tasks.some(t => t.id === idSearch || (t.subtasks && taskExistsNested(t.subtasks, idSearch)));
+        };
+
+        for (const list of activeSpace.listas) {
+            if (taskExistsNested(list.tareas, taskId)) {
+                return { spaceId: activeSpace.id, listId: list.id, folderId: undefined as string | undefined, list };
+            }
+        }
+
+        for (const folder of activeSpace.carpetas) {
+            for (const list of folder.listas) {
+                if (taskExistsNested(list.tareas, taskId)) {
+                    return { spaceId: activeSpace.id, listId: list.id, folderId: folder.id, list };
+                }
+            }
+        }
+
+        return null;
+    };
+
     const handleAddTask = () => {
         if (!newTask.nombre.trim() || !state.activeSpaceId || !state.activeListId) return;
 
@@ -1401,21 +1425,8 @@ const SpacesView: React.FC = () => {
     const handleUpdateTask = (): boolean => {
         if (!editingTask || !state.activeSpaceId) return;
 
-        let foundListId = state.activeListId;
-        let foundFolderId = state.activeFolderId;
-
-        const taskExistsNested = (tasks: SpaceTask[], idSearch: string): boolean => {
-            return tasks.some(t => t.id === idSearch || (t.subtasks && taskExistsNested(t.subtasks, idSearch)));
-        };
-
-        if (!foundListId && activeSpace) {
-            activeSpace.listas.forEach(l => { if (taskExistsNested(l.tareas, editingTask.id)) foundListId = l.id; });
-            if (!foundListId) {
-                activeSpace.carpetas.forEach(f => { f.listas.forEach(l => { if (taskExistsNested(l.tareas, editingTask.id)) { foundListId = l.id; foundFolderId = f.id; } }); });
-            }
-        }
-
-        if (!foundListId) return false;
+        const taskContainer = findTaskContainer(editingTask.id);
+        if (!taskContainer) return false;
 
         // STRICT VALIDATION: Parent Constraint Check
         // Helper to find parent of the current editingTask
@@ -1501,9 +1512,9 @@ const SpacesView: React.FC = () => {
         dispatch({
             type: 'UPDATE_TASK',
             payload: {
-                spaceId: state.activeSpaceId,
-                folderId: foundFolderId || undefined,
-                listId: foundListId,
+                spaceId: taskContainer.spaceId,
+                folderId: taskContainer.folderId,
+                listId: taskContainer.listId,
                 task: finalTask,
             },
         });
@@ -1765,7 +1776,8 @@ const SpacesView: React.FC = () => {
             }
             return null;
         };
-        const parent = activeList ? findParentTask(activeList.tareas, task.id) : null;
+        const taskContainer = findTaskContainer(task.id);
+        const parent = taskContainer ? findParentTask(taskContainer.list.tareas, task.id) : null;
         setEditingTaskParent(parent);
         setEditingTask({ ...task });
     };
@@ -1942,6 +1954,8 @@ const SpacesView: React.FC = () => {
                         setNewTask({ ...getDefaultTask(), ...defaults });
                         setShowModal(true);
                     }} onAddSubtask={(p) => {
+                        const taskContainer = findTaskContainer(p.id);
+                        if (!taskContainer) return;
                         // Quick-add subtask logic
                         const subtask: SpaceTask = {
                             ...getDefaultTask(),
@@ -1952,7 +1966,12 @@ const SpacesView: React.FC = () => {
                         const updatedParent = { ...p, subtasks: [...(p.subtasks || []), subtask] };
                         dispatch({
                             type: 'UPDATE_TASK',
-                            payload: { spaceId: state.activeSpaceId!, folderId: state.activeFolderId || undefined, listId: state.activeListId!, task: updatedParent }
+                            payload: {
+                                spaceId: taskContainer.spaceId,
+                                folderId: taskContainer.folderId,
+                                listId: taskContainer.listId,
+                                task: updatedParent
+                            }
                         });
                         // FIX: Capture the parent NOW to avoid race condition when validating subtask dates
                         setEditingTaskParent(updatedParent);
