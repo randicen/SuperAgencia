@@ -34,13 +34,15 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "actualizar_proyecto",
-      description: "Modifica un proyecto existente, incluyendo campos de auto-agendamiento y elasticidad.",
+      description: "Modifica una tarea/proyecto existente, incluyendo nombre, horarios actuales, fecha mínima de inicio, fecha límite, modo auto/manual y elasticidad.",
       parameters: {
         type: "object",
         properties: {
           clientName: { type: "string" },
           projectName: { type: "string" },
+          newProjectName: { type: "string" },
           newProgress: { type: "number" },
+          newStartDate: { type: "string", description: "Nuevo inicio. Si autoSchedule=TRUE, es la fecha mínima de inicio. Si autoSchedule=FALSE, es el inicio exacto." },
           newEndDate: { type: "string" },
           newPriority: { type: "string", enum: ["ASAP", "High", "Medium", "Low"] },
           newTotalValue: { type: "number" },
@@ -50,7 +52,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           newAutoSchedule: { type: "boolean" },
           newElasticity: { type: "number", description: "0 = Indivisible, 1 = Flexible" }
         },
-        required: ["clientName", "projectName"]
+        required: ["projectName"]
       }
     }
   },
@@ -65,7 +67,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           clientName: { type: "string" },
           projectName: { type: "string" }
         },
-        required: ["clientName", "projectName"]
+        required: ["projectName"]
       }
     }
   },
@@ -293,7 +295,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           projectName: { type: "string" },
           status: { type: "string", enum: ["active", "completed", "todo", "proposal"] }
         },
-        required: ["clientName", "projectName", "status"]
+        required: ["projectName", "status"]
       }
     }
   },
@@ -462,7 +464,7 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "consultar_estado_app",
-      description: "Úsala SIEMPRE que te pregunten qué listas, carpetas, espacios, notas o proyectos existen actualmente en la agencia. Obligatorio para leer el estado del negocio.",
+      description: "Úsala SIEMPRE que te pregunten qué listas, carpetas, espacios, notas, proyectos, horarios actuales, bloques sugeridos, fechas límite o agenda existen actualmente en la agencia. Obligatorio para leer el estado real del negocio.",
       parameters: {
         type: "object",
         properties: {},
@@ -499,7 +501,8 @@ export const calculateQuote = async (
   });
 
   const today = new Date();
-  const allAppTasks = getAllTasks({ workspaces } as SpacesState).map(t => t.task);
+  const allAppTasksWithLocation = getAllTasks({ workspaces } as SpacesState);
+  const allAppTasks = allAppTasksWithLocation.map(t => t.task);
   const activeTasks = allAppTasks.filter(t => t.estado === 'ACTIVE');
 
   const capacityPercent = Math.round((activeTasks.length / rules.maxProjectsCapacity) * 100);
@@ -519,11 +522,46 @@ export const calculateQuote = async (
   // CONTEXTO DE DATOS EN TEXTO PLANO (Solo se genera cuando el Agente llama a la herramienta)
   const buildPlainTextContext = () => {
     let text = '';
+    const formatDateTime = (value?: string) => {
+      if (!value) return 'Sin fecha';
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) return value;
+      return date.toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
+    };
+    const formatSchedule = (task: any) => {
+      if (task.scheduledSlots && task.scheduledSlots.length > 0) {
+        return task.scheduledSlots
+          .slice(0, 3)
+          .map((slot: any) => `${formatDateTime(slot.start)} → ${formatDateTime(slot.end)}`)
+          .join(' | ');
+      }
+
+      if (task.startDate || task.endDate) {
+        return `${formatDateTime(task.startDate)} → ${formatDateTime(task.endDate || task.dueDate)}`;
+      }
+
+      return 'Sin horario calculado';
+    };
+    const resolveLocation = (taskLoc: any) => {
+      const workspace = workspaces.find((w: any) => w.id === taskLoc.workspaceId);
+      const space = workspace?.espacios.find((s: any) => s.id === taskLoc.spaceId);
+      const folder = space?.carpetas.find((f: any) => f.id === taskLoc.folderId);
+      const list = folder
+        ? folder.listas.find((l: any) => l.id === taskLoc.listId)
+        : space?.listas.find((l: any) => l.id === taskLoc.listId) || space?.carpetas.flatMap((f: any) => f.listas).find((l: any) => l.id === taskLoc.listId);
+      return `${workspace?.nombre || 'Workspace'} / ${space?.nombre || 'Espacio'}${folder ? ` / ${folder.nombre}` : ''} / ${list?.nombre || 'Lista'}`;
+    };
 
     // Workspaces
     text += 'ESTRUCTURA DE WORKSPACES:\n';
     workspaces.forEach((w: any) => {
       text += `\n📦 Workspace: ${w.nombre}\n`;
+      if (w.agendaEvents?.length > 0) {
+        text += `  🗓️ Agenda global (${w.agendaEvents.length} eventos)\n`;
+        w.agendaEvents.forEach((e: any) => {
+          text += `    • ${e.nombre} | ${formatDateTime(e.startDate)} → ${formatDateTime(e.endDate)}\n`;
+        });
+      }
       w.espacios.forEach((s: any) => {
         text += `  📂 Espacio: ${s.nombre}\n`;
         // Listas raíz (sin carpeta)
@@ -550,10 +588,11 @@ export const calculateQuote = async (
     }
 
     // Proyectos (Tareas en los Espacios)
-    if (allAppTasks.length > 0) {
+    if (allAppTasksWithLocation.length > 0) {
       text += '\nPROYECTOS / TAREAS EN ESPACIOS:\n';
-      allAppTasks.forEach(p => {
-        text += `  • ${p.nombre} | Cliente: ${p.clientName || 'Sin cliente'} | $${p.totalValue || 0} | Estado: ${p.estado} | Progreso: ${p.progress}%\n`;
+      allAppTasksWithLocation.forEach(taskLoc => {
+        const p = taskLoc.task;
+        text += `  • ${p.nombre} | Cliente: ${p.clientName || 'Sin cliente'} | Estado: ${p.estado} | Progreso: ${p.progress}% | Prioridad: ${p.priority} | Modalidad: ${p.autoSchedule ? 'Auto' : 'Manual'} | Inicio: ${formatDateTime(p.startDate)} | Fin actual: ${formatDateTime(p.endDate)} | Deadline: ${formatDateTime(p.dueDate)} | Horario actual: ${formatSchedule(p)} | Ubicación: ${resolveLocation(taskLoc)}\n`;
       });
     }
 
@@ -578,7 +617,7 @@ export const calculateQuote = async (
 
   === REGLA DE INTEGRIDAD Y ESTADO ===
   1. NUNCA asumas qué listas, carpetas o proyectos tiene el usuario de memoria.
-  2. Si el usuario te hace una pregunta de información (e.g. "¿Qué listas tengo?"), OBLIGATORIAMENTE debes llamar a la herramienta "consultar_estado_app". No intentes responder usando información del historial porque puede estar desactualizada. Confía SOLO en lo que te devuelva la herramienta.
+  2. Si el usuario te hace una pregunta de información (e.g. "¿Qué listas tengo?", "¿qué horario tiene X?", "ordena mis tareas por deadline"), OBLIGATORIAMENTE debes llamar a la herramienta "consultar_estado_app". No intentes responder usando información del historial porque puede estar desactualizada. Confía SOLO en lo que te devuelva la herramienta.
   3. No reportes que completaste una acción si no usaste la tool correspondiente.
   4. CERO INICIATIVA DESTRUCTIVA: NUNCA elimines carpetas, listas, proyectos ni notas a menos que el usuario te haya dado la orden EXPLÍCITA de eliminar. Si el usuario pide mover archivos, SOLO mueve, NO elimines la carpeta de origen vacía.
 
@@ -678,45 +717,49 @@ export const calculateQuote = async (
     console.log('[ReAct] Groq Respondió:', messageResponse);
 
     // --- BUCLE REACT: Intercepción de Herramientas de Solo Lectura ---
-    const toolCalls = messageResponse.tool_calls || [];
-    const hasConsultarEstado = toolCalls.some(tc => (tc as any).function.name === 'consultar_estado_app');
+    const reactMessages: any[] = [
+      { role: 'system', content: systemPrompt },
+      ...formattedMessages
+    ];
+    let reactStep = 0;
 
-    if (hasConsultarEstado) {
+    while (reactStep < 3) {
+      const toolCalls = messageResponse.tool_calls || [];
+      const hasConsultarEstado = toolCalls.some(tc => (tc as any).function.name === 'consultar_estado_app');
+      if (!hasConsultarEstado) break;
+
       console.log('🔄 [ReAct] Agente solicitó consultar estado. Interceptando internamente...');
-      
-      const cleanAssistantMessage = {
+
+      reactMessages.push({
         role: messageResponse.role,
-        content: "", // Se limpia el contenido (garbage CoT) para no contaminar el loop
+        content: "",
         tool_calls: toolCalls.map(tc => ({
           id: tc.id,
           type: tc.type,
           function: { name: (tc as any).function.name, arguments: (tc as any).function.arguments }
         }))
-      };
-
-      const reactMessages: any[] = [
-        { role: 'system', content: systemPrompt },
-        ...formattedMessages,
-        cleanAssistantMessage
-      ];
+      });
 
       toolCalls.forEach(tc => {
         if ((tc as any).function.name === 'consultar_estado_app') {
           const estadoApp = buildPlainTextContext();
           reactMessages.push({ role: 'tool', tool_call_id: tc.id, name: "consultar_estado_app", content: estadoApp });
         } else {
-          reactMessages.push({ role: 'tool', tool_call_id: tc.id, name: (tc as any).function.name, content: "Delegado. Continúa redactando." });
+          reactMessages.push({ role: 'tool', tool_call_id: tc.id, name: (tc as any).function.name, content: "Delegado. Continúa con la siguiente decisión." });
         }
       });
 
-      console.log('[ReAct] Iniciando Segunda Llamada Silenciosa...');
+      console.log(`[ReAct] Iteración silenciosa #${reactStep + 1}...`);
       response = await ai.chat.completions.create({
         model: MODEL,
         messages: reactMessages,
-        temperature: 0.1
+        temperature: 0.1,
+        tools: safeTools,
+        tool_choice: 'auto'
       });
       messageResponse = response.choices[0].message;
-      console.log('[ReAct] Segunda Respuesta Groq:', messageResponse);
+      console.log('[ReAct] Respuesta posterior a consultar estado:', messageResponse);
+      reactStep++;
     }
     
     // --- GESTIÓN DE ACCIONES PARA EL FRONTEND ---

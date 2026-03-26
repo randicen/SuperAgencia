@@ -2,7 +2,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { Project, BusinessRules, Message, Transaction, Priority, Client, Attachment, ChatSession, Note } from '../types';
 import { calculateQuote } from '../aiService';
-import { useSpaces } from '../contexts/SpacesContext';
+import { useSpaces, getAllTasks } from '../contexts/SpacesContext';
 
 interface AIChatProps {
   projects: Project[];
@@ -136,6 +136,12 @@ const AIChat: React.FC<AIChatProps> = ({
     return 'active';
   };
 
+  const getTaskEstadoFromProgress = (progress: number): 'TODO' | 'ACTIVE' | 'DONE' => {
+    if (progress <= 0) return 'TODO';
+    if (progress >= 100) return 'DONE';
+    return 'ACTIVE';
+  };
+
   const handleSend = async () => {
     if ((!input.trim() && attachments.length === 0) || isTyping) return;
     const userMessage: Message = { role: 'user', content: input, timestamp: new Date(), attachments: attachments.length > 0 ? [...attachments] : undefined };
@@ -201,33 +207,63 @@ const AIChat: React.FC<AIChatProps> = ({
     }
     
     // Find task helper for actions
-    const findTaskLocationByClientAndName = (clientName: string, taskName: string) => {
-        let foundLoc: any = null;
-        spacesState.workspaces.forEach(ws => {
-            ws.espacios.forEach(space => {
-                space.listas.forEach(list => {
-                    const t = list.tareas.find(t => t.clientName?.toLowerCase() === clientName.toLowerCase() && t.nombre.toLowerCase().includes(taskName.toLowerCase()));
-                    if (t) foundLoc = { spaceId: space.id, listId: list.id, task: t };
-                });
-                space.carpetas.forEach(folder => {
-                    folder.listas.forEach(list => {
-                        const t = list.tareas.find(t => t.clientName?.toLowerCase() === clientName.toLowerCase() && t.nombre.toLowerCase().includes(taskName.toLowerCase()));
-                        if (t) foundLoc = { spaceId: space.id, folderId: folder.id, listId: list.id, task: t };
-                    });
-                });
-            });
-        });
-        return foundLoc;
+    const normalizeText = (value?: string) => (value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+
+    const findTaskLocationByClientAndName = (clientName?: string, taskName?: string) => {
+        const normalizedTaskName = normalizeText(taskName);
+        const normalizedClientName = normalizeText(clientName);
+
+        const scoredMatches = getAllTasks(spacesState)
+          .map(loc => {
+            const normalizedCurrentName = normalizeText(loc.task.nombre);
+            const normalizedCurrentClient = normalizeText(loc.task.clientName);
+
+            let score = 0;
+            if (!normalizedTaskName) return null;
+            if (normalizedCurrentName === normalizedTaskName) score += 100;
+            else if (normalizedCurrentName.includes(normalizedTaskName) || normalizedTaskName.includes(normalizedCurrentName)) score += 60;
+            else return null;
+
+            if (!normalizedClientName) {
+              score += 5;
+            } else if (normalizedCurrentClient === normalizedClientName) {
+              score += 40;
+            } else if (normalizedCurrentClient.includes(normalizedClientName) || normalizedClientName.includes(normalizedCurrentClient)) {
+              score += 20;
+            } else {
+              score -= 25;
+            }
+
+            return { ...loc, score };
+          })
+          .filter((match): match is NonNullable<typeof match> => Boolean(match))
+          .sort((a, b) => b.score - a.score);
+
+        if (scoredMatches.length === 0 || scoredMatches[0].score < 50) return null;
+
+        const bestMatch = scoredMatches[0];
+        return {
+          spaceId: bestMatch.spaceId,
+          folderId: bestMatch.folderId,
+          listId: bestMatch.listId,
+          task: bestMatch.task
+        };
     };
 
     if (action.name === 'actualizar_proyecto' || action.name === 'actualizar_estado_proyecto') {
-        const { clientName, projectName, newProgress, newEndDate, newPriority, newTotalValue, newDuration, newDeadlineType, newDueDate, newAutoSchedule, newElasticity, status } = args;
+        const { clientName, projectName, newProjectName, newProgress, newStartDate, newEndDate, newPriority, newTotalValue, newDuration, newDeadlineType, newDueDate, newAutoSchedule, newElasticity, status } = args;
         const loc = findTaskLocationByClientAndName(clientName, projectName);
         
         if (loc) {
             const updated = { ...loc.task };
-            if (newProgress !== undefined) { updated.progress = newProgress; updated.estado = getStatusFromProgress(newProgress) === 'completed' ? 'DONE' : 'ACTIVE'; }
+            if (newProjectName) updated.nombre = newProjectName;
+            if (newProgress !== undefined) { updated.progress = newProgress; updated.estado = getTaskEstadoFromProgress(newProgress); }
             if (status) updated.estado = status === 'completed' ? 'DONE' : status === 'active' ? 'ACTIVE' : 'TODO';
+            if (newStartDate) updated.startDate = newStartDate;
             if (newEndDate) updated.endDate = newEndDate;
             if (newPriority) updated.priority = newPriority;
             if (newTotalValue !== undefined) updated.totalValue = newTotalValue;
@@ -236,6 +272,18 @@ const AIChat: React.FC<AIChatProps> = ({
             if (newDueDate) updated.dueDate = newDueDate;
             if (newAutoSchedule !== undefined) updated.autoSchedule = newAutoSchedule;
             if (newElasticity !== undefined) updated.elasticity = newElasticity;
+
+            if (updated.autoSchedule) {
+              updated.scheduledSlots = [];
+            } else if (updated.startDate && updated.endDate) {
+              updated.dueDate = updated.endDate;
+              updated.scheduledSlots = [{
+                id: Math.random().toString(36).substr(2, 9),
+                start: updated.startDate,
+                end: updated.endDate,
+                isFragment: false
+              }];
+            }
             
             spacesDispatch({
                 type: 'UPDATE_TASK',
@@ -250,7 +298,7 @@ const AIChat: React.FC<AIChatProps> = ({
       if (loc) { 
           spacesDispatch({
               type: 'DELETE_TASK',
-              payload: { spaceId: loc.spaceId, folderId: loc.folderId, listId: loc.listId, task: loc.task }
+              payload: { spaceId: loc.spaceId, folderId: loc.folderId, listId: loc.listId, taskId: loc.task.id }
           });
       }
     }
