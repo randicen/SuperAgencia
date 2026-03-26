@@ -61,24 +61,24 @@ const App: React.FC = () => {
     // Comunicar a otras pestañas que NO deben re-subir este estado específico
     localStorage.setItem('coo_last_sync_fingerprint', payload);
     window.dispatchEvent(new StorageEvent('storage', {
-        key: 'coo_last_sync_fingerprint',
-        newValue: payload
+      key: 'coo_last_sync_fingerprint',
+      newValue: payload
     }));
   };
 
   // --- CLOUD SYNC LOGIC (SUPABASE) ---
   const handleCloudSync = useCallback(async () => {
     if (!navigator.onLine) {
-        setSyncStatus('offline');
-        return;
+      setSyncStatus('offline');
+      return;
     }
 
     if (!session?.user?.id) return;
 
     // --- SEGURIDAD: NO SUBIR SI EL CAMBIO VINO DE LA NUBE ---
     if (isInternalUpdate.current) {
-        console.log("ℹ️ Saltando subida: El cambio es una actualización interna (descarga).");
-        return;
+      console.log("ℹ️ Saltando subida: El cambio es una actualización interna (descarga).");
+      return;
     }
 
     setSyncStatus('syncing');
@@ -86,10 +86,10 @@ const App: React.FC = () => {
     try {
       // --- SEGURIDAD: NO SUBIR SI NO HEMOS DESCARGADO PRIMERO ---
       if (!hasCheckedCloud) {
-          console.warn("Sincronización bloqueada: Aún no se ha verificado la nube. Verificando...");
-          await handleInitialDownload(true);
-          setSyncStatus('idle'); // REPARADO: No se queda pegado
-          return;
+        console.warn("Sincronización bloqueada: Aún no se ha verificado la nube. Verificando...");
+        await handleInitialDownload(true);
+        setSyncStatus('idle'); // REPARADO: No se queda pegado
+        return;
       }
 
       // --- SEGURIDAD: PREVISIÓN DE SOBRESCRITURA (Conflict Resolution) ---
@@ -101,21 +101,21 @@ const App: React.FC = () => {
         .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle();
-      
+
       const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
       const cloudLastModified = cloudRecord?.updated_at ? new Date(cloudRecord.updated_at).getTime() : 0;
 
       if (Number(cloudLastModified) > localLastSync) {
-          setDebugMsg(`REVERT_CLOUD_SYNC: Cloud(${cloudLastModified}) > Local(${localLastSync})`);
-          console.log("⚠️ Hay datos más nuevos en la nube. Descargando automáticamente...");
-          await handleInitialDownload(true);
-          setSyncStatus('synced');
-          return;
+        setDebugMsg(`REVERT_CLOUD_SYNC: Cloud(${cloudLastModified}) > Local(${localLastSync})`);
+        console.log("⚠️ Hay datos más nuevos en la nube. Descargando automáticamente...");
+        await handleInitialDownload(true);
+        setSyncStatus('synced');
+        return;
       }
 
       const rawSpaces = localStorage.getItem('coo_spaces');
       const spacesData = rawSpaces ? JSON.parse(rawSpaces) : {};
-      
+
       const lastMod = Date.now();
       const fullState = {
         projects: projects || [],
@@ -131,36 +131,36 @@ const App: React.FC = () => {
       // --- SEGURIDAD ANTI-PING PONG: COMPARACIÓN PROFUNDA (Ignorando ruido temporal) ---
       // Ignoramos campos auto-generados que cambian cada minuto por el setInterval(runAutoScheduling)
       const stateForCompare = {
-          ...fullState,
-          lastModified: 0,
-          projects: fullState.projects.map(p => ({
-              ...p,
-              scheduledSlots: [],
-              startDate: p.autoSchedule ? '' : p.startDate,
-              endDate: p.autoSchedule ? '' : p.endDate,
-              hasConflict: false,
-              conflictDescription: ''
-          }))
+        ...fullState,
+        lastModified: 0,
+        projects: fullState.projects.map(p => ({
+          ...p,
+          scheduledSlots: [],
+          startDate: p.autoSchedule ? '' : p.startDate,
+          endDate: p.autoSchedule ? '' : p.endDate,
+          hasConflict: false,
+          conflictDescription: ''
+        }))
       };
 
       const compareString = JSON.stringify(stateForCompare);
       if (compareString === lastUploadedState.current) {
-          console.log("ℹ️ Saltando subida: Los datos locales base no han cambiado.");
-          setSyncStatus('synced');
-          return;
+        console.log("ℹ️ Saltando subida: Los datos locales base no han cambiado.");
+        setSyncStatus('synced');
+        return;
       }
-      
+
       const lastFingerprint = localStorage.getItem('coo_last_sync_fingerprint');
       if (compareString === lastFingerprint) {
-          console.log("ℹ️ Saltando subida: Otra pestaña ya sincronizó este estado.");
-          lastUploadedState.current = compareString;
-          setSyncStatus('synced');
-          return;
+        console.log("ℹ️ Saltando subida: Otra pestaña ya sincronizó este estado.");
+        lastUploadedState.current = compareString;
+        setSyncStatus('synced');
+        return;
       }
 
       if (document.hidden) {
-          console.log("ℹ️ Saltando subida: La pestaña está en segundo plano.");
-          return;
+        console.log("ℹ️ Saltando subida: La pestaña está en segundo plano.");
+        return;
       }
 
       console.log("Intentando UPSERT relacional en Supabase...");
@@ -206,11 +206,11 @@ const App: React.FC = () => {
       if (!cloudState.isEmpty) {
         isInternalUpdate.current = true; // Bloqueamos subidas temporales
 
-        if (cloudState.projects?.length)   setProjects(cloudState.projects);
-        if (cloudState.clients?.length)    setClients(cloudState.clients);
+        if (cloudState.projects?.length) setProjects(cloudState.projects);
+        if (cloudState.clients?.length) setClients(cloudState.clients);
         if (cloudState.transactions?.length) setTransactions(cloudState.transactions);
-        if (cloudState.rules)              setRules(cloudState.rules as any);
-        if (cloudState.notes?.length)      setNotes(cloudState.notes);
+        if (cloudState.rules) setRules(cloudState.rules as any);
+        if (cloudState.notes?.length) setNotes(cloudState.notes);
         if (cloudState.chatSessions?.length) setChatSessions(cloudState.chatSessions);
         if (cloudState.spaces) {
           localStorage.setItem('coo_spaces', JSON.stringify(cloudState.spaces));
@@ -234,6 +234,7 @@ const App: React.FC = () => {
           rules: cloudState.rules,
           notes: cloudState.notes,
           chatSessions: cloudState.chatSessions,
+          spaces: cloudState.spaces || {},
           lastModified: 0
         };
         lastUploadedState.current = JSON.stringify(cloudStateForCompare);
@@ -273,10 +274,10 @@ const App: React.FC = () => {
 
   // Monitorear conexión y suscripción Real-time
   useEffect(() => {
-    const handleOnline = () => { 
-        setIsOnline(true); 
-        setSyncStatus('syncing');
-        handleCloudSync(); // Sync inmediato al volver
+    const handleOnline = () => {
+      setIsOnline(true);
+      setSyncStatus('syncing');
+      handleCloudSync(); // Sync inmediato al volver
     };
     const handleOffline = () => { setIsOnline(false); setSyncStatus('offline'); };
     window.addEventListener('online', handleOnline);
@@ -285,24 +286,24 @@ const App: React.FC = () => {
     // --- REAL-TIME LISTENER ---
     let channel: any;
     if (session?.user?.id) {
-        // Escuchar cambios en tablas relacionales (cualquier cambio del usuario en otro dispositivo)
-        channel = supabase
-            .channel('relational-db-changes')
-            .on('postgres_changes',
-                { event: '*', schema: 'public', table: 'projects', filter: `user_id=eq.${session.user.id}` },
-                () => {
-                    console.log("☁️ Cambio en projects detectado en otro dispositivo, descargando...");
-                    handleInitialDownload(true);
-                }
-            )
-            .subscribe();
+      // Escuchar cambios en tablas relacionales (cualquier cambio del usuario en otro dispositivo)
+      channel = supabase
+        .channel('relational-db-changes')
+        .on('postgres_changes',
+          { event: '*', schema: 'public', table: 'projects', filter: `user_id=eq.${session.user.id}` },
+          () => {
+            console.log("☁️ Cambio en projects detectado en otro dispositivo, descargando...");
+            handleInitialDownload(true);
+          }
+        )
+        .subscribe();
     }
 
     const handleFingerprintSync = (e: StorageEvent) => {
-        if (e.key === 'coo_last_sync_fingerprint' && e.newValue) {
-            console.log("📑 Sincronizando fingerprint con otra pestaña activa...");
-            lastUploadedState.current = e.newValue;
-        }
+      if (e.key === 'coo_last_sync_fingerprint' && e.newValue) {
+        console.log("📑 Sincronizando fingerprint con otra pestaña activa...");
+        lastUploadedState.current = e.newValue;
+      }
     };
     window.addEventListener('storage', handleFingerprintSync);
 
@@ -316,25 +317,25 @@ const App: React.FC = () => {
 
   // Sincronización automática debounced
   useEffect(() => {
-    const handleTriggerSync = () => { 
-        console.log("🔔 Cambio detectado en Espacios, actualizando timestamp local...");
-        updateLastMod(); // CRÍTICO: El timestamp debe ser lo primero en cambiar
-        setSpacesSyncTrigger(prev => prev + 1); 
+    const handleTriggerSync = () => {
+      console.log("🔔 Cambio detectado en Espacios, actualizando timestamp local...");
+      updateLastMod(); // CRÍTICO: El timestamp debe ser lo primero en cambiar
+      setSpacesSyncTrigger(prev => prev + 1);
     };
     window.addEventListener('coo_spaces_updated', handleTriggerSync);
 
     const timer = setTimeout(() => {
       if (isOnline) {
-          console.log("📡 Iniciando auto-sincronización...");
-          handleCloudSync();
+        console.log("📡 Iniciando auto-sincronización...");
+        handleCloudSync();
       }
     }, 1500); // 1.5 segundos de inactividad
-    
+
     // Seguro: Sincronizar si el usuario cambia de pestaña o cierra la app
     const handleVisibilityChange = () => {
-        if (document.visibilityState === 'hidden' && isOnline) {
-            handleCloudSync();
-        }
+      if (document.visibilityState === 'hidden' && isOnline) {
+        handleCloudSync();
+      }
     };
     window.addEventListener('visibilitychange', handleVisibilityChange);
 
@@ -347,20 +348,21 @@ const App: React.FC = () => {
 
   // --- HEARTBEAT & SYNC: LATIDO OPERATIVO ---
   useEffect(() => {
-    // 1. Calcular el estado actual basado en el tiempo real
-    const updatedProjects = runAutoScheduling(projects, rules);
-
     // 2. Detectar si hay diferencias críticas para el Briefing
     const sessionKey = sessionStorage.getItem('coo_session_active');
 
     if (!sessionKey) {
+      // Trigger one immediate scheduling run for accurate briefing using FRESH state
+      useAgencyStore.getState().tickAutoScheduling();
+      const currentProjects = useAgencyStore.getState().projects;
+
       const now = new Date();
-      const overdue = updatedProjects.filter(p => {
+      const overdue = currentProjects.filter(p => {
         const dueDate = new Date(p.dueDate.includes('T') ? p.dueDate : p.dueDate + 'T23:59:59');
         return dueDate < now && p.status !== 'completed';
       });
 
-      const upcoming = updatedProjects.filter(p => {
+      const upcoming = currentProjects.filter(p => {
         const dueDate = new Date(p.dueDate.includes('T') ? p.dueDate : p.dueDate + 'T23:59:59');
         const diffTime = Math.abs(dueDate.getTime() - now.getTime());
         const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
@@ -386,7 +388,7 @@ const App: React.FC = () => {
             });
           });
         }
-      } catch(e) { /* ignore parse errors */ }
+      } catch (e) { /* ignore parse errors */ }
 
       if (overdue.length > 0 || upcoming.length > 0) {
         setBriefingData({ overdue, upcoming, income: pendingIncome });
@@ -396,12 +398,12 @@ const App: React.FC = () => {
       sessionStorage.setItem('coo_session_active', 'true');
     }
 
-    setProjects(updatedProjects);
-
-    const interval = setInterval(tickAutoScheduling, 60000);
+    const interval = setInterval(() => {
+      useAgencyStore.getState().tickAutoScheduling();
+    }, 60000);
 
     return () => clearInterval(interval);
-  }, [rules]);
+  }, []);
 
 
   // Persistencia Local manejada enteramente por Zustand (useAgencyStore)
@@ -443,10 +445,10 @@ const App: React.FC = () => {
         // --- COMPATIBILIDAD CON BACKUPS ANTIGUOS DIRECTOS DE SUPABASE ---
         // Si el usuario sube el backup_app_state_dump.json original (que es un array de registros SQL)
         if (Array.isArray(rawData)) {
-            const v2_record = rawData.find((r: any) => r.id === 'coo_master_state_v2') || rawData[0];
-            if (v2_record && v2_record.data) {
-                rawData = v2_record.data;
-            }
+          const v2_record = rawData.find((r: any) => r.id === 'coo_master_state_v2') || rawData[0];
+          if (v2_record && v2_record.data) {
+            rawData = v2_record.data;
+          }
         }
 
         // --- SANITIZACIÓN Y MIGRACIÓN DE DATOS (AUTO-HEALING) ---
@@ -470,8 +472,8 @@ const App: React.FC = () => {
         if (rawData.notes) setNotes(rawData.notes);
         if (rawData.chatSessions) setChatSessions(rawData.chatSessions);
         if (rawData.spaces) {
-            localStorage.setItem('coo_spaces', JSON.stringify(rawData.spaces));
-            window.dispatchEvent(new Event('coo_cloud_data_received'));
+          localStorage.setItem('coo_spaces', JSON.stringify(rawData.spaces));
+          window.dispatchEvent(new Event('coo_cloud_data_received'));
         }
 
         // Forzamos sincronización a la nube de todos los datos restaurados
@@ -506,11 +508,11 @@ const App: React.FC = () => {
     // Al cerrar sesión, limpiamos la memoria pero JAMÁS usando .clear() global,
     // ya que eso destruye la persistencia necesaria para conectarse a Vercel/Supabase
     ['coo_spaces', 'coo_last_local_mod', 'coo_last_sync_fingerprint'].forEach(k => localStorage.removeItem(k));
-    location.reload(); 
+    location.reload();
   };
 
   if (!session) {
-    return <LoginView onLoginSuccess={() => {}} />;
+    return <LoginView onLoginSuccess={() => { }} />;
   }
 
   return (
