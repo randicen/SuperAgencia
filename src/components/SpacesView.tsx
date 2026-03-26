@@ -1956,7 +1956,7 @@ const SpacesView: React.FC = () => {
                             </div>
                         )}
 
-                        {['lista', 'gantt', 'calendar'].includes(viewMode) && (
+                        {['lista', 'kanban', 'gantt', 'calendar'].includes(viewMode) && (
                             <button
                                 type="button"
                                 onClick={() => setShowCompletedTasks(prev => !prev)}
@@ -2021,7 +2021,7 @@ const SpacesView: React.FC = () => {
                         setEditingTask(subtask);
                     }}
                     />}
-                    {viewMode === 'kanban' && <KanbanView tasks={tasks} groupBy={groupBy} onEditTask={openEditModal} onDeleteTask={(t) => setTaskToDelete(t)} deletingTaskId={deletingTaskId} onUpdateTask={(id, updates) => {
+                    {viewMode === 'kanban' && <KanbanView tasks={displayTasks} groupBy={groupBy} onEditTask={openEditModal} onDeleteTask={(t) => setTaskToDelete(t)} deletingTaskId={deletingTaskId} onUpdateTask={(id, updates) => {
                         // FIX: Aggregated tasks update needs to locate the correct list of the task
                         const taskToUpdate = tasks.find(t => t.id === id);
                         if (!taskToUpdate) return;
