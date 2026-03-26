@@ -464,10 +464,20 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
     type: "function",
     function: {
       name: "consultar_estado_app",
-      description: "Úsala SIEMPRE que te pregunten qué listas, carpetas, espacios, notas, proyectos, horarios actuales, bloques sugeridos, fechas límite o agenda existen actualmente en la agencia. Obligatorio para leer el estado real del negocio.",
+      description: "Úsala SIEMPRE que te pregunten por el estado actual de la agencia: listas, espacios, tareas, horarios, deadlines, agenda, notas, clientes o flujo de caja. Usa filtros concretos para traer solo lo necesario.",
       parameters: {
         type: "object",
-        properties: {},
+        properties: {
+          scope: {
+            type: "string",
+            enum: ["summary", "structure", "tasks", "task_detail", "agenda", "clients", "notes", "finance"],
+            description: "Qué parte del estado quieres consultar. Usa 'task_detail' para una tarea concreta y 'tasks' para listas u ordenamientos de tareas."
+          },
+          projectName: { type: "string", description: "Nombre de la tarea/proyecto si buscas una tarea concreta." },
+          clientName: { type: "string", description: "Nombre del cliente si quieres filtrar tareas o proyectos de un cliente." },
+          limit: { type: "number", description: "Cantidad máxima de resultados. Usa un número pequeño salvo que el usuario pida una lista extensa." },
+          includeCompleted: { type: "boolean", description: "Incluye tareas finalizadas si el usuario lo pidió explícitamente." }
+        },
         required: []
       }
     }
@@ -520,8 +530,13 @@ export const calculateQuote = async (
   const clientsList = clients.map(c => c.name).join(", ");
 
   // CONTEXTO DE DATOS EN TEXTO PLANO (Solo se genera cuando el Agente llama a la herramienta)
-  const buildPlainTextContext = () => {
+  const buildPlainTextContext = (query?: { scope?: string; projectName?: string; clientName?: string; limit?: number; includeCompleted?: boolean }) => {
     let text = '';
+    const normalizeText = (value?: string) => (value || '')
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
     const formatDateTime = (value?: string) => {
       if (!value) return 'Sin fecha';
       const date = new Date(value);
@@ -531,7 +546,7 @@ export const calculateQuote = async (
     const formatSchedule = (task: any) => {
       if (task.scheduledSlots && task.scheduledSlots.length > 0) {
         return task.scheduledSlots
-          .slice(0, 3)
+          .slice(0, 2)
           .map((slot: any) => `${formatDateTime(slot.start)} → ${formatDateTime(slot.end)}`)
           .join(' | ');
       }
@@ -551,60 +566,133 @@ export const calculateQuote = async (
         : space?.listas.find((l: any) => l.id === taskLoc.listId) || space?.carpetas.flatMap((f: any) => f.listas).find((l: any) => l.id === taskLoc.listId);
       return `${workspace?.nombre || 'Workspace'} / ${space?.nombre || 'Espacio'}${folder ? ` / ${folder.nombre}` : ''} / ${list?.nombre || 'Lista'}`;
     };
+    const parseDateValue = (value?: string) => {
+      if (!value) return Number.MAX_SAFE_INTEGER;
+      const parsed = new Date(value).getTime();
+      return Number.isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
+    };
+    const matchesText = (value: string | undefined, queryValue: string) => {
+      const normalizedValue = normalizeText(value);
+      return normalizedValue.includes(queryValue) || queryValue.includes(normalizedValue);
+    };
 
-    // Workspaces
-    text += 'ESTRUCTURA DE WORKSPACES:\n';
-    workspaces.forEach((w: any) => {
-      text += `\n📦 Workspace: ${w.nombre}\n`;
-      if (w.agendaEvents?.length > 0) {
-        text += `  🗓️ Agenda global (${w.agendaEvents.length} eventos)\n`;
-        w.agendaEvents.forEach((e: any) => {
-          text += `    • ${e.nombre} | ${formatDateTime(e.startDate)} → ${formatDateTime(e.endDate)}\n`;
-        });
+    const requestedScope = query?.scope || (query?.projectName ? 'task_detail' : 'summary');
+    const normalizedProjectName = normalizeText(query?.projectName);
+    const normalizedClientName = normalizeText(query?.clientName);
+    const includeCompleted = query?.includeCompleted ?? Boolean(normalizedProjectName);
+    const limit = Math.min(Math.max(query?.limit ?? (requestedScope === 'task_detail' ? 3 : 8), 1), 20);
+
+    const filteredTasks = allAppTasksWithLocation
+      .filter(taskLoc => {
+        const task = taskLoc.task;
+        if (!includeCompleted && task.estado === 'DONE') return false;
+        if (normalizedProjectName && !matchesText(task.nombre, normalizedProjectName)) return false;
+        if (normalizedClientName && !matchesText(task.clientName, normalizedClientName)) return false;
+        return true;
+      })
+      .sort((left, right) => {
+        const dueDiff = parseDateValue(left.task.dueDate) - parseDateValue(right.task.dueDate);
+        if (dueDiff !== 0) return dueDiff;
+        const startDiff = parseDateValue(left.task.startDate) - parseDateValue(right.task.startDate);
+        if (startDiff !== 0) return startDiff;
+        return left.task.nombre.localeCompare(right.task.nombre, 'es');
+      });
+    const limitedTasks = filteredTasks.slice(0, limit);
+
+    if (requestedScope === 'task_detail') {
+      if (limitedTasks.length === 0) {
+        return `No encontré una tarea que coincida con "${query?.projectName || 'la búsqueda'}".`;
       }
-      w.espacios.forEach((s: any) => {
-        text += `  📂 Espacio: ${s.nombre}\n`;
-        // Listas raíz (sin carpeta)
-        s.listas.forEach((l: any) => {
-          text += `    📋 Lista: ${l.nombre}\n`;
-        });
-        // Carpetas con sus listas
-        s.carpetas.forEach((f: any) => {
-          text += `    📁 Carpeta: ${f.nombre}\n`;
-          f.listas.forEach((l: any) => {
-            text += `      📋 Lista: ${l.nombre}\n`;
+
+      text += `DETALLE DE TAREA (${limitedTasks.length} resultado${limitedTasks.length === 1 ? '' : 's'}):\n`;
+      limitedTasks.forEach(taskLoc => {
+        const task = taskLoc.task;
+        text += `- ${task.nombre} | Cliente: ${task.clientName || 'Sin cliente'} | Estado: ${task.estado} | Progreso: ${task.progress}% | Modalidad: ${task.autoSchedule ? 'Auto' : 'Manual'} | Inicio: ${formatDateTime(task.startDate)} | Fin actual: ${formatDateTime(task.endDate)} | Deadline: ${formatDateTime(task.dueDate)} | Horario actual: ${formatSchedule(task)} | Ubicación: ${resolveLocation(taskLoc)}\n`;
+      });
+      return text;
+    }
+
+    if (requestedScope === 'tasks') {
+      text += `TAREAS ACTUALES (${Math.min(filteredTasks.length, limit)} de ${filteredTasks.length}):\n`;
+      limitedTasks.forEach(taskLoc => {
+        const task = taskLoc.task;
+        text += `- ${task.nombre} | Cliente: ${task.clientName || 'Sin cliente'} | Estado: ${task.estado} | Deadline: ${formatDateTime(task.dueDate)} | Horario: ${formatSchedule(task)}\n`;
+      });
+      return text;
+    }
+
+    if (requestedScope === 'agenda') {
+      const agendaLines = workspaces.flatMap((workspace: any) =>
+        (workspace.agendaEvents || []).map((event: any) =>
+          `- ${event.nombre} | ${formatDateTime(event.startDate)} → ${formatDateTime(event.endDate)} | Workspace: ${workspace.nombre}`
+        )
+      );
+      return agendaLines.length > 0
+        ? `AGENDA GLOBAL (${Math.min(agendaLines.length, limit)} de ${agendaLines.length}):\n${agendaLines.slice(0, limit).join('\n')}`
+        : 'No hay eventos en la agenda global.';
+    }
+
+    if (requestedScope === 'structure') {
+      text += 'ESTRUCTURA DE WORKSPACES:\n';
+      workspaces.slice(0, limit).forEach((workspace: any) => {
+        text += `- Workspace: ${workspace.nombre}\n`;
+        workspace.espacios.slice(0, limit).forEach((space: any) => {
+          text += `  • Espacio: ${space.nombre}\n`;
+          space.listas.slice(0, limit).forEach((list: any) => {
+            text += `    · Lista: ${list.nombre}\n`;
+          });
+          space.carpetas.slice(0, limit).forEach((folder: any) => {
+            text += `    · Carpeta: ${folder.nombre}\n`;
+            folder.listas.slice(0, limit).forEach((list: any) => {
+              text += `      - Lista: ${list.nombre}\n`;
+            });
           });
         });
       });
-    });
+      return text;
+    }
 
-    // Clientes
-    if (clients.length > 0) {
-      text += '\nCLIENTES:\n';
-      clients.forEach(c => {
-         const clientTasks = allAppTasks.filter(t => t.clientId === c.id || (t.clientName && t.clientName.toLowerCase() === c.name.toLowerCase()));
-         text += `  • ${c.name} (${clientTasks.length} proyectos asociados)\n`;
+    if (requestedScope === 'clients') {
+      const clientLines = clients.slice(0, limit).map(client => {
+        const clientTasks = filteredTasks.filter(t => t.task.clientId === client.id || matchesText(t.task.clientName, normalizeText(client.name)));
+        return `- ${client.name} | Proyectos asociados: ${clientTasks.length}`;
       });
+      return clientLines.length > 0 ? `CLIENTES (${clientLines.length}):\n${clientLines.join('\n')}` : 'No hay clientes registrados.';
     }
 
-    // Proyectos (Tareas en los Espacios)
-    if (allAppTasksWithLocation.length > 0) {
-      text += '\nPROYECTOS / TAREAS EN ESPACIOS:\n';
-      allAppTasksWithLocation.forEach(taskLoc => {
-        const p = taskLoc.task;
-        text += `  • ${p.nombre} | Cliente: ${p.clientName || 'Sin cliente'} | Estado: ${p.estado} | Progreso: ${p.progress}% | Prioridad: ${p.priority} | Modalidad: ${p.autoSchedule ? 'Auto' : 'Manual'} | Inicio: ${formatDateTime(p.startDate)} | Fin actual: ${formatDateTime(p.endDate)} | Deadline: ${formatDateTime(p.dueDate)} | Horario actual: ${formatSchedule(p)} | Ubicación: ${resolveLocation(taskLoc)}\n`;
-      });
+    if (requestedScope === 'notes') {
+      const noteLines = notes.slice(0, limit).map(note => `- ${note.title}`);
+      return noteLines.length > 0 ? `NOTAS (${noteLines.length}):\n${noteLines.join('\n')}` : 'No hay notas registradas.';
     }
 
-    // Notas
-    if (notes.length > 0) {
-      text += '\nNOTAS:\n';
-      notes.forEach(n => { text += `  • ${n.title}\n`; });
+    if (requestedScope === 'finance') {
+      const balance = transactions.reduce((acc, t) => t.type === 'income' ? acc + t.amount : acc - t.amount, 0);
+      const recentTransactions = transactions
+        .slice()
+        .sort((left, right) => parseDateValue(right.date) - parseDateValue(left.date))
+        .slice(0, limit)
+        .map(transaction => `- ${transaction.date} | ${transaction.type} | ${transaction.description} | $${transaction.amount.toLocaleString()}`);
+      return `FLUJO DE CAJA: ${transactions.length} transacciones | Balance: $${balance.toLocaleString()}\n${recentTransactions.join('\n')}`;
     }
 
-    // Flujo de caja
+    const upcomingTasks = filteredTasks.slice(0, Math.min(limit, 6));
     const balance = transactions.reduce((acc, t) => t.type === 'income' ? acc + t.amount : acc - t.amount, 0);
-    text += `\nFLUJO DE CAJA: ${transactions.length} transacciones | Balance: $${balance.toLocaleString()}\n`;
+    const agendaCount = workspaces.reduce((acc: number, workspace: any) => acc + (workspace.agendaEvents?.length || 0), 0);
+
+    text += `RESUMEN GENERAL:\n`;
+    text += `- Workspaces: ${workspaces.length}\n`;
+    text += `- Clientes: ${clients.length}\n`;
+    text += `- Tareas activas/no finalizadas: ${filteredTasks.length}\n`;
+    text += `- Eventos en agenda global: ${agendaCount}\n`;
+    text += `- Balance de caja: $${balance.toLocaleString()}\n`;
+
+    if (upcomingTasks.length > 0) {
+      text += `\nPRÓXIMAS TAREAS:\n`;
+      upcomingTasks.forEach(taskLoc => {
+        const task = taskLoc.task;
+        text += `- ${task.nombre} | Cliente: ${task.clientName || 'Sin cliente'} | Deadline: ${formatDateTime(task.dueDate)} | Horario: ${formatSchedule(task)}\n`;
+      });
+    }
 
     return text;
   };
@@ -617,7 +705,7 @@ export const calculateQuote = async (
 
   === REGLA DE INTEGRIDAD Y ESTADO ===
   1. NUNCA asumas qué listas, carpetas o proyectos tiene el usuario de memoria.
-  2. Si el usuario te hace una pregunta de información (e.g. "¿Qué listas tengo?", "¿qué horario tiene X?", "ordena mis tareas por deadline"), OBLIGATORIAMENTE debes llamar a la herramienta "consultar_estado_app". No intentes responder usando información del historial porque puede estar desactualizada. Confía SOLO en lo que te devuelva la herramienta.
+  2. Si el usuario te hace una pregunta de información (e.g. "¿Qué listas tengo?", "¿qué horario tiene X?", "ordena mis tareas por deadline"), OBLIGATORIAMENTE debes llamar a la herramienta "consultar_estado_app". Usa scope y filtros concretos (projectName, clientName, limit) para no pedir toda la app si no hace falta. No intentes responder usando información del historial porque puede estar desactualizada. Confía SOLO en lo que te devuelva la herramienta.
   3. No reportes que completaste una acción si no usaste la tool correspondiente.
   4. CERO INICIATIVA DESTRUCTIVA: NUNCA elimines carpetas, listas, proyectos ni notas a menos que el usuario te haya dado la orden EXPLÍCITA de eliminar. Si el usuario pide mover archivos, SOLO mueve, NO elimines la carpeta de origen vacía.
 
@@ -650,7 +738,7 @@ export const calculateQuote = async (
 
   try {
     // TRUNCAR historial a últimos 30 mensajes
-    const recentMessages = messages.slice(-30);
+    const recentMessages = messages.slice(-12);
 
     // DEBUG: Informar que inició la inferencia
     console.log('🤖 Solicitando completion a Groq con routing activo...');
@@ -723,7 +811,7 @@ export const calculateQuote = async (
     ];
     let reactStep = 0;
 
-    while (reactStep < 3) {
+    while (reactStep < 2) {
       const toolCalls = messageResponse.tool_calls || [];
       const hasConsultarEstado = toolCalls.some(tc => (tc as any).function.name === 'consultar_estado_app');
       if (!hasConsultarEstado) break;
@@ -742,7 +830,13 @@ export const calculateQuote = async (
 
       toolCalls.forEach(tc => {
         if ((tc as any).function.name === 'consultar_estado_app') {
-          const estadoApp = buildPlainTextContext();
+          let queryArgs: { scope?: string; projectName?: string; clientName?: string; limit?: number; includeCompleted?: boolean } = {};
+          try {
+            queryArgs = JSON.parse((tc as any).function.arguments || '{}');
+          } catch {
+            queryArgs = {};
+          }
+          const estadoApp = buildPlainTextContext(queryArgs);
           reactMessages.push({ role: 'tool', tool_call_id: tc.id, name: "consultar_estado_app", content: estadoApp });
         } else {
           reactMessages.push({ role: 'tool', tool_call_id: tc.id, name: (tc as any).function.name, content: "Delegado. Continúa con la siguiente decisión." });
