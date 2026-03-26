@@ -94,13 +94,17 @@ const App: React.FC = () => {
 
       // --- SEGURIDAD: PREVISIÓN DE SOBRESCRITURA (Conflict Resolution) ---
       // Usamos updated_at de la tabla projects como proxy del lastModified de la nube
-      const { data: cloudRecord } = await supabase
+      const { data: cloudRecord, error: cloudRecordError } = await supabase
         .from('projects')
         .select('updated_at')
         .eq('user_id', session?.user?.id)
         .order('updated_at', { ascending: false })
         .limit(1)
         .maybeSingle();
+
+      if (cloudRecordError) {
+        throw new Error(`[cloud sync] refresh check failed: ${cloudRecordError.message}`);
+      }
 
       const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
       const cloudLastModified = cloudRecord?.updated_at ? new Date(cloudRecord.updated_at).getTime() : 0;
