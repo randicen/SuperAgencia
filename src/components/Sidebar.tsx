@@ -141,6 +141,7 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onExport, on
     const menuItems = [
         { id: 'dashboard', label: 'Panorama', icon: 'fa-chart-pie' },
         { id: 'spaces', label: 'Espacios', icon: 'fa-layer-group' },
+        { id: 'agenda', label: 'Agenda', icon: 'fa-calendar-days' },
         { id: 'chat', label: 'Asistente IA', icon: 'fa-wand-magic-sparkles' },
         { id: 'finance', label: 'Finanzas', icon: 'fa-coins' },
         { id: 'notebook', label: 'Notas', icon: 'fa-book' },

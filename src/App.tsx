@@ -11,6 +11,7 @@ import Onboarding from './components/Onboarding';
 import NotebookView from './components/NotebookView';
 import SpacesSidebar from './components/SpacesSidebar';
 import SpacesView from './components/SpacesView';
+import AgendaView from './components/AgendaView';
 import { SpacesProvider } from './contexts/SpacesContext';
 import { runAutoScheduling } from './utils/schedulingLogic';
 import ActiveWorkspaceName from './components/ActiveWorkspaceName';
@@ -22,7 +23,7 @@ import { useAgencyStore } from './stores/useAgencyStore';
 
 const App: React.FC = () => {
   const { session, isLoading: isAuthLoading } = useAuth();
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'chat' | 'spaces' | 'finance' | 'notebook'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'chat' | 'spaces' | 'agenda' | 'finance' | 'notebook'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
   // Estado para el Briefing (Reporte de Situación)
@@ -570,6 +571,10 @@ const App: React.FC = () => {
             <div className="flex-1 flex overflow-hidden">
               <SpacesSidebar />
               <SpacesView />
+            </div>
+          ) : activeTab === 'agenda' ? (
+            <div className="flex-1 overflow-hidden p-4 md:p-6 relative">
+              <AgendaView onGoToSpaces={() => setActiveTab('spaces')} />
             </div>
           ) : (
             <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 md:p-6 relative">

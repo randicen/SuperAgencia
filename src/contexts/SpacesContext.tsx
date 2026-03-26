@@ -58,6 +58,14 @@ const recalculateScheduling = (state: SpacesState): SpacesState => {
         });
     });
 
+    workspace.agendaEvents.forEach(e => {
+        allEvents.push({
+            nombre: `[Agenda] ${e.nombre}`,
+            startDate: e.startDate,
+            endDate: e.endDate
+        });
+    });
+
     const getLocalDateStr = () => {
         const now = new Date();
         const y = now.getFullYear();
@@ -234,7 +242,8 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
             const defaultWorkspace: Workspace = {
                 id: generateId(),
                 nombre: 'Personal Workspace',
-                espacios: (loadedState as any).espacios
+                espacios: (loadedState as any).espacios,
+                agendaEvents: []
             };
             loadedState = {
                 ...initialState,
@@ -258,6 +267,11 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
             loadedState.activeWorkspaceId = loadedState.workspaces[0].id;
         }
 
+        loadedState.workspaces = (loadedState.workspaces || []).map((workspace: Workspace) => ({
+            ...workspace,
+            agendaEvents: workspace.agendaEvents || []
+        }));
+
         // Migration Check: Ensure rules exist
         if (!loadedState.rules) {
             loadedState.rules = DEFAULT_RULES;
@@ -279,7 +293,8 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
         const newWorkspace: Workspace = {
             id: generateId(),
             nombre: action.payload.nombre,
-            espacios: []
+            espacios: [],
+            agendaEvents: []
         };
         return {
             ...state,
@@ -295,7 +310,7 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
         const filtered = state.workspaces.filter(w => w.id !== action.payload.workspaceId);
 
         if (filtered.length === 0) {
-            const fallback: Workspace = { id: generateId(), nombre: 'Mi Primer Workspace', espacios: [] };
+            const fallback: Workspace = { id: generateId(), nombre: 'Mi Primer Workspace', espacios: [], agendaEvents: [] };
             return {
                 ...state,
                 workspaces: [fallback],
@@ -331,6 +346,47 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
             activeFolderId: null,
             activeListId: null
         };
+    }
+
+    if (action.type === 'ADD_AGENDA_EVENT') {
+        newState = {
+            ...state,
+            workspaces: state.workspaces.map(w =>
+                w.id === action.payload.workspaceId
+                    ? { ...w, agendaEvents: [...w.agendaEvents, { ...action.payload.event, id: generateId() }] }
+                    : w
+            )
+        };
+        return recalculateScheduling(newState);
+    }
+
+    if (action.type === 'UPDATE_AGENDA_EVENT') {
+        newState = {
+            ...state,
+            workspaces: state.workspaces.map(w =>
+                w.id === action.payload.workspaceId
+                    ? {
+                        ...w,
+                        agendaEvents: w.agendaEvents.map(event =>
+                            event.id === action.payload.event.id ? action.payload.event : event
+                        )
+                    }
+                    : w
+            )
+        };
+        return recalculateScheduling(newState);
+    }
+
+    if (action.type === 'DELETE_AGENDA_EVENT') {
+        newState = {
+            ...state,
+            workspaces: state.workspaces.map(w =>
+                w.id === action.payload.workspaceId
+                    ? { ...w, agendaEvents: w.agendaEvents.filter(event => event.id !== action.payload.eventId) }
+                    : w
+            )
+        };
+        return recalculateScheduling(newState);
     }
 
     // --- SPACE/TASK ACTIONS (Scoped to Active Workspace) ---

@@ -74,6 +74,7 @@ export interface Workspace {
     id: string;
     nombre: string;
     espacios: Space[];
+    agendaEvents: SpaceEvent[];
 }
 
 export interface RulesOverride {
@@ -101,6 +102,9 @@ export type SpacesAction =
     | { type: 'DELETE_WORKSPACE'; payload: { workspaceId: string } }
     | { type: 'RENAME_WORKSPACE'; payload: { workspaceId: string; nombre: string } }
     | { type: 'SET_ACTIVE_WORKSPACE'; payload: { workspaceId: string } }
+    | { type: 'ADD_AGENDA_EVENT'; payload: { workspaceId: string; event: Omit<SpaceEvent, 'id'> } }
+    | { type: 'UPDATE_AGENDA_EVENT'; payload: { workspaceId: string; event: SpaceEvent } }
+    | { type: 'DELETE_AGENDA_EVENT'; payload: { workspaceId: string; eventId: string } }
     // SPACE ACTIONS (operate on active workspace)
     | { type: 'ADD_SPACE'; payload: { id?: string; nombre: string; color: string } }
     | { type: 'DELETE_SPACE'; payload: { spaceId: string } }
