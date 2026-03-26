@@ -83,6 +83,17 @@ const getStatusFromProgress = (progress: number): TaskStatus => {
     return 'ACTIVE';
 };
 
+const filterCompletedTasks = (sourceTasks: SpaceTask[], showCompleted: boolean): SpaceTask[] => {
+    if (showCompleted) return sourceTasks;
+
+    return sourceTasks
+        .filter(task => task.estado !== 'DONE')
+        .map(task => ({
+            ...task,
+            subtasks: task.subtasks ? filterCompletedTasks(task.subtasks, showCompleted) : undefined,
+        }));
+};
+
 // Default task template
 const getDefaultTask = (): Omit<SpaceTask, 'id' | 'orden'> => ({
     nombre: '',
@@ -917,7 +928,7 @@ const CalendarViewComponent: React.FC<{
 
                 {datesToShow.map((date, idx) => {
                     const activeEvents = events.filter(e => isEventActiveOnDay(e, date));
-                    const activeTasks = tasks.filter(t => isTaskActiveOnDay(t, date) && t.estado !== 'DONE');
+                    const activeTasks = tasks.filter(t => isTaskActiveOnDay(t, date));
                     const isToday = new Date().toDateString() === date.toDateString();
                     const isWorkingDay = rules.workingDays.includes(date.getDay());
 
@@ -953,7 +964,13 @@ const CalendarViewComponent: React.FC<{
                                 {activeTasks.slice(0, 3).map(task => (
                                     <div
                                         key={task.id}
-                                        className={`text-[8px] px-2 py-1 rounded-md font-bold uppercase truncate border-l-2 text-left ${task.priority === 'ASAP' ? 'bg-purple-50 text-purple-700 border-purple-500' : 'bg-blue-50 text-blue-700 border-blue-500'} pointer-events-none`}
+                                        className={`text-[8px] px-2 py-1 rounded-md font-bold uppercase truncate border-l-2 text-left pointer-events-none ${
+                                            task.estado === 'DONE'
+                                                ? 'bg-emerald-50 text-emerald-700 border-emerald-500 line-through'
+                                                : task.priority === 'ASAP'
+                                                    ? 'bg-purple-50 text-purple-700 border-purple-500'
+                                                    : 'bg-blue-50 text-blue-700 border-blue-500'
+                                        }`}
                                     >
                                         {task.nombre}
                                     </div>
@@ -993,7 +1010,7 @@ const CalendarViewComponent: React.FC<{
                                         {dayExpanded.toLocaleDateString('es-ES', { weekday: 'long' })}
                                     </h4>
                                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                                        {events.filter(e => isEventActiveOnDay(e, dayExpanded)).length} Eventos · {tasks.filter(t => isTaskActiveOnDay(t, dayExpanded) && t.estado !== 'DONE').length} Pendientes
+                                        {events.filter(e => isEventActiveOnDay(e, dayExpanded)).length} Eventos · {tasks.filter(t => isTaskActiveOnDay(t, dayExpanded)).length} Tareas
                                     </p>
                                 </div>
                             </div>
@@ -1045,22 +1062,22 @@ const CalendarViewComponent: React.FC<{
                                     <h5 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Tareas de Producción</h5>
                                 </div>
                                 <div className="space-y-3">
-                                    {tasks.filter(t => isTaskActiveOnDay(t, dayExpanded) && t.estado !== 'DONE').length === 0 && (
-                                        <p className="text-xs italic text-slate-300">No hay tareas pendientes.</p>
+                                    {tasks.filter(t => isTaskActiveOnDay(t, dayExpanded)).length === 0 && (
+                                        <p className="text-xs italic text-slate-300">No hay tareas para este día.</p>
                                     )}
-                                    {tasks.filter(t => isTaskActiveOnDay(t, dayExpanded) && t.estado !== 'DONE').map(task => (
+                                    {tasks.filter(t => isTaskActiveOnDay(t, dayExpanded)).map(task => (
                                         <div
                                             key={task.id}
                                             onClick={() => onEditTask(task)}
                                             className="group bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md hover:border-blue-200 transition-all cursor-pointer flex items-center gap-6"
                                         >
-                                            <div className={`w-1.5 h-12 rounded-full ${task.priority === 'ASAP' ? 'bg-purple-500' : task.priority === 'High' ? 'bg-red-500' : 'bg-blue-500'}`}></div>
+                                            <div className={`w-1.5 h-12 rounded-full ${task.estado === 'DONE' ? 'bg-emerald-500' : task.priority === 'ASAP' ? 'bg-purple-500' : task.priority === 'High' ? 'bg-red-500' : 'bg-blue-500'}`}></div>
                                             <div className="flex-1">
                                                 <div className="flex justify-between items-center mb-1">
-                                                    <span className={`text-[10px] font-black uppercase tracking-tighter ${task.priority === 'ASAP' ? 'text-purple-500' : 'text-blue-500'}`}>{task.priority} Priority</span>
+                                                    <span className={`text-[10px] font-black uppercase tracking-tighter ${task.estado === 'DONE' ? 'text-emerald-500' : task.priority === 'ASAP' ? 'text-purple-500' : 'text-blue-500'}`}>{task.estado === 'DONE' ? 'Realizada' : `${task.priority} Priority`}</span>
                                                     <span className="text-[10px] font-bold text-slate-400">{formatDuration(task.duration)} de esfuerzo</span>
                                                 </div>
-                                                <h6 className="font-bold text-slate-800 text-lg group-hover:text-blue-600 transition-colors uppercase tracking-tight">{task.nombre}</h6>
+                                                <h6 className={`font-bold text-lg transition-colors uppercase tracking-tight ${task.estado === 'DONE' ? 'text-slate-400 line-through group-hover:text-slate-500' : 'text-slate-800 group-hover:text-blue-600'}`}>{task.nombre}</h6>
                                                 {task.clientName && (
                                                     <div className="flex items-center gap-2 mt-2">
                                                         <i className="fa-solid fa-user text-[10px] text-slate-300"></i>
@@ -1204,6 +1221,7 @@ const SpacesView: React.FC = () => {
     const [newTask, setNewTask] = useState(getDefaultTask());
     const [notification, setNotification] = useState<{ message: string, type: 'error' | 'success' } | null>(null);
     const [groupBy, setGroupBy] = useState<GroupBy>('estado');
+    const [showCompletedTasks, setShowCompletedTasks] = useState(false);
     const [taskToDelete, setTaskToDelete] = useState<SpaceTask | null>(null);
     const [deletingTaskId, setDeletingTaskId] = useState<string | null>(null);
     const [subtaskWarning, setSubtaskWarning] = useState<{ task: SpaceTask, missingCount: number } | null>(null);
@@ -1850,6 +1868,11 @@ const SpacesView: React.FC = () => {
         events = [...events, ...state.gcalEvents];
     }
 
+    const displayTasks = useMemo(
+        () => filterCompletedTasks(tasks, showCompletedTasks),
+        [tasks, showCompletedTasks]
+    );
+
     return (
         <div className="flex-1 flex flex-col bg-[#F4F5F8] overflow-hidden">
             {/* Temporary Work Hours Override Banner */}
@@ -1932,6 +1955,17 @@ const SpacesView: React.FC = () => {
                                 </select>
                             </div>
                         )}
+
+                        {['lista', 'gantt', 'calendar'].includes(viewMode) && (
+                            <button
+                                type="button"
+                                onClick={() => setShowCompletedTasks(prev => !prev)}
+                                className={`ml-2 px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-wide transition-all flex items-center gap-2 ${showCompletedTasks ? 'bg-emerald-50 text-emerald-700 border-emerald-300 shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'}`}
+                            >
+                                <i className={`fa-solid ${showCompletedTasks ? 'fa-eye' : 'fa-eye-slash'} text-[10px]`}></i>
+                                Realizadas
+                            </button>
+                        )}
                     </div>
                     <div className="flex gap-2">
                         <button
@@ -1959,7 +1993,7 @@ const SpacesView: React.FC = () => {
             {/* Content area */}
             <div className="flex-1 overflow-y-auto p-6">
                 <div className="max-w-5xl mx-auto h-full">
-                    {viewMode === 'lista' && <ListaView tasks={tasks} rules={state.rules} groupBy={groupBy} onEditTask={openEditModal} onToggleTask={handleToggleTask} onDeleteTask={(t) => setTaskToDelete(t)} deletingTaskId={deletingTaskId} onAddTask={(defaults) => {
+                    {viewMode === 'lista' && <ListaView tasks={displayTasks} rules={state.rules} groupBy={groupBy} onEditTask={openEditModal} onToggleTask={handleToggleTask} onDeleteTask={(t) => setTaskToDelete(t)} deletingTaskId={deletingTaskId} onAddTask={(defaults) => {
                         setNewTask({ ...getDefaultTask(), ...defaults });
                         setShowModal(true);
                     }} onAddSubtask={(p) => {
@@ -2004,8 +2038,8 @@ const SpacesView: React.FC = () => {
                             });
                         }
                     }} />}
-                    {viewMode === 'gantt' && <GanttChartView tasks={tasks} rules={state.rules} groupBy={groupBy} onEditTask={openEditModal} />}
-                    {viewMode === 'calendar' && <CalendarViewComponent tasks={tasks} events={events} rules={state.rules} onEditTask={openEditModal} onEditEvent={(e) => {
+                    {viewMode === 'gantt' && <GanttChartView tasks={displayTasks} rules={state.rules} groupBy={groupBy} onEditTask={openEditModal} />}
+                    {viewMode === 'calendar' && <CalendarViewComponent tasks={displayTasks} events={events} rules={state.rules} onEditTask={openEditModal} onEditEvent={(e) => {
                         setNewEvent({ ...e });
                         setShowEventModal(true);
                     }} />}
