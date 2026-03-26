@@ -51,7 +51,12 @@ const getDueDateGroup = (dueDate: string): string => {
     return 'Futuro';
 };
 
-const DUE_DATE_ORDER = ['Con atraso', 'Hoy', 'Mañana', 'Esta semana', 'Futuro', 'Sin fecha límite'];
+const getDueDateGroupForTask = (task: SpaceTask): string => {
+    if (task.estado === 'DONE') return 'Hechas';
+    return getDueDateGroup(task.dueDate);
+};
+
+const DUE_DATE_ORDER = ['Con atraso', 'Hoy', 'Mañana', 'Esta semana', 'Futuro', 'Sin fecha límite', 'Hechas'];
 
 // Helper functions
 const formatDuration = (minutes: number) => {
@@ -332,9 +337,11 @@ const ListaView: React.FC<{
             }));
         } else {
             return DUE_DATE_ORDER.map(group => ({
-                key: group, label: group, tasks: tasks.filter(t => getDueDateGroup(t.dueDate) === group),
-                color: group === 'Con atraso' ? 'bg-red-500' : group === 'Hoy' ? 'bg-orange-500' : 'bg-slate-400',
-                icon: group === 'Con atraso' ? 'fa-exclamation-triangle' : 'fa-calendar'
+                key: group,
+                label: group,
+                tasks: tasks.filter(t => getDueDateGroupForTask(t) === group),
+                color: group === 'Con atraso' ? 'bg-red-500' : group === 'Hoy' ? 'bg-orange-500' : group === 'Hechas' ? 'bg-emerald-500' : 'bg-slate-400',
+                icon: group === 'Con atraso' ? 'fa-exclamation-triangle' : group === 'Hechas' ? 'fa-check-circle' : 'fa-calendar'
             }));
         }
     };
@@ -599,10 +606,10 @@ const KanbanView: React.FC<{
             return DUE_DATE_ORDER.map(group => ({
                 id: group,
                 label: group,
-                icon: group === 'Con atraso' ? 'fa-exclamation-triangle' : group === 'Hoy' ? 'fa-clock' : 'fa-calendar',
-                color: group === 'Con atraso' ? 'text-red-500' : group === 'Hoy' ? 'text-orange-500' : 'text-slate-400',
-                bgColor: group === 'Con atraso' ? 'bg-red-500' : group === 'Hoy' ? 'bg-orange-500' : 'bg-slate-400',
-                filterFn: (t: SpaceTask) => getDueDateGroup(t.dueDate) === group
+                icon: group === 'Con atraso' ? 'fa-exclamation-triangle' : group === 'Hoy' ? 'fa-clock' : group === 'Hechas' ? 'fa-check-circle' : 'fa-calendar',
+                color: group === 'Con atraso' ? 'text-red-500' : group === 'Hoy' ? 'text-orange-500' : group === 'Hechas' ? 'text-emerald-500' : 'text-slate-400',
+                bgColor: group === 'Con atraso' ? 'bg-red-500' : group === 'Hoy' ? 'bg-orange-500' : group === 'Hechas' ? 'bg-emerald-500' : 'bg-slate-400',
+                filterFn: (t: SpaceTask) => getDueDateGroupForTask(t) === group
             }));
         }
     };
