@@ -25,8 +25,7 @@ export const uploadRelationalState = async (
     transactions: Transaction[],
     rules: BusinessRules,
     notes: Note[],
-    chatSessions: ChatSession[],
-    spacesData: any
+    chatSessions: ChatSession[]
 ) => {
     const nowIso = new Date().toISOString();
 
@@ -146,12 +145,6 @@ export const uploadRelationalState = async (
         updated_at: nowIso
     }));
 
-    // 7. Spaces
-    await runSupabaseMutation('upsert spaces store', supabase.from('spaces_store').upsert({
-        user_id: userId,
-        spaces_data: spacesData,
-        updated_at: nowIso
-    }));
 };
 
 export const downloadRelationalState = async (userId: string) => {
@@ -161,16 +154,14 @@ export const downloadRelationalState = async (userId: string) => {
         transactionsResult,
         notesResult,
         rulesResult,
-        chatSessionsResult,
-        spacesResult
+        chatSessionsResult
     ] = await Promise.all([
         supabase.from('projects').select('*').eq('user_id', userId),
         supabase.from('clients').select('*').eq('user_id', userId),
         supabase.from('transactions').select('*').eq('user_id', userId),
         supabase.from('notes').select('*').eq('user_id', userId),
         supabase.from('business_rules').select('*').eq('user_id', userId).maybeSingle(),
-        supabase.from('chat_sessions').select('*').eq('user_id', userId),
-        supabase.from('spaces_store').select('*').eq('user_id', userId).maybeSingle()
+        supabase.from('chat_sessions').select('*').eq('user_id', userId)
     ]);
 
     const projects = unwrapSupabaseResponse('select projects', projectsResult);
@@ -179,20 +170,13 @@ export const downloadRelationalState = async (userId: string) => {
     const notes = unwrapSupabaseResponse('select notes', notesResult);
     const rules = unwrapSupabaseResponse('select business rules', rulesResult);
     const chatSessions = unwrapSupabaseResponse('select chat sessions', chatSessionsResult);
-    const spaces = unwrapSupabaseResponse('select spaces store', spacesResult);
-
-    const hasSpaces = !!spaces?.spaces_data && (
-        (Array.isArray(spaces.spaces_data?.workspaces) && spaces.spaces_data.workspaces.length > 0) ||
-        Object.keys(spaces.spaces_data || {}).length > 0
-    );
     const relationalIsEmpty =
         !projects?.length &&
         !clients?.length &&
         !transactions?.length &&
         !notes?.length &&
         !chatSessions?.length &&
-        !rules &&
-        !hasSpaces;
+        !rules;
 
     // ── FALLBACK: Si las tablas relacionales están vacías, intentar migrar desde app_state_dump ──
     if (relationalIsEmpty) {
@@ -218,7 +202,6 @@ export const downloadRelationalState = async (userId: string) => {
                 notes: d.notes || [],
                 chatSessions: d.chatSessions || [],
                 rules: d.rules || null,
-                spaces: d.spaces || null,
                 isEmpty: false,
                 _migratedFromLegacy: true  // Flag para que App.tsx sepa que debe disparar upload
             };
@@ -232,8 +215,7 @@ export const downloadRelationalState = async (userId: string) => {
                     legacyState.transactions,
                     legacyState.rules || {} as any,
                     legacyState.notes,
-                    legacyState.chatSessions,
-                    legacyState.spaces
+                    legacyState.chatSessions
                 );
                 console.log('✅ Migración legacy → relacional completada.');
             } catch (migErr) {
@@ -282,7 +264,6 @@ export const downloadRelationalState = async (userId: string) => {
             customRules: rules.custom_rules,
             historicalSeasonality: rules.historical_seasonality
         } : null,
-        spaces: spaces?.spaces_data || null,
         isEmpty: relationalIsEmpty
     };
 };

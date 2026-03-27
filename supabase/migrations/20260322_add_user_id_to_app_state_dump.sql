@@ -17,8 +17,17 @@ ALTER TABLE public.app_state_dump
 ALTER COLUMN user_id SET NOT NULL;
 
 -- 4. Constraint UNIQUE compuesto requerido por el código
-ALTER TABLE public.app_state_dump 
-ADD CONSTRAINT app_state_dump_id_user_id_key UNIQUE (id, user_id);
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'app_state_dump_id_user_id_key'
+  ) THEN
+    ALTER TABLE public.app_state_dump
+    ADD CONSTRAINT app_state_dump_id_user_id_key UNIQUE (id, user_id);
+  END IF;
+END $$;
 
 -- 5. Activar RLS
 ALTER TABLE public.app_state_dump ENABLE ROW LEVEL SECURITY;

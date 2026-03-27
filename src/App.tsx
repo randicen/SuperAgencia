@@ -18,10 +18,11 @@ import { runAutoScheduling } from './utils/schedulingLogic';
 import ActiveWorkspaceName from './components/ActiveWorkspaceName';
 import { supabase } from './contexts/AuthContext';
 import { uploadRelationalState, downloadRelationalState } from './utils/syncManager';
-import { mergeCloudSyncState, normalizeCloudSyncState, rehydrateSpacesLocalState, sanitizeSpacesForCloud } from './utils/cloudSyncMerge';
+import { mergeCloudSyncState, normalizeCloudSyncState } from './utils/cloudSyncMerge';
 import { useAuth } from './contexts/AuthContext';
 import LoginView from './components/LoginView';
 import { useAgencyStore } from './stores/useAgencyStore';
+import { SpacesSyncDiagnostics, getLocalPendingSpacesCount, getOrCreateSpacesSyncDeviceId, getSpacesSyncDiagnostics, runSpacesSyncCycle } from './utils/spacesSyncService';
 
 const App: React.FC = () => {
   const { session, isLoading: isAuthLoading } = useAuth();
@@ -52,11 +53,18 @@ const App: React.FC = () => {
 
   const [isOnline, setIsOnline] = useState(navigator.onLine);
   const [syncStatus, setSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error' | 'offline'>('idle');
+  const [spacesSyncStatus, setSpacesSyncStatus] = useState<'idle' | 'syncing' | 'synced' | 'error' | 'offline' | 'safe'>('idle');
+  const [spacesSyncDiagnostics, setSpacesSyncDiagnostics] = useState<SpacesSyncDiagnostics>(() => ({
+    ...getSpacesSyncDiagnostics(),
+    deviceId: getOrCreateSpacesSyncDeviceId(),
+  }));
   const [isLoadingCloud, setIsLoadingCloud] = useState(false);
   const [hasCheckedCloud, setHasCheckedCloud] = useState(false); // Bloqueo de seguridad
-  const [spacesSyncTrigger, setSpacesSyncTrigger] = useState(0);
   const [debugMsg, setDebugMsg] = useState<string | null>(null); // DEBUG HUD
-  const isInternalUpdate = React.useRef(false); // Ref para evitar bucles de subida tras descarga
+  const isInternalUpdate = React.useRef(false); // Ref para evitar bucles de subida tras descarga core
+  const isRunningSpacesSync = React.useRef(false);
+  const rerunSpacesSync = React.useRef(false);
+  const spacesRefreshTimer = React.useRef<number | null>(null);
   const lastUploadedState = React.useRef<string>(''); // Reflete el último estado guardado/descargado para evitar uploads redundantes
 
 
@@ -104,33 +112,25 @@ const App: React.FC = () => {
   };
 
   const buildCurrentLocalCloudState = () => {
-    const currentLocalSpaces = readLocalSpacesState();
     return {
-      currentLocalSpaces,
       currentLocalState: normalizeCloudSyncState({
         projects: projects || [],
         clients: clients || [],
         transactions: transactions || [],
         rules: rules || DEFAULT_RULES,
         notes: notes || [],
-        chatSessions: chatSessions || [],
-        spaces: sanitizeSpacesForCloud(currentLocalSpaces)
+        chatSessions: chatSessions || []
       })
     };
   };
 
-  const applyDownloadedCloudState = (
-    nextState: ReturnType<typeof normalizeCloudSyncState>,
-    currentLocalSpaces: any = readLocalSpacesState()
-  ) => {
+  const applyDownloadedCloudState = (nextState: ReturnType<typeof normalizeCloudSyncState>) => {
     setProjects(nextState.projects);
     setClients(nextState.clients);
     setTransactions(nextState.transactions);
     setRules(nextState.rules as any);
     setNotes(nextState.notes);
     setChatSessions(nextState.chatSessions);
-    localStorage.setItem('coo_spaces', JSON.stringify(rehydrateSpacesLocalState(nextState.spaces, currentLocalSpaces)));
-    window.dispatchEvent(new Event('coo_cloud_data_received'));
   };
 
   const getCloudLastModified = useCallback(async (userId: string): Promise<number> => {
@@ -140,16 +140,14 @@ const App: React.FC = () => {
       transactionsRes,
       notesRes,
       chatSessionsRes,
-      rulesRes,
-      spacesRes
+      rulesRes
     ] = await Promise.all([
       supabase.from('projects').select('updated_at').eq('user_id', userId).order('updated_at', { ascending: false }).limit(1),
       supabase.from('clients').select('updated_at').eq('user_id', userId).order('updated_at', { ascending: false }).limit(1),
       supabase.from('transactions').select('updated_at').eq('user_id', userId).order('updated_at', { ascending: false }).limit(1),
       supabase.from('notes').select('updated_at').eq('user_id', userId).order('updated_at', { ascending: false }).limit(1),
       supabase.from('chat_sessions').select('updated_at').eq('user_id', userId).order('updated_at', { ascending: false }).limit(1),
-      supabase.from('business_rules').select('updated_at').eq('user_id', userId).maybeSingle(),
-      supabase.from('spaces_store').select('updated_at').eq('user_id', userId).maybeSingle()
+      supabase.from('business_rules').select('updated_at').eq('user_id', userId).maybeSingle()
     ]);
 
     const firstError = [
@@ -158,8 +156,7 @@ const App: React.FC = () => {
       transactionsRes.error,
       notesRes.error,
       chatSessionsRes.error,
-      rulesRes.error,
-      spacesRes.error
+      rulesRes.error
     ].find(Boolean);
 
     if (firstError) {
@@ -174,9 +171,40 @@ const App: React.FC = () => {
       toMs(transactionsRes.data?.[0]),
       toMs(notesRes.data?.[0]),
       toMs(chatSessionsRes.data?.[0]),
-      toMs(rulesRes.data),
-      toMs(spacesRes.data)
+      toMs(rulesRes.data)
     );
+  }, []);
+
+  const getSpacesCloudLastModified = useCallback(async (userId: string): Promise<number> => {
+    const tableNames = ['space_workspaces', 'space_spaces', 'space_folders', 'space_lists', 'space_tasks', 'space_events'];
+    const responses = await Promise.all(
+      tableNames.map((tableName) =>
+        supabase
+          .from(tableName)
+          .select('updated_at, deleted_at')
+          .eq('user_id', userId)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+      )
+    );
+
+    const firstError = responses.find((response) => response.error)?.error;
+    if (firstError) {
+      throw new Error(`[spaces sync] refresh check failed: ${firstError.message}`);
+    }
+
+    const toMs = (row: any) => {
+      const candidates = [row?.deleted_at, row?.updated_at].filter(Boolean);
+      if (!candidates.length) return 0;
+      return Math.max(...candidates.map((value: string) => new Date(value).getTime()));
+    };
+
+    return Math.max(...responses.map((response) => toMs(response.data?.[0])));
+  }, []);
+
+  const applyDownloadedSpacesState = useCallback((nextSpacesState: any) => {
+    localStorage.setItem('coo_spaces', JSON.stringify(nextSpacesState));
+    window.dispatchEvent(new Event('coo_cloud_data_received'));
   }, []);
 
   // --- CLOUD SYNC LOGIC (SUPABASE) ---
@@ -207,7 +235,7 @@ const App: React.FC = () => {
 
       // --- SEGURIDAD: PREVISIÓN DE SOBRESCRITURA (Conflict Resolution) ---
       // Calculamos el lastModified real revisando todas las tablas sincronizadas.
-      const { currentLocalState, currentLocalSpaces } = buildCurrentLocalCloudState();
+      const { currentLocalState } = buildCurrentLocalCloudState();
       const lastSeenCloud = parseInt(localStorage.getItem('coo_last_cloud_mod') || '0');
       const currentCloudModified = await getCloudLastModified(session.user.id);
       const baseSnapshotRaw = localStorage.getItem('coo_last_cloud_state_snapshot');
@@ -256,11 +284,6 @@ const App: React.FC = () => {
         return;
       }
 
-      if (document.hidden) {
-        console.log("ℹ️ Saltando subida: La pestaña está en segundo plano.");
-        return;
-      }
-
       console.log("Intentando UPSERT relacional en Supabase...");
 
       // ── FASE 2: Subida a tablas relacionales (reemplaza app_state_dump) ──
@@ -271,8 +294,7 @@ const App: React.FC = () => {
         syncState.transactions,
         syncState.rules || DEFAULT_RULES,
         syncState.notes,
-        syncState.chatSessions,
-        syncState.spaces
+        syncState.chatSessions
       );
 
       console.log("✅ CONFIRMADO: Estado sincronizado a tablas relacionales.");
@@ -280,7 +302,7 @@ const App: React.FC = () => {
       replicateToOtherTabs(compareString);
       if (shouldMergeRemoteChanges) {
         isInternalUpdate.current = true;
-        applyDownloadedCloudState(syncState, currentLocalSpaces);
+        applyDownloadedCloudState(syncState);
         setTimeout(() => { isInternalUpdate.current = false; }, 2500);
       }
       const lastMod = Date.now();
@@ -296,7 +318,68 @@ const App: React.FC = () => {
       console.error("Sync Catch Error:", err);
       setSyncStatus('error');
     }
-  }, [projects, clients, transactions, rules, notes, chatSessions, spacesSyncTrigger, session, getCloudLastModified, hasCheckedCloud]);
+  }, [projects, clients, transactions, rules, notes, chatSessions, session, getCloudLastModified, hasCheckedCloud]);
+
+  const handleSpacesSync = useCallback(async (reason: 'manual' | 'local-change' | 'remote-change' | 'online' | 'bootstrap' = 'manual') => {
+    if (!session?.user?.id) return;
+
+    const deviceId = getOrCreateSpacesSyncDeviceId();
+    const currentLocalSpaces = readLocalSpacesState();
+
+    if (!navigator.onLine) {
+      setSpacesSyncStatus('offline');
+      setSpacesSyncDiagnostics((prev) => ({
+        ...prev,
+        deviceId,
+        mode: prev.mode === 'live' ? 'live' : 'safe',
+        pending: getLocalPendingSpacesCount(session.user.id, currentLocalSpaces),
+      }));
+      return;
+    }
+
+    if (isRunningSpacesSync.current) {
+      rerunSpacesSync.current = true;
+      return;
+    }
+
+    isRunningSpacesSync.current = true;
+    setSpacesSyncStatus('syncing');
+
+    try {
+      const result = await runSpacesSyncCycle({
+        userId: session.user.id,
+        currentLocalSpaces,
+      });
+
+      applyDownloadedSpacesState(result.nextSpacesState);
+      setSpacesSyncDiagnostics({
+        ...result.diagnostics,
+        deviceId,
+      });
+      setSpacesSyncStatus(result.diagnostics.mode === 'safe' ? 'safe' : 'synced');
+      if (reason !== 'remote-change') {
+        setDebugMsg(`Spaces sync ${result.didUpload ? 'push+pull' : 'pull'} · ${deviceId}`);
+      }
+    } catch (error: any) {
+      console.error('Spaces sync error:', error);
+      setSpacesSyncStatus('error');
+      setSpacesSyncDiagnostics((prev) => ({
+        ...prev,
+        deviceId,
+        mode: 'safe',
+        pending: getLocalPendingSpacesCount(session.user.id, currentLocalSpaces),
+        lastError: error?.message || 'No se pudo sincronizar Espacios.',
+      }));
+    } finally {
+      isRunningSpacesSync.current = false;
+      if (rerunSpacesSync.current) {
+        rerunSpacesSync.current = false;
+        window.setTimeout(() => {
+          handleSpacesSync('local-change');
+        }, 150);
+      }
+    }
+  }, [applyDownloadedSpacesState, session]);
 
   // --- CLOUD DOWNLOAD LOGIC (INITIAL LOAD) ---
   const handleInitialDownload = useCallback(async (isSilent = false) => {
@@ -315,7 +398,7 @@ const App: React.FC = () => {
       const lastSeenCloud = parseInt(localStorage.getItem('coo_last_cloud_mod') || '0');
       const baseSnapshotRaw = localStorage.getItem('coo_last_cloud_state_snapshot');
       const baseSnapshot = normalizeCloudSyncState(baseSnapshotRaw ? JSON.parse(baseSnapshotRaw) : null);
-      const { currentLocalSpaces, currentLocalState } = buildCurrentLocalCloudState();
+      const { currentLocalState } = buildCurrentLocalCloudState();
       const localComparable = buildComparableStateString(currentLocalState);
       const baseComparable = buildComparableStateString(baseSnapshot);
       const remoteComparable = buildComparableStateString(normalizedCloudState);
@@ -329,7 +412,7 @@ const App: React.FC = () => {
         const mergedNeedsUpload = mergedComparable !== remoteComparable;
 
         isInternalUpdate.current = true;
-        applyDownloadedCloudState(mergedState, currentLocalSpaces);
+        applyDownloadedCloudState(mergedState);
 
         if (!isSilent) console.log("â˜ï¸ Cambios remotos fusionados con cambios locales pendientes.");
 
@@ -342,13 +425,13 @@ const App: React.FC = () => {
         setTimeout(() => {
           isInternalUpdate.current = false;
           if (mergedNeedsUpload) {
-            setSpacesSyncTrigger(prev => prev + 1);
+            handleCloudSync();
           }
         }, 2500);
       } else if (!cloudState.isEmpty && (!localHasMeaningfulChanges || switchedUser)) {
         isInternalUpdate.current = true; // Bloqueamos subidas temporales
 
-        applyDownloadedCloudState(normalizedCloudState, currentLocalSpaces);
+        applyDownloadedCloudState(normalizedCloudState);
 
         if (!isSilent) console.log("✅ Datos sincronizados desde tablas relacionales.");
 
@@ -367,16 +450,13 @@ const App: React.FC = () => {
         if (!isSilent) console.log("ℹ️ Hay cambios locales pendientes: conservando estado local y subiendo.");
         localStorage.setItem('coo_last_user_id', session.user.id);
         setUnsyncedLocalFlags(true);
-        setSpacesSyncTrigger(prev => prev + 1);
       } else {
-        if (!isSilent) console.log("⚠️ Usuario sin datos en la nube: limpiando caché local de seguridad...");
+        if (!isSilent) console.log("⚠️ Usuario sin datos core en la nube: limpiando caché core de seguridad...");
         setProjects([]);
         setClients([]);
         setTransactions([]);
         setNotes([]);
         setChatSessions([{ id: 'default', title: 'Nuevo Chat', messages: [], lastModified: Date.now() }]);
-        localStorage.setItem('coo_spaces', JSON.stringify(rehydrateSpacesLocalState(normalizedCloudState.spaces, null)));
-        window.dispatchEvent(new Event('coo_cloud_data_received'));
         localStorage.setItem('coo_last_local_mod', Date.now().toString());
         setUnsyncedLocalFlags(false);
         persistCloudSnapshot(normalizedCloudState);
@@ -392,20 +472,31 @@ const App: React.FC = () => {
       if (!isSilent) setIsLoadingCloud(false);
       setHasCheckedCloud(true);
     }
-  }, [session, getCloudLastModified, projects, clients, transactions, rules, notes, chatSessions]); // CRITICAL: session MUST be here or the function will always see null
+  }, [session, getCloudLastModified, projects, clients, transactions, rules, notes, chatSessions, handleCloudSync]); // CRITICAL: session MUST be here or the function will always see null
 
   useEffect(() => {
     handleInitialDownload();
   }, [handleInitialDownload]); // Re-run when session changes (which recreates handleInitialDownload)
+
+  useEffect(() => {
+    if (!session?.user?.id) return;
+    handleSpacesSync('bootstrap');
+  }, [handleSpacesSync, session?.user?.id]);
 
   // Monitorear conexión y suscripción Real-time
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
       setSyncStatus('syncing');
-      handleCloudSync(); // Sync inmediato al volver
+      setSpacesSyncStatus('syncing');
+      handleCloudSync();
+      handleSpacesSync('online');
     };
-    const handleOffline = () => { setIsOnline(false); setSyncStatus('offline'); };
+    const handleOffline = () => {
+      setIsOnline(false);
+      setSyncStatus('offline');
+      setSpacesSyncStatus('offline');
+    };
     window.addEventListener('online', handleOnline);
     window.addEventListener('offline', handleOffline);
 
@@ -432,7 +523,7 @@ const App: React.FC = () => {
         )
         .subscribe();
 
-      const extraTables = ['clients', 'transactions', 'notes', 'chat_sessions', 'business_rules', 'spaces_store'];
+      const extraTables = ['clients', 'transactions', 'notes', 'chat_sessions', 'business_rules'];
       secondaryChannel = supabase.channel(`relational-db-changes-extra-${session.user.id}`);
       extraTables.forEach((tableName) => {
         secondaryChannel = secondaryChannel.on(
@@ -480,27 +571,103 @@ const App: React.FC = () => {
     };
   }, [handleCloudSync, handleInitialDownload, getCloudLastModified, session]);
 
+  useEffect(() => {
+    if (!session?.user?.id) return;
+
+    let spacesChannel: any;
+    let spacesPollTimer: number | null = null;
+    let spacesRealtimeTimer: number | null = null;
+    const tableNames = ['space_workspaces', 'space_spaces', 'space_folders', 'space_lists', 'space_tasks', 'space_events'];
+
+    const scheduleSpacesRefresh = () => {
+      if (spacesRealtimeTimer) window.clearTimeout(spacesRealtimeTimer);
+      spacesRealtimeTimer = window.setTimeout(() => handleSpacesSync('remote-change'), 350);
+    };
+
+    spacesChannel = supabase.channel(`spaces-db-changes-${session.user.id}`);
+    tableNames.forEach((tableName) => {
+      spacesChannel = spacesChannel.on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: tableName, filter: `user_id=eq.${session.user.id}` },
+        () => {
+          scheduleSpacesRefresh();
+        }
+      );
+    });
+    spacesChannel.subscribe();
+
+    spacesPollTimer = window.setInterval(async () => {
+      if (document.visibilityState !== 'visible' || !navigator.onLine || !session?.user?.id) return;
+      try {
+        const remoteStamp = await getSpacesCloudLastModified(session.user.id);
+        const knownStamp = spacesSyncDiagnostics.lastRemote ? new Date(spacesSyncDiagnostics.lastRemote).getTime() : 0;
+        if (remoteStamp > knownStamp) {
+          handleSpacesSync('remote-change');
+        }
+      } catch (error) {
+        console.warn('Polling de Espacios falló:', error);
+      }
+    }, 15000);
+
+    return () => {
+      if (spacesRealtimeTimer) window.clearTimeout(spacesRealtimeTimer);
+      if (spacesPollTimer) window.clearInterval(spacesPollTimer);
+      if (spacesChannel) spacesChannel.unsubscribe();
+    };
+  }, [getSpacesCloudLastModified, handleSpacesSync, session, spacesSyncDiagnostics.lastRemote]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (isOnline) {
+        handleCloudSync();
+      }
+    }, 1500);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden' && isOnline) {
+        handleCloudSync();
+      }
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.clearTimeout(timer);
+    };
+  }, [projects, clients, transactions, rules, notes, chatSessions, isOnline, handleCloudSync]);
+
   // Sincronización automática debounced
   useEffect(() => {
     const handleTriggerSync = () => {
-      if (isInternalUpdate.current) return;
-      console.log("🔔 Cambio detectado en Espacios, actualizando timestamp local...");
-      updateLastMod(); // CRÍTICO: El timestamp debe ser lo primero en cambiar
-      setSpacesSyncTrigger(prev => prev + 1);
+      const currentLocalSpaces = readLocalSpacesState();
+      if (session?.user?.id) {
+        setSpacesSyncDiagnostics((prev) => ({
+          ...prev,
+          deviceId: getOrCreateSpacesSyncDeviceId(),
+          pending: getLocalPendingSpacesCount(session.user.id, currentLocalSpaces),
+          lastError: null,
+        }));
+      }
+
+      if (spacesRefreshTimer.current) {
+        window.clearTimeout(spacesRefreshTimer.current);
+      }
+
+      if (!isOnline || !session?.user?.id) {
+        setSpacesSyncStatus(isOnline ? 'safe' : 'offline');
+        return;
+      }
+
+      spacesRefreshTimer.current = window.setTimeout(() => {
+        handleSpacesSync('local-change');
+      }, 1200);
     };
     window.addEventListener('coo_spaces_updated', handleTriggerSync);
-
-    const timer = setTimeout(() => {
-      if (isOnline) {
-        console.log("📡 Iniciando auto-sincronización...");
-        handleCloudSync();
-      }
-    }, 1500); // 1.5 segundos de inactividad
 
     // Seguro: Sincronizar si el usuario cambia de pestaña o cierra la app
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden' && isOnline) {
-        handleCloudSync();
+        handleSpacesSync('manual');
       }
     };
     window.addEventListener('visibilitychange', handleVisibilityChange);
@@ -508,9 +675,12 @@ const App: React.FC = () => {
     return () => {
       window.removeEventListener('coo_spaces_updated', handleTriggerSync);
       window.removeEventListener('visibilitychange', handleVisibilityChange);
-      clearTimeout(timer);
+      if (spacesRefreshTimer.current) {
+        window.clearTimeout(spacesRefreshTimer.current);
+        spacesRefreshTimer.current = null;
+      }
     };
-  }, [projects, clients, transactions, rules, notes, chatSessions, isOnline, handleCloudSync]);
+  }, [handleSpacesSync, isOnline, session?.user?.id]);
 
   // --- HEARTBEAT & SYNC: LATIDO OPERATIVO ---
   useEffect(() => {
@@ -644,7 +814,8 @@ const App: React.FC = () => {
 
         // Forzamos sincronización a la nube de todos los datos restaurados
         updateLastMod();
-        setSpacesSyncTrigger(prev => prev + 1);
+        handleCloudSync();
+        handleSpacesSync('manual');
 
         alert('✅ Datos restaurados y guardados en la nube.');
       } catch (error) {
@@ -654,6 +825,11 @@ const App: React.FC = () => {
     };
     reader.readAsText(file);
   };
+
+  const handleFullCloudSync = useCallback(async () => {
+    await handleCloudSync();
+    await handleSpacesSync('manual');
+  }, [handleCloudSync, handleSpacesSync]);
 
   // Acciones globales migradas centralmente al stores/useAgencyStore
 
@@ -673,7 +849,21 @@ const App: React.FC = () => {
   const handleSignOutWrapper = async () => {
     // Al cerrar sesión, limpiamos la memoria pero JAMÁS usando .clear() global,
     // ya que eso destruye la persistencia necesaria para conectarse a Vercel/Supabase
-    ['coo_spaces', 'coo_last_local_mod', 'coo_last_sync_fingerprint', 'coo_last_user_id', 'coo_last_cloud_mod', 'coo_last_cloud_state_snapshot', 'coo_has_unsynced_local', 'coo_has_unsynced_local_v2', 'coo_has_unsynced_local_v3'].forEach(k => localStorage.removeItem(k));
+    [
+      'coo_spaces',
+      'coo_last_local_mod',
+      'coo_last_sync_fingerprint',
+      'coo_last_user_id',
+      'coo_last_cloud_mod',
+      'coo_last_cloud_state_snapshot',
+      'coo_has_unsynced_local',
+      'coo_has_unsynced_local_v2',
+      'coo_has_unsynced_local_v3',
+      'coo_spaces_sync_device_id',
+      'coo_spaces_sync_cache_v1',
+      'coo_spaces_backup_local_pre_row_sync_v1',
+      'coo_spaces_backup_legacy_remote_pre_row_sync_v1'
+    ].forEach(k => localStorage.removeItem(k));
     location.reload();
   };
 
@@ -690,8 +880,10 @@ const App: React.FC = () => {
           setActiveTab={(t) => { setActiveTab(t); setIsMobileMenuOpen(false); setIsSpacesSidebarOpen(false); }}
           onExport={handleExportData}
           onImport={handleImportData}
-          onCloudSync={handleCloudSync}
+          onCloudSync={handleFullCloudSync}
           syncStatus={syncStatus}
+          spacesSyncStatus={spacesSyncStatus}
+          spacesSyncDiagnostics={spacesSyncDiagnostics}
           isOnline={isOnline}
           capacity={Math.min(Math.round((projects.filter(p => p.status === 'active').length / rules.maxProjectsCapacity) * 100), 100)}
           mobileOpen={isMobileMenuOpen}

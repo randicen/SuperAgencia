@@ -9,12 +9,6 @@ const PwaUpdateBanner: React.FC = () => {
   } = useRegisterSW();
 
   useEffect(() => {
-    if (needRefresh) {
-      updateServiceWorker(true);
-    }
-  }, [needRefresh, updateServiceWorker]);
-
-  useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
 
     const checkForUpdates = async () => {

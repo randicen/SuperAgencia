@@ -18,11 +18,13 @@ CREATE TABLE IF NOT EXISTS gcal_cache (
 ALTER TABLE user_gcal_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE gcal_cache ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users manage own gcal settings" ON user_gcal_settings;
 CREATE POLICY "Users manage own gcal settings"
     ON user_gcal_settings FOR ALL
     USING (auth.uid() = user_id)
     WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users read own gcal cache" ON gcal_cache;
 CREATE POLICY "Users read own gcal cache"
     ON gcal_cache FOR SELECT
     USING (auth.uid() = user_id);

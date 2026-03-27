@@ -4,6 +4,7 @@ import React, { useRef, useState, useEffect } from 'react';
 import { useSpaces } from '../contexts/SpacesContext';
 import { useAuth } from '../contexts/AuthContext';
 import UserProfileMenu from './UserProfileMenu';
+import { SpacesSyncDiagnostics } from '../utils/spacesSyncService';
 
 interface SidebarProps {
     activeTab: string;
@@ -12,6 +13,8 @@ interface SidebarProps {
     onImport?: (file: File) => void;
     onCloudSync: () => void;
     syncStatus?: 'idle' | 'syncing' | 'synced' | 'error' | 'offline';
+    spacesSyncStatus?: 'idle' | 'syncing' | 'synced' | 'error' | 'offline' | 'safe';
+    spacesSyncDiagnostics?: SpacesSyncDiagnostics;
     isOnline?: boolean;
     capacity: number;
     mobileOpen?: boolean;
@@ -20,7 +23,20 @@ interface SidebarProps {
 
 type InstallHelpMode = 'android' | 'ios' | 'desktop';
 
-const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onExport, onImport, onCloudSync, syncStatus = 'idle', isOnline = true, capacity, mobileOpen = false, setMobileOpen }) => {
+const Sidebar: React.FC<SidebarProps> = ({
+    activeTab,
+    setActiveTab,
+    onExport,
+    onImport,
+    onCloudSync,
+    syncStatus = 'idle',
+    spacesSyncStatus = 'idle',
+    spacesSyncDiagnostics,
+    isOnline = true,
+    capacity,
+    mobileOpen = false,
+    setMobileOpen
+}) => {
     const { state: spacesState, dispatch } = useSpaces();
     const { user, signOut } = useAuth();
     const fileInputRef = useRef<HTMLInputElement>(null);
@@ -180,6 +196,17 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onExport, on
     };
 
     const activeWorkspace = spacesState.workspaces.find(w => w.id === spacesState.activeWorkspaceId) || spacesState.workspaces[0];
+    const formatSyncStamp = (value?: string | null) => {
+        if (!value) return '—';
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) return '—';
+        return date.toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit' }).toLowerCase();
+    };
+    const spacesModeLabel = spacesSyncDiagnostics?.mode === 'live'
+        ? 'Row Sync'
+        : spacesSyncDiagnostics?.mode === 'migrating'
+            ? 'Migrando'
+            : 'Modo seguro';
 
     // Helper to get initials
     const getInitials = (name: string) => name.substring(0, 2).toUpperCase();
@@ -207,14 +234,12 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onExport, on
     };
 
     const sqlBlueprint = `
-create table if not exists app_state_dump (
-  id text primary key,
-  data jsonb not null,
-  updated_at timestamp with time zone default now()
-);
-alter table app_state_dump enable row level security;
-create policy "Public Access All" on app_state_dump for all using (true);
-alter publication supabase_realtime add table app_state_dump;
+npx supabase db push
+
+# Migraciones incluidas en el repo:
+# - supabase/migrations/20260321_gcal_tables.sql
+# - supabase/migrations/20260322_add_user_id_to_app_state_dump.sql
+# - supabase/migrations/20260327_normalize_spaces_sync.sql
   `;
     const workspaceMenuRef = useRef<HTMLDivElement>(null);
 
@@ -404,6 +429,56 @@ alter publication supabase_realtime add table app_state_dump;
                             <div className={`h-full ${getCapacityColor(capacity)} transition-all duration-500`} style={{ width: `${capacity}%` }}></div>
                         </div>
                     </div>
+
+                    {spacesSyncDiagnostics && (
+                        <div className="bg-[#1A1C23] rounded-md p-3 border border-[#2A2D35] space-y-2">
+                            <div className="flex items-center justify-between">
+                                <div className="flex items-center gap-2">
+                                    <div className={`w-2 h-2 rounded-full ${
+                                        spacesSyncStatus === 'syncing' ? 'bg-blue-400 animate-pulse' :
+                                        spacesSyncStatus === 'error' ? 'bg-red-400' :
+                                        spacesSyncStatus === 'safe' ? 'bg-amber-400' :
+                                        spacesSyncStatus === 'offline' ? 'bg-slate-500' :
+                                        'bg-emerald-400'
+                                    }`}></div>
+                                    <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Espacios Sync</span>
+                                </div>
+                                <span className={`text-[9px] font-black uppercase ${
+                                    spacesSyncDiagnostics.mode === 'live' ? 'text-emerald-400' :
+                                    spacesSyncDiagnostics.mode === 'migrating' ? 'text-blue-400' :
+                                    'text-amber-400'
+                                }`}>
+                                    {spacesModeLabel}
+                                </span>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 text-[9px]">
+                                <div className="bg-[#11131A] rounded-md px-2 py-1.5 border border-[#242833]">
+                                    <p className="text-slate-500 uppercase font-bold">Device</p>
+                                    <p className="text-slate-200 font-mono truncate">{spacesSyncDiagnostics.deviceId}</p>
+                                </div>
+                                <div className="bg-[#11131A] rounded-md px-2 py-1.5 border border-[#242833]">
+                                    <p className="text-slate-500 uppercase font-bold">Pendiente</p>
+                                    <p className="text-slate-200 font-mono">{spacesSyncDiagnostics.pending}</p>
+                                </div>
+                                <div className="bg-[#11131A] rounded-md px-2 py-1.5 border border-[#242833]">
+                                    <p className="text-slate-500 uppercase font-bold">Último pull</p>
+                                    <p className="text-slate-200 font-mono">{formatSyncStamp(spacesSyncDiagnostics.lastPull)}</p>
+                                </div>
+                                <div className="bg-[#11131A] rounded-md px-2 py-1.5 border border-[#242833]">
+                                    <p className="text-slate-500 uppercase font-bold">Último push</p>
+                                    <p className="text-slate-200 font-mono">{formatSyncStamp(spacesSyncDiagnostics.lastPush)}</p>
+                                </div>
+                            </div>
+                            <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono">
+                                <span>Último remoto: {formatSyncStamp(spacesSyncDiagnostics.lastRemote)}</span>
+                            </div>
+                            {spacesSyncDiagnostics.lastError && (
+                                <p className="text-[9px] text-amber-300 leading-relaxed">
+                                    {spacesSyncDiagnostics.lastError}
+                                </p>
+                            )}
+                        </div>
+                    )}
 
                     {/* BOTÓN DE DESCARGA (Estilo ClickUp/Slack) */}
                     {!isAppInstalled && (
