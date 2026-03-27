@@ -5,7 +5,11 @@ import { SpaceTask } from '../spacesTypes';
 
 const COLORS = ['#7C3AED', '#2563EB', '#059669', '#DC2626', '#F59E0B', '#EC4899'];
 
-const SpacesSidebar: React.FC = () => {
+interface SpacesSidebarProps {
+    onNavigate?: () => void;
+}
+
+const SpacesSidebar: React.FC<SpacesSidebarProps> = ({ onNavigate }) => {
     const { state, dispatch } = useSpaces();
     const [newSpaceName, setNewSpaceName] = useState('');
     const [showAddSpace, setShowAddSpace] = useState(false);
@@ -187,14 +191,17 @@ const SpacesSidebar: React.FC = () => {
 
     const handleListClick = (spaceId: string, listId: string, folderId?: string) => {
         dispatch({ type: 'SET_ACTIVE', payload: { spaceId, folderId: folderId || null, listId } });
+        onNavigate?.();
     };
 
     const handleSpaceClick = (spaceId: string) => {
         dispatch({ type: 'SET_ACTIVE', payload: { spaceId, folderId: null, listId: null } });
+        onNavigate?.();
     };
 
     const handleFolderClick = (spaceId: string, folderId: string) => {
         dispatch({ type: 'SET_ACTIVE', payload: { spaceId, folderId, listId: null } });
+        onNavigate?.();
     };
 
     const handleCreateWorkspace = () => {
@@ -242,7 +249,7 @@ const SpacesSidebar: React.FC = () => {
                 {showWorkspaceMenu && (
                     <div className="absolute top-full left-0 w-full bg-[#1A1C23] border-b border-[#1E293B] shadow-xl z-50 animate-in fade-in slide-in-from-top-2 p-2 space-y-2">
                         {state.workspaces.map(ws => (
-                            <div key={ws.id} className="group flex items-center justify-between p-2 rounded hover:bg-[#2A2D35] cursor-pointer" onClick={() => { dispatch({ type: 'SET_ACTIVE_WORKSPACE', payload: { workspaceId: ws.id } }); setShowWorkspaceMenu(false); }}>
+                            <div key={ws.id} className="group flex items-center justify-between p-2 rounded hover:bg-[#2A2D35] cursor-pointer" onClick={() => { dispatch({ type: 'SET_ACTIVE_WORKSPACE', payload: { workspaceId: ws.id } }); setShowWorkspaceMenu(false); onNavigate?.(); }}>
                                 {editingWorkspaceId === ws.id ? (
                                     <input
                                         autoFocus

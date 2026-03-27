@@ -26,6 +26,7 @@ const App: React.FC = () => {
   const { session, isLoading: isAuthLoading } = useAuth();
   const [activeTab, setActiveTab] = useState<'dashboard' | 'chat' | 'spaces' | 'agenda' | 'finance' | 'notebook'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [isSpacesSidebarOpen, setIsSpacesSidebarOpen] = useState(false);
 
   // Estado para el Briefing (Reporte de Situación)
   const [showBriefing, setShowBriefing] = useState(false);
@@ -68,6 +69,52 @@ const App: React.FC = () => {
     }));
   };
 
+  const getCloudLastModified = useCallback(async (userId: string): Promise<number> => {
+    const [
+      projectsRes,
+      clientsRes,
+      transactionsRes,
+      notesRes,
+      chatSessionsRes,
+      rulesRes,
+      spacesRes
+    ] = await Promise.all([
+      supabase.from('projects').select('updated_at').eq('user_id', userId).order('updated_at', { ascending: false }).limit(1),
+      supabase.from('clients').select('updated_at').eq('user_id', userId).order('updated_at', { ascending: false }).limit(1),
+      supabase.from('transactions').select('updated_at').eq('user_id', userId).order('updated_at', { ascending: false }).limit(1),
+      supabase.from('notes').select('updated_at').eq('user_id', userId).order('updated_at', { ascending: false }).limit(1),
+      supabase.from('chat_sessions').select('updated_at').eq('user_id', userId).order('updated_at', { ascending: false }).limit(1),
+      supabase.from('business_rules').select('updated_at').eq('user_id', userId).maybeSingle(),
+      supabase.from('spaces_store').select('updated_at').eq('user_id', userId).maybeSingle()
+    ]);
+
+    const firstError = [
+      projectsRes.error,
+      clientsRes.error,
+      transactionsRes.error,
+      notesRes.error,
+      chatSessionsRes.error,
+      rulesRes.error,
+      spacesRes.error
+    ].find(Boolean);
+
+    if (firstError) {
+      throw new Error(`[cloud sync] refresh check failed: ${(firstError as any).message}`);
+    }
+
+    const toMs = (row: any) => row?.updated_at ? new Date(row.updated_at).getTime() : 0;
+
+    return Math.max(
+      toMs(projectsRes.data?.[0]),
+      toMs(clientsRes.data?.[0]),
+      toMs(transactionsRes.data?.[0]),
+      toMs(notesRes.data?.[0]),
+      toMs(chatSessionsRes.data?.[0]),
+      toMs(rulesRes.data),
+      toMs(spacesRes.data)
+    );
+  }, []);
+
   // --- CLOUD SYNC LOGIC (SUPABASE) ---
   const handleCloudSync = useCallback(async () => {
     if (!navigator.onLine) {
@@ -95,21 +142,9 @@ const App: React.FC = () => {
       }
 
       // --- SEGURIDAD: PREVISIÓN DE SOBRESCRITURA (Conflict Resolution) ---
-      // Usamos updated_at de la tabla projects como proxy del lastModified de la nube
-      const { data: cloudRecord, error: cloudRecordError } = await supabase
-        .from('projects')
-        .select('updated_at')
-        .eq('user_id', session?.user?.id)
-        .order('updated_at', { ascending: false })
-        .limit(1)
-        .maybeSingle();
-
-      if (cloudRecordError) {
-        throw new Error(`[cloud sync] refresh check failed: ${cloudRecordError.message}`);
-      }
-
+      // Calculamos el lastModified real revisando todas las tablas sincronizadas.
       const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
-      const cloudLastModified = cloudRecord?.updated_at ? new Date(cloudRecord.updated_at).getTime() : 0;
+      const cloudLastModified = await getCloudLastModified(session.user.id);
 
       if (Number(cloudLastModified) > localLastSync) {
         setDebugMsg(`REVERT_CLOUD_SYNC: Cloud(${cloudLastModified}) > Local(${localLastSync})`);
@@ -189,13 +224,14 @@ const App: React.FC = () => {
       console.log("✅ CONFIRMADO: Estado sincronizado a tablas relacionales.");
       lastUploadedState.current = compareString;
       replicateToOtherTabs(compareString);
+      localStorage.setItem('coo_last_user_id', session.user.id);
       setSyncStatus('synced');
 
     } catch (err: any) {
       console.error("Sync Catch Error:", err);
       setSyncStatus('error');
     }
-  }, [projects, clients, transactions, rules, notes, chatSessions, spacesSyncTrigger, session]);
+  }, [projects, clients, transactions, rules, notes, chatSessions, spacesSyncTrigger, session, getCloudLastModified]);
 
   // --- CLOUD DOWNLOAD LOGIC (INITIAL LOAD) ---
   const handleInitialDownload = useCallback(async (isSilent = false) => {
@@ -208,6 +244,9 @@ const App: React.FC = () => {
       // ── FASE 1: Descarga desde tablas relacionales (reemplaza app_state_dump) ──
       const cloudState = await downloadRelationalState(session.user.id);
       const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
+      const cloudLastModified = await getCloudLastModified(session.user.id);
+      const lastKnownUser = localStorage.getItem('coo_last_user_id');
+      const switchedUser = !!lastKnownUser && lastKnownUser !== session.user.id;
 
       if (!cloudState.isEmpty) {
         isInternalUpdate.current = true; // Bloqueamos subidas temporales
@@ -246,13 +285,17 @@ const App: React.FC = () => {
         lastUploadedState.current = JSON.stringify(cloudStateForCompare);
         localStorage.setItem('coo_last_sync_fingerprint', lastUploadedState.current);
         localStorage.setItem('coo_last_local_mod', Date.now().toString());
+        localStorage.setItem('coo_last_user_id', session.user.id);
 
         // Liberamos el bloqueo tras un safety delay mayor que el debounce (1500ms)
         setTimeout(() => { isInternalUpdate.current = false; }, 2500);
 
+      } else if (!switchedUser && localLastSync > cloudLastModified) {
+        if (!isSilent) console.log("ℹ️ Nube vacía: conservando datos locales y programando subida.");
+        localStorage.setItem('coo_last_user_id', session.user.id);
+        setSpacesSyncTrigger(prev => prev + 1);
       } else {
-        // Usuario nuevo sin datos en la nube → limpiar caché local del perfil anterior
-        if (!isSilent) console.log("⚠️ Nuevo usuario detectado: limpiando caché local...");
+        if (!isSilent) console.log("⚠️ Usuario sin datos en la nube: limpiando caché local de seguridad...");
         setProjects([]);
         setClients([]);
         setTransactions([]);
@@ -261,6 +304,7 @@ const App: React.FC = () => {
         localStorage.removeItem('coo_spaces');
         window.dispatchEvent(new Event('coo_cloud_data_received'));
         localStorage.setItem('coo_last_local_mod', Date.now().toString());
+        localStorage.setItem('coo_last_user_id', session.user.id);
         isInternalUpdate.current = true;
         setTimeout(() => isInternalUpdate.current = false, 1500);
       }
@@ -272,7 +316,7 @@ const App: React.FC = () => {
       if (!isSilent) setIsLoadingCloud(false);
       setHasCheckedCloud(true);
     }
-  }, [session]); // CRITICAL: session MUST be here or the function will always see null
+  }, [session, getCloudLastModified]); // CRITICAL: session MUST be here or the function will always see null
 
   useEffect(() => {
     handleInitialDownload();
@@ -513,7 +557,7 @@ const App: React.FC = () => {
   const handleSignOutWrapper = async () => {
     // Al cerrar sesión, limpiamos la memoria pero JAMÁS usando .clear() global,
     // ya que eso destruye la persistencia necesaria para conectarse a Vercel/Supabase
-    ['coo_spaces', 'coo_last_local_mod', 'coo_last_sync_fingerprint'].forEach(k => localStorage.removeItem(k));
+    ['coo_spaces', 'coo_last_local_mod', 'coo_last_sync_fingerprint', 'coo_last_user_id'].forEach(k => localStorage.removeItem(k));
     location.reload();
   };
 
@@ -527,7 +571,7 @@ const App: React.FC = () => {
       <div className="flex w-full h-full bg-[#F4F5F8]">
         <Sidebar
           activeTab={activeTab}
-          setActiveTab={(t) => { setActiveTab(t); setIsMobileMenuOpen(false); }}
+          setActiveTab={(t) => { setActiveTab(t); setIsMobileMenuOpen(false); setIsSpacesSidebarOpen(false); }}
           onExport={handleExportData}
           onImport={handleImportData}
           onCloudSync={handleCloudSync}
@@ -569,9 +613,20 @@ const App: React.FC = () => {
 
           {/* Área de Contenido Principal */}
           {activeTab === 'spaces' ? (
-            <div className="flex-1 flex overflow-hidden">
-              <SpacesSidebar />
-              <SpacesView />
+            <div className="flex-1 flex overflow-hidden relative">
+              <div className="hidden md:block h-full">
+                <SpacesSidebar />
+              </div>
+              {isSpacesSidebarOpen && (
+                <div
+                  className="md:hidden fixed inset-0 bg-black/50 z-30"
+                  onClick={() => setIsSpacesSidebarOpen(false)}
+                ></div>
+              )}
+              <div className={`md:hidden fixed inset-y-0 left-0 z-40 transition-transform duration-300 ${isSpacesSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+                <SpacesSidebar onNavigate={() => setIsSpacesSidebarOpen(false)} />
+              </div>
+              <SpacesView onOpenTree={() => setIsSpacesSidebarOpen(true)} />
             </div>
           ) : activeTab === 'agenda' ? (
             <div className="flex-1 overflow-hidden p-4 md:p-6 relative">

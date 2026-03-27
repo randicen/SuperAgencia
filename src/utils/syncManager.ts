@@ -172,7 +172,18 @@ export const downloadRelationalState = async (userId: string) => {
     const chatSessions = unwrapSupabaseResponse('select chat sessions', chatSessionsResult);
     const spaces = unwrapSupabaseResponse('select spaces store', spacesResult);
 
-    const relationalIsEmpty = !projects?.length && !clients?.length && !transactions?.length;
+    const hasSpaces = !!spaces?.spaces_data && (
+        (Array.isArray(spaces.spaces_data?.workspaces) && spaces.spaces_data.workspaces.length > 0) ||
+        Object.keys(spaces.spaces_data || {}).length > 0
+    );
+    const relationalIsEmpty =
+        !projects?.length &&
+        !clients?.length &&
+        !transactions?.length &&
+        !notes?.length &&
+        !chatSessions?.length &&
+        !rules &&
+        !hasSpaces;
 
     // ── FALLBACK: Si las tablas relacionales están vacías, intentar migrar desde app_state_dump ──
     if (relationalIsEmpty) {

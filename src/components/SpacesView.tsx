@@ -1215,7 +1215,11 @@ const ClientSelector: React.FC<{
     );
 };
 
-const SpacesView: React.FC = () => {
+interface SpacesViewProps {
+    onOpenTree?: () => void;
+}
+
+const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
     const { state, dispatch } = useSpaces();
     const [viewMode, setViewMode] = useState<ViewMode>('lista');
     const [showModal, setShowModal] = useState(false);
@@ -1906,27 +1910,36 @@ const SpacesView: React.FC = () => {
                 );
             })()}
             {/* Header with breadcrumb and view switcher */}
-            <div className="bg-white border-b border-gray-200 px-6 py-4 shrink-0">
-                <div className="flex items-center gap-2 text-sm mb-3">
-                    <div className="w-3 h-3 rounded" style={{ backgroundColor: activeSpace?.color || '#3A57E8' }}></div>
-                    <span className={`font-semibold ${!activeFolder && !activeList ? 'text-slate-800' : 'text-slate-700'}`}>{activeSpace?.nombre}</span>
+            <div className="bg-white border-b border-gray-200 px-3 md:px-6 py-3 md:py-4 shrink-0">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                    <div className="flex items-center gap-2 text-sm min-w-0 overflow-x-auto">
+                    <div className="w-3 h-3 rounded shrink-0" style={{ backgroundColor: activeSpace?.color || '#3A57E8' }}></div>
+                    <span className={`font-semibold whitespace-nowrap ${!activeFolder && !activeList ? 'text-slate-800' : 'text-slate-700'}`}>{activeSpace?.nombre}</span>
                     {activeFolder && (
                         <>
-                            <i className="fa-solid fa-chevron-right text-[8px] text-slate-400"></i>
-                            <span className={`${!activeList ? 'font-bold text-slate-800' : 'text-slate-500'}`}>{activeFolder.nombre}</span>
+                            <i className="fa-solid fa-chevron-right text-[8px] text-slate-400 shrink-0"></i>
+                            <span className={`whitespace-nowrap ${!activeList ? 'font-bold text-slate-800' : 'text-slate-500'}`}>{activeFolder.nombre}</span>
                         </>
                     )}
                     {activeList && (
                         <>
-                            <i className="fa-solid fa-chevron-right text-[8px] text-slate-400"></i>
-                            <span className="font-bold text-slate-800">{activeList.nombre}</span>
+                            <i className="fa-solid fa-chevron-right text-[8px] text-slate-400 shrink-0"></i>
+                            <span className="font-bold text-slate-800 whitespace-nowrap">{activeList.nombre}</span>
                         </>
                     )}
+                    </div>
+                    <button
+                        type="button"
+                        onClick={() => onOpenTree?.()}
+                        className="md:hidden px-3 py-1.5 rounded-lg bg-slate-100 text-slate-700 text-[10px] font-black uppercase tracking-wide"
+                    >
+                        <i className="fa-solid fa-sitemap mr-1"></i> Listas
+                    </button>
                 </div>
 
                 {/* View switcher + Add button */}
-                <div className="flex items-center justify-between">
-                    <div className="flex gap-4 items-center">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <div className="flex gap-3 md:gap-4 items-center overflow-x-auto pb-1 md:pb-0 whitespace-nowrap">
                         <button onClick={() => setViewMode('lista')} className={`text-[10px] font-black uppercase tracking-widest flex items-center gap-2 transition-colors ${viewMode === 'lista' ? 'text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>
                             <i className="fa-solid fa-list"></i> Lista
                         </button>
@@ -1945,7 +1958,7 @@ const SpacesView: React.FC = () => {
 
                         {/* Grouping Selector */}
                         {['lista', 'kanban', 'gantt'].includes(viewMode) && (
-                            <div className="ml-4 pl-4 border-l border-slate-200 flex items-center gap-2">
+                            <div className="ml-2 md:ml-4 pl-2 md:pl-4 border-l border-slate-200 flex items-center gap-2">
                                 <span className="text-[9px] font-bold text-slate-400 uppercase">Grupo:</span>
                                 <select
                                     value={groupBy}
@@ -1963,14 +1976,14 @@ const SpacesView: React.FC = () => {
                             <button
                                 type="button"
                                 onClick={() => setShowCompletedTasks(prev => !prev)}
-                                className={`ml-2 px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-wide transition-all flex items-center gap-2 ${showCompletedTasks ? 'bg-emerald-50 text-emerald-700 border-emerald-300 shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'}`}
+                                className={`ml-1 md:ml-2 px-3 py-1.5 rounded-xl border text-[10px] font-black uppercase tracking-wide transition-all flex items-center gap-2 ${showCompletedTasks ? 'bg-emerald-50 text-emerald-700 border-emerald-300 shadow-sm' : 'bg-white text-slate-500 border-slate-200 hover:border-slate-300 hover:text-slate-700'}`}
                             >
                                 <i className={`fa-solid ${showCompletedTasks ? 'fa-eye' : 'fa-eye-slash'} text-[10px]`}></i>
                                 Realizadas
                             </button>
                         )}
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 justify-end">
                         <button
                             onClick={() => {
                                 if (!activeList) { alert('Debes seleccionar una lista específica en el panel izquierdo para crear un evento.'); return; }
@@ -1994,8 +2007,8 @@ const SpacesView: React.FC = () => {
             </div>
 
             {/* Content area */}
-            <div className="flex-1 overflow-y-auto p-6">
-                <div className="max-w-5xl mx-auto h-full">
+            <div className="flex-1 overflow-y-auto p-3 md:p-6">
+                <div className="max-w-6xl mx-auto h-full">
                     {viewMode === 'lista' && <ListaView tasks={displayTasks} rules={state.rules} groupBy={groupBy} onEditTask={openEditModal} onToggleTask={handleToggleTask} onDeleteTask={(t) => setTaskToDelete(t)} deletingTaskId={deletingTaskId} onAddTask={(defaults) => {
                         setNewTask({ ...getDefaultTask(), ...defaults });
                         setShowModal(true);
