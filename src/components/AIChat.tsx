@@ -142,6 +142,117 @@ const AIChat: React.FC<AIChatProps> = ({
     return 'ACTIVE';
   };
 
+  const normalizeText = (value?: string) => (value || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
+
+  const toDateTimeLocal = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+    const hours = `${date.getHours()}`.padStart(2, '0');
+    const minutes = `${date.getMinutes()}`.padStart(2, '0');
+    return `${year}-${month}-${day}T${hours}:${minutes}`;
+  };
+
+  const extractTimeParts = (value?: string): { hours: number; minutes: number } | null => {
+    if (!value) return null;
+    const parsed = new Date(value);
+    if (Number.isNaN(parsed.getTime())) return null;
+    return { hours: parsed.getHours(), minutes: parsed.getMinutes() };
+  };
+
+  const parseClockFromText = (rawText: string): { hours: number; minutes: number } | null => {
+    const text = rawText.toLowerCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+    const match = text.match(/(\d{1,2})(?::(\d{2}))?\s*(am|pm|a m|p m)?/i);
+    if (!match) return null;
+
+    const rawHours = Number(match[1]);
+    const minutes = match[2] ? Number(match[2]) : 0;
+    const rawMeridiem = (match[3] || '').replace(/\s/g, '').toLowerCase();
+
+    if (Number.isNaN(rawHours) || Number.isNaN(minutes) || minutes > 59) return null;
+
+    if (rawMeridiem) {
+      if (rawHours < 1 || rawHours > 12) return null;
+      const isPM = rawMeridiem === 'pm';
+      const normalizedHours = (rawHours % 12) + (isPM ? 12 : 0);
+      return { hours: normalizedHours, minutes };
+    }
+
+    if (rawHours > 23) return null;
+    return { hours: rawHours, minutes };
+  };
+
+  const normalizeTaskDateInput = (
+    rawValue: unknown,
+    currentValue?: string,
+    fallbackValue?: string
+  ): string | undefined => {
+    if (typeof rawValue !== 'string') return undefined;
+    const value = rawValue.trim();
+    if (!value) return undefined;
+
+    const defaultTime = extractTimeParts(currentValue) || extractTimeParts(fallbackValue) || { hours: 12, minutes: 0 };
+
+    if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(value)) {
+      const candidate = value.slice(0, 16);
+      return Number.isNaN(new Date(candidate).getTime()) ? undefined : candidate;
+    }
+
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      const candidate = `${value}T${`${defaultTime.hours}`.padStart(2, '0')}:${`${defaultTime.minutes}`.padStart(2, '0')}`;
+      return Number.isNaN(new Date(candidate).getTime()) ? undefined : candidate;
+    }
+
+    const europeanDateMatch = value.match(/^(\d{1,2})[\/-](\d{1,2})[\/-](\d{4})(?:[,\s]+(.+))?$/);
+    if (europeanDateMatch) {
+      const day = Number(europeanDateMatch[1]);
+      const month = Number(europeanDateMatch[2]);
+      const year = Number(europeanDateMatch[3]);
+      const parsedTime = parseClockFromText(europeanDateMatch[4] || '') || defaultTime;
+      const parsedDate = new Date(year, month - 1, day, parsedTime.hours, parsedTime.minutes, 0, 0);
+      if (
+        parsedDate.getFullYear() === year &&
+        parsedDate.getMonth() === month - 1 &&
+        parsedDate.getDate() === day
+      ) {
+        return toDateTimeLocal(parsedDate);
+      }
+      return undefined;
+    }
+
+    const normalized = normalizeText(value);
+    const relativeDays: Record<string, number> = {
+      'hoy': 0,
+      'today': 0,
+      'manana': 1,
+      'tomorrow': 1,
+      'pasado manana': 2,
+      'day after tomorrow': 2,
+      'ayer': -1,
+      'yesterday': -1,
+    };
+    const matchedRelative = Object.entries(relativeDays).find(([label]) => normalized.includes(label));
+    if (matchedRelative) {
+      const [, daysOffset] = matchedRelative;
+      const base = new Date();
+      base.setDate(base.getDate() + daysOffset);
+      const explicitTime = parseClockFromText(value);
+      base.setHours(explicitTime?.hours ?? defaultTime.hours, explicitTime?.minutes ?? defaultTime.minutes, 0, 0);
+      return toDateTimeLocal(base);
+    }
+
+    const parsedFallback = new Date(value);
+    if (!Number.isNaN(parsedFallback.getTime())) {
+      return toDateTimeLocal(parsedFallback);
+    }
+
+    return undefined;
+  };
+
   const handleSend = async () => {
     if ((!input.trim() && attachments.length === 0) || isTyping) return;
     const userMessage: Message = { role: 'user', content: input, timestamp: new Date(), attachments: attachments.length > 0 ? [...attachments] : undefined };
@@ -167,6 +278,10 @@ const AIChat: React.FC<AIChatProps> = ({
       const taskId = Math.random().toString(36).substr(2, 9);
       let existingClient = findClientByName(args.clientName);
       const clientId = existingClient ? existingClient.id : Math.random().toString(36).substr(2, 9);
+      const nowDateTime = toDateTimeLocal(new Date());
+      const normalizedStartDate = normalizeTaskDateInput(args.startDate, nowDateTime, nowDateTime) || nowDateTime;
+      const normalizedEndDate = normalizeTaskDateInput(args.endDate, normalizedStartDate, normalizedStartDate) || normalizedStartDate;
+      const normalizedDueDate = normalizeTaskDateInput(args.dueDate, normalizedEndDate, normalizedEndDate) || normalizedEndDate;
       
       // Auto-assign to first available Space and List (or a fallback space needs to be created, ideally already exists)
       const workspace = spacesState.workspaces[0];
@@ -185,15 +300,15 @@ const AIChat: React.FC<AIChatProps> = ({
                           clientId,
                           clientName: existingClient?.name || args.clientName,
                           nombre: args.projectName,
-                          startDate: args.startDate || new Date().toISOString().split('T')[0],
-                          endDate: args.endDate || new Date().toISOString().split('T')[0],
+                          startDate: normalizedStartDate,
+                          endDate: normalizedEndDate,
                           priority: args.priority || 'Medium',
                           progress: 0,
                           totalValue: args.totalValue || 0,
                           estado: 'TODO',
                           duration: args.duration || 60,
                           deadlineType: args.deadlineType || 'Soft Deadline',
-                          dueDate: args.dueDate || args.endDate || new Date().toISOString().split('T')[0],
+                          dueDate: normalizedDueDate,
                           autoSchedule: args.autoSchedule !== undefined ? args.autoSchedule : false,
                           elasticity: args.elasticity !== undefined ? args.elasticity : 1,
                           orden: Date.now()
@@ -207,12 +322,6 @@ const AIChat: React.FC<AIChatProps> = ({
     }
     
     // Find task helper for actions
-    const normalizeText = (value?: string) => (value || '')
-      .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '')
-      .toLowerCase()
-      .trim();
-
     const findTaskLocationByClientAndName = (clientName?: string, taskName?: string) => {
         const normalizedTaskName = normalizeText(taskName);
         const normalizedClientName = normalizeText(clientName);
@@ -260,18 +369,25 @@ const AIChat: React.FC<AIChatProps> = ({
         
         if (loc) {
             const updated = { ...loc.task };
+            const normalizedStartDate = normalizeTaskDateInput(newStartDate, loc.task.startDate, loc.task.dueDate);
+            const normalizedEndDate = normalizeTaskDateInput(newEndDate, loc.task.endDate || loc.task.dueDate, loc.task.startDate);
+            const normalizedDueDate = normalizeTaskDateInput(newDueDate, loc.task.dueDate, loc.task.endDate || loc.task.startDate);
             if (newProjectName) updated.nombre = newProjectName;
             if (newProgress !== undefined) { updated.progress = newProgress; updated.estado = getTaskEstadoFromProgress(newProgress); }
             if (status) updated.estado = status === 'completed' ? 'DONE' : status === 'active' ? 'ACTIVE' : 'TODO';
-            if (newStartDate) updated.startDate = newStartDate;
-            if (newEndDate) updated.endDate = newEndDate;
+            if (normalizedStartDate) updated.startDate = normalizedStartDate;
+            if (normalizedEndDate) updated.endDate = normalizedEndDate;
             if (newPriority) updated.priority = newPriority;
             if (newTotalValue !== undefined) updated.totalValue = newTotalValue;
             if (newDuration !== undefined) updated.duration = newDuration;
             if (newDeadlineType) updated.deadlineType = newDeadlineType;
-            if (newDueDate) updated.dueDate = newDueDate;
+            if (normalizedDueDate) updated.dueDate = normalizedDueDate;
             if (newAutoSchedule !== undefined) updated.autoSchedule = newAutoSchedule;
             if (newElasticity !== undefined) updated.elasticity = newElasticity;
+
+            if (updated.autoSchedule && normalizedEndDate && !normalizedDueDate && !newDueDate) {
+              updated.dueDate = normalizedEndDate;
+            }
 
             if (updated.autoSchedule) {
               updated.scheduledSlots = [];

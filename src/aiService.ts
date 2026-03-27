@@ -16,13 +16,13 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
         properties: {
           clientName: { type: "string" },
           projectName: { type: "string" },
-          startDate: { type: "string", description: "Si autoSchedule=TRUE, es la fecha MÍNIMA de inicio (constraint). Si autoSchedule=FALSE, es el inicio exacto." },
-          endDate: { type: "string" },
+          startDate: { type: "string", description: "Si autoSchedule=TRUE, es la fecha MÍNIMA de inicio (constraint). Si autoSchedule=FALSE, es el inicio exacto. Formato obligatorio: YYYY-MM-DDTHH:mm (hora local)." },
+          endDate: { type: "string", description: "Formato obligatorio: YYYY-MM-DDTHH:mm (hora local)." },
           totalValue: { type: "number" },
           priority: { type: "string", enum: ["ASAP", "High", "Medium", "Low"] },
           duration: { type: "number", description: "ESFUERZO NETO DE TRABAJO en MINUTOS. (Ej: '2 horas' = 120. '1 día' = 480. '1 semana' = 2400). NO es la duración calendario." },
           deadlineType: { type: "string", enum: ["Hard Deadline", "Soft Deadline"] },
-          dueDate: { type: "string", description: "Fecha límite real (YYYY-MM-DD)" },
+          dueDate: { type: "string", description: "Fecha límite real. Formato obligatorio: YYYY-MM-DDTHH:mm (hora local)." },
           autoSchedule: { type: "boolean", description: "TRUE = IA decide cuándo (dentro de la ventana). FALSE = Fijo en calendario." },
           elasticity: { type: "number", description: "0 = Tarea Indivisible (Bloque continuo), 1 = Flexible (Divisible)" }
         },
@@ -42,13 +42,13 @@ const tools: OpenAI.Chat.Completions.ChatCompletionTool[] = [
           projectName: { type: "string" },
           newProjectName: { type: "string" },
           newProgress: { type: "number" },
-          newStartDate: { type: "string", description: "Nuevo inicio. Si autoSchedule=TRUE, es la fecha mínima de inicio. Si autoSchedule=FALSE, es el inicio exacto." },
-          newEndDate: { type: "string" },
+          newStartDate: { type: "string", description: "Nuevo inicio. Si autoSchedule=TRUE, es la fecha mínima de inicio. Si autoSchedule=FALSE, es el inicio exacto. Formato obligatorio: YYYY-MM-DDTHH:mm (hora local)." },
+          newEndDate: { type: "string", description: "Formato obligatorio: YYYY-MM-DDTHH:mm (hora local)." },
           newPriority: { type: "string", enum: ["ASAP", "High", "Medium", "Low"] },
           newTotalValue: { type: "number" },
           newDuration: { type: "number" },
           newDeadlineType: { type: "string", enum: ["Hard Deadline", "Soft Deadline"] },
-          newDueDate: { type: "string" },
+          newDueDate: { type: "string", description: "Nueva fecha límite. Formato obligatorio: YYYY-MM-DDTHH:mm (hora local)." },
           newAutoSchedule: { type: "boolean" },
           newElasticity: { type: "number", description: "0 = Indivisible, 1 = Flexible" }
         },
@@ -721,6 +721,7 @@ export const calculateQuote = async (
   - NUNCA ESTUDIES O PIENSES EN VOZ ALTA. Prohibido escribir frases como "Wait", "Oops", "Let me check", "Ah", "I see", "Actually". Da directamente la respuesta final al usuario.
   - El usuario es tu jefe. NUNCA le muestres tu proceso interno. Expresa todo directamente en español profesional.
   - Respuestas concisas. Usa **negritas** para nombres.
+  - Si vas a llamar herramientas para crear/actualizar tareas y la acción incluye fechas, envíalas SIEMPRE en formato "YYYY-MM-DDTHH:mm" (hora local). Nunca envíes "mañana", "hoy", ni fechas ambiguas en texto libre.
   - Tarifa de agencia: $${rules.baseHourlyRate}/hora | Hoy: ${today.toLocaleDateString('es-ES')}
   `;
 
