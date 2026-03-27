@@ -22,6 +22,9 @@ export default defineConfig({
         start_url: '/',
         scope: '/',
         display: 'standalone',
+        launch_handler: {
+          client_mode: ['focus-existing', 'navigate-existing']
+        },
         background_color: '#0F1117',
         theme_color: '#0F1117',
         icons: [
