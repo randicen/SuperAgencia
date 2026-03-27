@@ -143,17 +143,6 @@ const App: React.FC = () => {
 
       // --- SEGURIDAD: PREVISIÓN DE SOBRESCRITURA (Conflict Resolution) ---
       // Calculamos el lastModified real revisando todas las tablas sincronizadas.
-      const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
-      const cloudLastModified = await getCloudLastModified(session.user.id);
-
-      if (Number(cloudLastModified) > localLastSync) {
-        setDebugMsg(`REVERT_CLOUD_SYNC: Cloud(${cloudLastModified}) > Local(${localLastSync})`);
-        console.log("⚠️ Hay datos más nuevos en la nube. Descargando automáticamente...");
-        await handleInitialDownload(true);
-        setSyncStatus('synced');
-        return;
-      }
-
       const rawSpaces = localStorage.getItem('coo_spaces');
       const spacesData = rawSpaces ? JSON.parse(rawSpaces) : {};
 
@@ -187,13 +176,23 @@ const App: React.FC = () => {
       const compareString = JSON.stringify(stateForCompare);
       if (compareString === lastUploadedState.current) {
         console.log("ℹ️ Saltando subida: Los datos locales base no han cambiado.");
+        localStorage.setItem('coo_has_unsynced_local', '0');
+        localStorage.setItem('coo_has_unsynced_local_v2', '0');
         setSyncStatus('synced');
         return;
       }
 
       const lastFingerprint = localStorage.getItem('coo_last_sync_fingerprint');
       if (compareString === lastFingerprint) {
-        console.log("ℹ️ Saltando subida: Otra pestaña ya sincronizó este estado.");
+        lastUploadedState.current = compareString;
+        localStorage.setItem('coo_has_unsynced_local', '0');
+        localStorage.setItem('coo_has_unsynced_local_v2', '0');
+        setSyncStatus('synced');
+        return;
+      }
+
+      const hasUnsyncedLocal = localStorage.getItem('coo_has_unsynced_local_v2') === '1';
+      if (!hasUnsyncedLocal) {
         lastUploadedState.current = compareString;
         setSyncStatus('synced');
         return;
@@ -222,6 +221,10 @@ const App: React.FC = () => {
       lastUploadedState.current = compareString;
       replicateToOtherTabs(compareString);
       localStorage.setItem('coo_last_local_mod', lastMod.toString());
+      localStorage.setItem('coo_has_unsynced_local', '0');
+      localStorage.setItem('coo_has_unsynced_local_v2', '0');
+      const cloudLastModified = await getCloudLastModified(session.user.id);
+      localStorage.setItem('coo_last_cloud_mod', cloudLastModified.toString());
       localStorage.setItem('coo_last_user_id', session.user.id);
       setSyncStatus('synced');
 
@@ -229,7 +232,7 @@ const App: React.FC = () => {
       console.error("Sync Catch Error:", err);
       setSyncStatus('error');
     }
-  }, [projects, clients, transactions, rules, notes, chatSessions, spacesSyncTrigger, session, getCloudLastModified]);
+  }, [projects, clients, transactions, rules, notes, chatSessions, spacesSyncTrigger, session, getCloudLastModified, hasCheckedCloud]);
 
   // --- CLOUD DOWNLOAD LOGIC (INITIAL LOAD) ---
   const handleInitialDownload = useCallback(async (isSilent = false) => {
@@ -241,11 +244,12 @@ const App: React.FC = () => {
     try {
       // ── FASE 1: Descarga desde tablas relacionales (reemplaza app_state_dump) ──
       const cloudState = await downloadRelationalState(session.user.id);
-      const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
       const cloudLastModified = await getCloudLastModified(session.user.id);
       const lastKnownUser = localStorage.getItem('coo_last_user_id');
       const switchedUser = !!lastKnownUser && lastKnownUser !== session.user.id;
-      const keepLocalAsSource = !switchedUser && localLastSync > (cloudLastModified + 1000);
+      const hasUnsyncedLocal = localStorage.getItem('coo_has_unsynced_local_v2') === '1';
+      const keepLocalAsSource = hasUnsyncedLocal && !switchedUser;
+      localStorage.setItem('coo_last_cloud_mod', cloudLastModified.toString());
 
       if (!cloudState.isEmpty && !keepLocalAsSource) {
         isInternalUpdate.current = true; // Bloqueamos subidas temporales
@@ -284,13 +288,15 @@ const App: React.FC = () => {
         lastUploadedState.current = JSON.stringify(cloudStateForCompare);
         localStorage.setItem('coo_last_sync_fingerprint', lastUploadedState.current);
         localStorage.setItem('coo_last_local_mod', Date.now().toString());
+        localStorage.setItem('coo_has_unsynced_local', '0');
+        localStorage.setItem('coo_has_unsynced_local_v2', '0');
         localStorage.setItem('coo_last_user_id', session.user.id);
 
         // Liberamos el bloqueo tras un safety delay mayor que el debounce (1500ms)
         setTimeout(() => { isInternalUpdate.current = false; }, 2500);
 
       } else if (keepLocalAsSource) {
-        if (!isSilent) console.log("ℹ️ Nube vacía: conservando datos locales y programando subida.");
+        if (!isSilent) console.log("ℹ️ Hay cambios locales pendientes: conservando estado local y subiendo.");
         localStorage.setItem('coo_last_user_id', session.user.id);
         setSpacesSyncTrigger(prev => prev + 1);
       } else {
@@ -303,6 +309,8 @@ const App: React.FC = () => {
         localStorage.removeItem('coo_spaces');
         window.dispatchEvent(new Event('coo_cloud_data_received'));
         localStorage.setItem('coo_last_local_mod', Date.now().toString());
+        localStorage.setItem('coo_has_unsynced_local', '0');
+        localStorage.setItem('coo_has_unsynced_local_v2', '0');
         localStorage.setItem('coo_last_user_id', session.user.id);
         isInternalUpdate.current = true;
         setTimeout(() => isInternalUpdate.current = false, 1500);
@@ -373,8 +381,8 @@ const App: React.FC = () => {
         if (document.visibilityState !== 'visible' || !navigator.onLine || isInternalUpdate.current) return;
         try {
           const cloudLastModified = await getCloudLastModified(session.user.id);
-          const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
-          if (cloudLastModified > localLastSync) {
+          const lastSeenCloud = parseInt(localStorage.getItem('coo_last_cloud_mod') || '0');
+          if (cloudLastModified > lastSeenCloud) {
             console.log('Fallback polling detectó cambios remotos, refrescando...');
             handleInitialDownload(true);
           }
@@ -406,6 +414,7 @@ const App: React.FC = () => {
   // Sincronización automática debounced
   useEffect(() => {
     const handleTriggerSync = () => {
+      if (isInternalUpdate.current) return;
       console.log("🔔 Cambio detectado en Espacios, actualizando timestamp local...");
       updateLastMod(); // CRÍTICO: El timestamp debe ser lo primero en cambiar
       setSpacesSyncTrigger(prev => prev + 1);
@@ -595,7 +604,7 @@ const App: React.FC = () => {
   const handleSignOutWrapper = async () => {
     // Al cerrar sesión, limpiamos la memoria pero JAMÁS usando .clear() global,
     // ya que eso destruye la persistencia necesaria para conectarse a Vercel/Supabase
-    ['coo_spaces', 'coo_last_local_mod', 'coo_last_sync_fingerprint', 'coo_last_user_id'].forEach(k => localStorage.removeItem(k));
+    ['coo_spaces', 'coo_last_local_mod', 'coo_last_sync_fingerprint', 'coo_last_user_id', 'coo_last_cloud_mod', 'coo_has_unsynced_local', 'coo_has_unsynced_local_v2'].forEach(k => localStorage.removeItem(k));
     location.reload();
   };
 
