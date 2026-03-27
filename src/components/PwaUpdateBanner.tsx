@@ -30,7 +30,9 @@ const PwaUpdateBanner: React.FC = () => {
   return (
     <div className="fixed bottom-4 left-1/2 z-[300] w-[92%] max-w-md -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
       <p className="text-sm font-semibold text-slate-800">
-        {needRefresh ? 'Hay una actualización de la app disponible.' : 'La app ya quedó lista para uso offline.'}
+        {needRefresh
+          ? 'Hay una actualización de la app disponible.'
+          : 'App lista para abrir sin internet. La sincronización con Supabase sigue activa cuando hay conexión.'}
       </p>
       <div className="mt-3 flex items-center gap-2">
         {needRefresh ? (

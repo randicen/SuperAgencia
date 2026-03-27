@@ -19,6 +19,7 @@ export default defineConfig({
         short_name: 'SuperAgencia',
         description: 'Gestión operativa y financiera con IA para tu agencia.',
         lang: 'es-CO',
+        id: '/',
         start_url: '/',
         scope: '/',
         display: 'standalone',

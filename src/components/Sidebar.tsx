@@ -18,12 +18,15 @@ interface SidebarProps {
     setMobileOpen?: (open: boolean) => void;
 }
 
+type InstallHelpMode = 'android' | 'ios' | 'desktop';
+
 const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onExport, onImport, onCloudSync, syncStatus = 'idle', isOnline = true, capacity, mobileOpen = false, setMobileOpen }) => {
     const { state: spacesState, dispatch } = useSpaces();
     const { user, signOut } = useAuth();
     const fileInputRef = useRef<HTMLInputElement>(null);
     const [showCloudModal, setShowCloudModal] = useState(false);
     const [showInstallHelp, setShowInstallHelp] = useState(false);
+    const [installHelpMode, setInstallHelpMode] = useState<InstallHelpMode>('android');
 
     // Workspace Switching State
     const [showWorkspaceMenu, setShowWorkspaceMenu] = useState(false);
@@ -87,6 +90,17 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onExport, on
         return () => window.removeEventListener('beforeinstallprompt', handler);
     }, []);
 
+    const detectInstallHelpMode = (): InstallHelpMode => {
+        const ua = navigator.userAgent.toLowerCase();
+        const isAndroid = ua.includes('android');
+        const isIOS = /iphone|ipad|ipod/.test(ua);
+        const isSafari = ua.includes('safari') && !ua.includes('chrome') && !ua.includes('crios') && !ua.includes('edg');
+
+        if (isAndroid) return 'android';
+        if (isIOS || isSafari) return 'ios';
+        return 'desktop';
+    };
+
     const handleDownloadClick = async () => {
         if (deferredPrompt) {
             // Si el navegador soporta instalación automática (Chrome, Edge, Android)
@@ -97,8 +111,32 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onExport, on
                 setIsAppInstalled(true);
             }
         } else {
-            // Si es Safari (iPhone/Mac) o Firefox, mostramos instrucciones
+            setInstallHelpMode(detectInstallHelpMode());
             setShowInstallHelp(true);
+        }
+    };
+
+    const installHelpContent: Record<InstallHelpMode, { icon: string; title: string; description: string; step1: string; step2: string; }> = {
+        android: {
+            icon: 'fa-brands fa-android',
+            title: 'Instalar en Android',
+            description: 'Si no aparece el aviso automático, puedes instalarla manualmente desde Chrome.',
+            step1: 'Toca el menú ⋮ de Chrome (arriba a la derecha).',
+            step2: 'Elige "Instalar app" o "Agregar a pantalla principal".'
+        },
+        ios: {
+            icon: 'fa-brands fa-apple',
+            title: 'Instalar en iPhone / iPad',
+            description: 'En iOS la instalación se hace manualmente desde el menú compartir.',
+            step1: 'Toca el botón de Compartir.',
+            step2: 'Selecciona "Agregar a pantalla de inicio".'
+        },
+        desktop: {
+            icon: 'fa-solid fa-display',
+            title: 'Instalar en computador',
+            description: 'Si no salió el popup, instala la app desde el navegador.',
+            step1: 'Abre el menú del navegador (Chrome/Edge).',
+            step2: 'Haz clic en "Instalar SuperAgencia" o "Apps > Instalar".'
         }
     };
 
@@ -440,26 +478,26 @@ alter publication supabase_realtime add table app_state_dump;
                 </div>
             </aside>
 
-            {/* MODAL DE AYUDA DE INSTALACIÓN (Para Safari/iOS) */}
+            {/* MODAL DE AYUDA DE INSTALACIÓN */}
             {showInstallHelp && (
                 <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4" onClick={() => setShowInstallHelp(false)}>
                     <div className="bg-white w-full max-w-sm rounded-3xl p-6 shadow-2xl animate-in zoom-in-95 text-center" onClick={e => e.stopPropagation()}>
                         <div className="w-12 h-12 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600 text-xl">
-                            <i className="fa-brands fa-apple"></i>
+                            <i className={installHelpContent[installHelpMode].icon}></i>
                         </div>
-                        <h3 className="text-lg font-black text-slate-800 mb-2">Instalar en iOS / Mac</h3>
+                        <h3 className="text-lg font-black text-slate-800 mb-2">{installHelpContent[installHelpMode].title}</h3>
                         <p className="text-xs text-slate-500 mb-6 px-4">
-                            Debido a restricciones de Apple, la instalación automática no está disponible. Sigue estos pasos:
+                            {installHelpContent[installHelpMode].description}
                         </p>
 
                         <div className="text-left bg-slate-50 p-4 rounded-xl space-y-3 mb-6">
                             <div className="flex items-center gap-3">
                                 <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold">1</span>
-                                <span className="text-xs font-bold text-slate-700">Toca el botón <i className="fa-solid fa-arrow-up-from-bracket mx-1 text-blue-500"></i> (Compartir)</span>
+                                <span className="text-xs font-bold text-slate-700">{installHelpContent[installHelpMode].step1}</span>
                             </div>
                             <div className="flex items-center gap-3">
                                 <span className="w-6 h-6 rounded-full bg-slate-200 text-slate-600 flex items-center justify-center text-xs font-bold">2</span>
-                                <span className="text-xs font-bold text-slate-700">Baja y selecciona "Agregar a Inicio"</span>
+                                <span className="text-xs font-bold text-slate-700">{installHelpContent[installHelpMode].step2}</span>
                             </div>
                         </div>
 
