@@ -11,7 +11,7 @@ const UserProfileMenu: React.FC = () => {
 
     const handleSafeLogout = async () => {
         // Limpiamos la caché del usuario actual sin afectar las llaves del sistema (Supabase Vercel Config)
-        ['coo_spaces', 'coo_last_local_mod', 'coo_last_sync_fingerprint', 'coo_last_cloud_mod', 'coo_has_unsynced_local', 'coo_has_unsynced_local_v2', 'coo_has_unsynced_local_v3'].forEach(k => localStorage.removeItem(k));
+        ['coo_spaces', 'coo_last_local_mod', 'coo_last_sync_fingerprint', 'coo_last_cloud_mod', 'coo_last_cloud_state_snapshot', 'coo_has_unsynced_local', 'coo_has_unsynced_local_v2', 'coo_has_unsynced_local_v3'].forEach(k => localStorage.removeItem(k));
         
         await signOut();
         window.location.reload();

@@ -18,6 +18,7 @@ import { runAutoScheduling } from './utils/schedulingLogic';
 import ActiveWorkspaceName from './components/ActiveWorkspaceName';
 import { supabase } from './contexts/AuthContext';
 import { uploadRelationalState, downloadRelationalState } from './utils/syncManager';
+import { mergeCloudSyncState, normalizeCloudSyncState, rehydrateSpacesLocalState, sanitizeSpacesForCloud } from './utils/cloudSyncMerge';
 import { useAuth } from './contexts/AuthContext';
 import LoginView from './components/LoginView';
 import { useAgencyStore } from './stores/useAgencyStore';
@@ -59,6 +60,23 @@ const App: React.FC = () => {
   const lastUploadedState = React.useRef<string>(''); // Reflete el último estado guardado/descargado para evitar uploads redundantes
 
 
+
+  const buildComparableStateString = (state: ReturnType<typeof normalizeCloudSyncState>) => JSON.stringify({
+    ...state,
+    projects: (state.projects || []).map((project: any) => ({
+      ...project,
+      scheduledSlots: [],
+      startDate: project.autoSchedule ? '' : project.startDate,
+      endDate: project.autoSchedule ? '' : project.endDate,
+      hasConflict: false,
+      conflictDescription: ''
+    })),
+    lastModified: 0
+  });
+
+  const persistCloudSnapshot = (state: ReturnType<typeof normalizeCloudSyncState>) => {
+    localStorage.setItem('coo_last_cloud_state_snapshot', JSON.stringify(normalizeCloudSyncState(state)));
+  };
 
   const replicateToOtherTabs = (payload: string) => {
     // Comunicar a otras pestañas que NO deben re-subir este estado específico
@@ -144,36 +162,32 @@ const App: React.FC = () => {
       // --- SEGURIDAD: PREVISIÓN DE SOBRESCRITURA (Conflict Resolution) ---
       // Calculamos el lastModified real revisando todas las tablas sincronizadas.
       const rawSpaces = localStorage.getItem('coo_spaces');
-      const spacesData = rawSpaces ? JSON.parse(rawSpaces) : {};
-
-      const lastMod = Date.now();
-      const fullState = {
+      const currentLocalSpaces = rawSpaces ? JSON.parse(rawSpaces) : {};
+      const currentLocalState = normalizeCloudSyncState({
         projects: projects || [],
         clients: clients || [],
         transactions: transactions || [],
-        rules: rules || {},
+        rules: rules || DEFAULT_RULES,
         notes: notes || [],
         chatSessions: chatSessions || [],
-        spaces: spacesData,
-        lastModified: lastMod
-      };
+        spaces: sanitizeSpacesForCloud(currentLocalSpaces)
+      });
+      const lastSeenCloud = parseInt(localStorage.getItem('coo_last_cloud_mod') || '0');
+      const currentCloudModified = await getCloudLastModified(session.user.id);
+      const baseSnapshotRaw = localStorage.getItem('coo_last_cloud_state_snapshot');
+      const baseSnapshot = baseSnapshotRaw ? JSON.parse(baseSnapshotRaw) : null;
+      const shouldMergeRemoteChanges = currentCloudModified > lastSeenCloud;
+      const syncState = shouldMergeRemoteChanges
+        ? mergeCloudSyncState(
+            baseSnapshot,
+            currentLocalState,
+            normalizeCloudSyncState(await downloadRelationalState(session.user.id))
+          )
+        : currentLocalState;
 
       // --- SEGURIDAD ANTI-PING PONG: COMPARACIÓN PROFUNDA (Ignorando ruido temporal) ---
       // Ignoramos campos auto-generados que cambian cada minuto por el setInterval(runAutoScheduling)
-      const stateForCompare = {
-        ...fullState,
-        lastModified: 0,
-        projects: fullState.projects.map(p => ({
-          ...p,
-          scheduledSlots: [],
-          startDate: p.autoSchedule ? '' : p.startDate,
-          endDate: p.autoSchedule ? '' : p.endDate,
-          hasConflict: false,
-          conflictDescription: ''
-        }))
-      };
-
-      const compareString = JSON.stringify(stateForCompare);
+      const compareString = buildComparableStateString(syncState);
       if (compareString === lastUploadedState.current) {
         console.log("ℹ️ Saltando subida: Los datos locales base no han cambiado.");
         localStorage.setItem('coo_has_unsynced_local', '0');
@@ -210,22 +224,36 @@ const App: React.FC = () => {
       // ── FASE 2: Subida a tablas relacionales (reemplaza app_state_dump) ──
       await uploadRelationalState(
         session!.user!.id,
-        projects || [],
-        clients || [],
-        transactions || [],
-        rules || DEFAULT_RULES,
-        notes || [],
-        chatSessions || [],
-        spacesData
+        syncState.projects,
+        syncState.clients,
+        syncState.transactions,
+        syncState.rules || DEFAULT_RULES,
+        syncState.notes,
+        syncState.chatSessions,
+        syncState.spaces
       );
 
       console.log("✅ CONFIRMADO: Estado sincronizado a tablas relacionales.");
       lastUploadedState.current = compareString;
       replicateToOtherTabs(compareString);
+      if (shouldMergeRemoteChanges) {
+        isInternalUpdate.current = true;
+        setProjects(syncState.projects);
+        setClients(syncState.clients);
+        setTransactions(syncState.transactions);
+        setRules(syncState.rules as any);
+        setNotes(syncState.notes);
+        setChatSessions(syncState.chatSessions);
+        localStorage.setItem('coo_spaces', JSON.stringify(rehydrateSpacesLocalState(syncState.spaces, currentLocalSpaces)));
+        window.dispatchEvent(new Event('coo_cloud_data_received'));
+        setTimeout(() => { isInternalUpdate.current = false; }, 2500);
+      }
+      const lastMod = Date.now();
       localStorage.setItem('coo_last_local_mod', lastMod.toString());
       localStorage.setItem('coo_has_unsynced_local', '0');
       localStorage.setItem('coo_has_unsynced_local_v2', '0');
       localStorage.setItem('coo_has_unsynced_local_v3', '0');
+      persistCloudSnapshot(syncState);
       const cloudLastModified = await getCloudLastModified(session.user.id);
       localStorage.setItem('coo_last_cloud_mod', cloudLastModified.toString());
       localStorage.setItem('coo_last_user_id', session.user.id);
@@ -247,6 +275,7 @@ const App: React.FC = () => {
     try {
       // ── FASE 1: Descarga desde tablas relacionales (reemplaza app_state_dump) ──
       const cloudState = await downloadRelationalState(session.user.id);
+      const normalizedCloudState = normalizeCloudSyncState(cloudState);
       const cloudLastModified = await getCloudLastModified(session.user.id);
       const lastKnownUser = localStorage.getItem('coo_last_user_id');
       const switchedUser = !!lastKnownUser && lastKnownUser !== session.user.id;
@@ -257,14 +286,16 @@ const App: React.FC = () => {
       if (!cloudState.isEmpty && !keepLocalAsSource) {
         isInternalUpdate.current = true; // Bloqueamos subidas temporales
 
-        setProjects(cloudState.projects || []);
-        setClients(cloudState.clients || []);
-        setTransactions(cloudState.transactions || []);
-        setRules((cloudState.rules as any) || DEFAULT_RULES);
-        setNotes(cloudState.notes || []);
-        setChatSessions(cloudState.chatSessions || []);
+        setProjects(normalizedCloudState.projects);
+        setClients(normalizedCloudState.clients);
+        setTransactions(normalizedCloudState.transactions);
+        setRules(normalizedCloudState.rules as any);
+        setNotes(normalizedCloudState.notes);
+        setChatSessions(normalizedCloudState.chatSessions);
         if (cloudState.spaces) {
-          localStorage.setItem('coo_spaces', JSON.stringify(cloudState.spaces));
+          const currentLocalSpacesRaw = localStorage.getItem('coo_spaces');
+          const currentLocalSpaces = currentLocalSpacesRaw ? JSON.parse(currentLocalSpacesRaw) : null;
+          localStorage.setItem('coo_spaces', JSON.stringify(rehydrateSpacesLocalState(normalizedCloudState.spaces, currentLocalSpaces)));
           window.dispatchEvent(new Event('coo_cloud_data_received'));
         } else {
           localStorage.removeItem('coo_spaces');
@@ -274,29 +305,13 @@ const App: React.FC = () => {
         if (!isSilent) console.log("✅ Datos sincronizados desde tablas relacionales.");
 
         // Actualizar el estado fantasma de comparación ignorando el ruido temporal
-        const cloudStateForCompare = {
-          projects: (cloudState.projects || []).map((p: any) => ({
-            ...p,
-            scheduledSlots: [],
-            startDate: p.autoSchedule ? '' : p.startDate,
-            endDate: p.autoSchedule ? '' : p.endDate,
-            hasConflict: false,
-            conflictDescription: ''
-          })),
-          clients: cloudState.clients,
-          transactions: cloudState.transactions,
-          rules: cloudState.rules,
-          notes: cloudState.notes,
-          chatSessions: cloudState.chatSessions,
-          spaces: cloudState.spaces || {},
-          lastModified: 0
-        };
-        lastUploadedState.current = JSON.stringify(cloudStateForCompare);
+        lastUploadedState.current = buildComparableStateString(normalizedCloudState);
         localStorage.setItem('coo_last_sync_fingerprint', lastUploadedState.current);
         localStorage.setItem('coo_last_local_mod', Date.now().toString());
         localStorage.setItem('coo_has_unsynced_local', '0');
         localStorage.setItem('coo_has_unsynced_local_v2', '0');
         localStorage.setItem('coo_has_unsynced_local_v3', '0');
+        persistCloudSnapshot(normalizedCloudState);
         localStorage.setItem('coo_last_user_id', session.user.id);
 
         // Liberamos el bloqueo tras un safety delay mayor que el debounce (1500ms)
@@ -319,6 +334,7 @@ const App: React.FC = () => {
         localStorage.setItem('coo_has_unsynced_local', '0');
         localStorage.setItem('coo_has_unsynced_local_v2', '0');
         localStorage.setItem('coo_has_unsynced_local_v3', '0');
+        persistCloudSnapshot(normalizedCloudState);
         localStorage.setItem('coo_last_user_id', session.user.id);
         isInternalUpdate.current = true;
         setTimeout(() => isInternalUpdate.current = false, 1500);
@@ -612,7 +628,7 @@ const App: React.FC = () => {
   const handleSignOutWrapper = async () => {
     // Al cerrar sesión, limpiamos la memoria pero JAMÁS usando .clear() global,
     // ya que eso destruye la persistencia necesaria para conectarse a Vercel/Supabase
-    ['coo_spaces', 'coo_last_local_mod', 'coo_last_sync_fingerprint', 'coo_last_user_id', 'coo_last_cloud_mod', 'coo_has_unsynced_local', 'coo_has_unsynced_local_v2', 'coo_has_unsynced_local_v3'].forEach(k => localStorage.removeItem(k));
+    ['coo_spaces', 'coo_last_local_mod', 'coo_last_sync_fingerprint', 'coo_last_user_id', 'coo_last_cloud_mod', 'coo_last_cloud_state_snapshot', 'coo_has_unsynced_local', 'coo_has_unsynced_local_v2', 'coo_has_unsynced_local_v3'].forEach(k => localStorage.removeItem(k));
     location.reload();
   };
 
