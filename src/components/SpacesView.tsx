@@ -552,11 +552,12 @@ const ListaView: React.FC<{
 const KanbanView: React.FC<{
     tasks: SpaceTask[];
     groupBy: GroupBy;
+    showCompletedTasks: boolean;
     onEditTask: (t: SpaceTask) => void;
     onUpdateTask: (id: string, updates: Partial<SpaceTask>) => void;
     onDeleteTask: (t: SpaceTask) => void;
     deletingTaskId?: string | null;
-}> = ({ tasks, groupBy, onEditTask, onUpdateTask, onDeleteTask, deletingTaskId }) => {
+}> = ({ tasks, groupBy, showCompletedTasks, onEditTask, onUpdateTask, onDeleteTask, deletingTaskId }) => {
 
     // Drag & Drop Handlers
     const handleDragStart = (e: React.DragEvent, taskId: string) => {
@@ -601,11 +602,12 @@ const KanbanView: React.FC<{
     // Dynamic columns based on groupBy
     const getColumns = (): { id: string; label: string; icon: string; color: string; bgColor: string; filterFn: (t: SpaceTask) => boolean }[] => {
         if (groupBy === 'estado') {
-            return [
+            const statusColumns = [
                 { id: 'TODO', label: 'Pendiente', icon: 'fa-circle-dot', color: 'text-orange-500', bgColor: 'bg-orange-500', filterFn: t => t.estado === 'TODO' },
                 { id: 'ACTIVE', label: 'En curso', icon: 'fa-spinner', color: 'text-blue-500', bgColor: 'bg-blue-500', filterFn: t => t.estado === 'ACTIVE' },
                 { id: 'DONE', label: 'Hecho', icon: 'fa-check-circle', color: 'text-emerald-500', bgColor: 'bg-emerald-500', filterFn: t => t.estado === 'DONE' }
             ];
+            return showCompletedTasks ? statusColumns : statusColumns.filter(col => col.id !== 'DONE');
         } else if (groupBy === 'prioridad') {
             return [
                 { id: 'ASAP', label: 'Urgente', icon: 'fa-bolt', color: 'text-purple-500', bgColor: 'bg-purple-500', filterFn: t => t.priority === 'ASAP' },
@@ -614,7 +616,8 @@ const KanbanView: React.FC<{
                 { id: 'Low', label: 'Baja', icon: 'fa-arrow-down', color: 'text-emerald-500', bgColor: 'bg-emerald-500', filterFn: t => t.priority === 'Low' }
             ];
         } else {
-            return DUE_DATE_ORDER.map(group => ({
+            const dueDateGroups = showCompletedTasks ? DUE_DATE_ORDER : DUE_DATE_ORDER.filter(group => group !== 'Hechas');
+            return dueDateGroups.map(group => ({
                 id: group,
                 label: group,
                 icon: group === 'Con atraso' ? 'fa-exclamation-triangle' : group === 'Hoy' ? 'fa-clock' : group === 'Hechas' ? 'fa-check-circle' : 'fa-calendar',
@@ -2021,7 +2024,7 @@ const SpacesView: React.FC = () => {
                         setEditingTask(subtask);
                     }}
                     />}
-                    {viewMode === 'kanban' && <KanbanView tasks={displayTasks} groupBy={groupBy} onEditTask={openEditModal} onDeleteTask={(t) => setTaskToDelete(t)} deletingTaskId={deletingTaskId} onUpdateTask={(id, updates) => {
+                    {viewMode === 'kanban' && <KanbanView tasks={displayTasks} groupBy={groupBy} showCompletedTasks={showCompletedTasks} onEditTask={openEditModal} onDeleteTask={(t) => setTaskToDelete(t)} deletingTaskId={deletingTaskId} onUpdateTask={(id, updates) => {
                         // FIX: Aggregated tasks update needs to locate the correct list of the task
                         const taskToUpdate = tasks.find(t => t.id === id);
                         if (!taskToUpdate) return;
