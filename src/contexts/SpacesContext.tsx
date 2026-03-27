@@ -1,12 +1,67 @@
 
 import React, { createContext, useContext, useReducer, useEffect, useRef, ReactNode } from 'react';
-import { SpacesState, SpacesAction, Space, SpaceFolder, SpaceList, SpaceTask, Workspace, SpaceEvent } from '../spacesTypes';
+import { SpacesState, SpacesAction, Space, SpaceFolder, SpaceList, SpaceTask, Workspace, SpaceEvent, WorkspaceSelection, WorkspaceSelectionMemory } from '../spacesTypes';
 import { runAutoScheduling } from '../utils/schedulingLogic';
 import { DEFAULT_RULES } from '../mockData';
 import { Project, Priority } from '../types';
-import { resolveSpacesLocalSelection } from '../utils/cloudSyncMerge';
+import { normalizeLastSelectionByWorkspace, resolveSpacesLocalSelection } from '../utils/cloudSyncMerge';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
+const EMPTY_SELECTION: WorkspaceSelection = { spaceId: null, folderId: null, listId: null };
+
+const normalizeSelection = (selection?: Partial<WorkspaceSelection> | null): WorkspaceSelection => ({
+    spaceId: selection?.spaceId ?? null,
+    folderId: selection?.folderId ?? null,
+    listId: selection?.listId ?? null,
+});
+
+const rememberSelectionForWorkspace = (
+    memory: WorkspaceSelectionMemory,
+    workspaceId: string | null,
+    selection: Partial<WorkspaceSelection> | null
+): WorkspaceSelectionMemory => {
+    if (!workspaceId) return memory;
+    return {
+        ...memory,
+        [workspaceId]: normalizeSelection(selection)
+    };
+};
+
+const applyResolvedSelectionState = (state: SpacesState): SpacesState => {
+    const normalizedMemory = normalizeLastSelectionByWorkspace(
+        state.lastSelectionByWorkspace,
+        state.workspaces,
+        state.activeWorkspaceId,
+        normalizeSelection({
+            spaceId: state.activeSpaceId,
+            folderId: state.activeFolderId,
+            listId: state.activeListId,
+        })
+    );
+
+    const resolvedSelection = resolveSpacesLocalSelection(state.workspaces, {
+        ...state,
+        lastSelectionByWorkspace: normalizedMemory,
+    });
+
+    const finalMemory = resolvedSelection.activeWorkspaceId
+        ? rememberSelectionForWorkspace(
+            normalizedMemory,
+            resolvedSelection.activeWorkspaceId,
+            {
+                spaceId: resolvedSelection.activeSpaceId,
+                folderId: resolvedSelection.activeFolderId,
+                listId: resolvedSelection.activeListId,
+            }
+        )
+        : normalizedMemory;
+
+    return {
+        ...state,
+        ...resolvedSelection,
+        lastSelectionByWorkspace: finalMemory,
+    };
+};
 
 const stampTaskStartedAtRecursive = (task: SpaceTask, previousTask?: SpaceTask): SpaceTask => {
     const previousProgress = previousTask?.progress ?? 0;
@@ -33,6 +88,7 @@ const initialState: SpacesState = {
     activeSpaceId: null,
     activeFolderId: null,
     activeListId: null,
+    lastSelectionByWorkspace: {},
     expandedIds: [],
     rules: DEFAULT_RULES,
     gcalEvents: [],
@@ -253,6 +309,7 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
                 activeSpaceId: loadedState.activeSpaceId,
                 activeFolderId: loadedState.activeFolderId,
                 activeListId: loadedState.activeListId,
+                lastSelectionByWorkspace: loadedState.lastSelectionByWorkspace || {},
                 expandedIds: loadedState.expandedIds || [],
                 gcalEvents: loadedState.gcalEvents || []
             };
@@ -278,6 +335,17 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
             loadedState.rules = DEFAULT_RULES;
         }
 
+        loadedState.lastSelectionByWorkspace = normalizeLastSelectionByWorkspace(
+            loadedState.lastSelectionByWorkspace,
+            loadedState.workspaces || [],
+            loadedState.activeWorkspaceId,
+            {
+                spaceId: loadedState.activeSpaceId,
+                folderId: loadedState.activeFolderId,
+                listId: loadedState.activeListId,
+            }
+        );
+
         // Auto-clean expired rulesOverride
         if (loadedState.rulesOverride) {
             const expiresAt = new Date(loadedState.rulesOverride.expiresAt);
@@ -286,10 +354,7 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
             }
         }
 
-        loadedState = {
-            ...loadedState,
-            ...resolveSpacesLocalSelection(loadedState.workspaces || [], loadedState)
-        };
+        loadedState = applyResolvedSelectionState(loadedState);
 
         return recalculateScheduling(loadedState);
     }
@@ -303,12 +368,18 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
             agendaEvents: []
         };
         return {
-            ...state,
-            workspaces: [...state.workspaces, newWorkspace],
-            activeWorkspaceId: newWorkspace.id,
-            activeSpaceId: null,
-            activeFolderId: null,
-            activeListId: null
+            ...applyResolvedSelectionState({
+                ...state,
+                lastSelectionByWorkspace: {
+                    ...state.lastSelectionByWorkspace,
+                    [newWorkspace.id]: EMPTY_SELECTION
+                },
+                workspaces: [...state.workspaces, newWorkspace],
+                activeWorkspaceId: newWorkspace.id,
+                activeSpaceId: null,
+                activeFolderId: null,
+                activeListId: null
+            })
         };
     }
 
@@ -317,22 +388,30 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
 
         if (filtered.length === 0) {
             const fallback: Workspace = { id: generateId(), nombre: 'Mi Primer Workspace', espacios: [], agendaEvents: [] };
-            return {
+            return applyResolvedSelectionState({
                 ...state,
                 workspaces: [fallback],
                 activeWorkspaceId: fallback.id,
-                activeSpaceId: null, activeFolderId: null, activeListId: null
-            };
+                activeSpaceId: null,
+                activeFolderId: null,
+                activeListId: null,
+                lastSelectionByWorkspace: { [fallback.id]: EMPTY_SELECTION }
+            });
         }
 
-        return {
+        const nextMemory = Object.fromEntries(
+            Object.entries(state.lastSelectionByWorkspace).filter(([workspaceId]) => workspaceId !== action.payload.workspaceId)
+        ) as WorkspaceSelectionMemory;
+
+        return applyResolvedSelectionState({
             ...state,
             workspaces: filtered,
             activeWorkspaceId: state.activeWorkspaceId === action.payload.workspaceId ? filtered[0].id : state.activeWorkspaceId,
             activeSpaceId: null,
             activeFolderId: null,
-            activeListId: null
-        };
+            activeListId: null,
+            lastSelectionByWorkspace: nextMemory
+        });
     }
 
     if (action.type === 'RENAME_WORKSPACE') {
@@ -345,13 +424,13 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
     }
 
     if (action.type === 'SET_ACTIVE_WORKSPACE') {
-        return {
+        return applyResolvedSelectionState({
             ...state,
             activeWorkspaceId: action.payload.workspaceId,
             activeSpaceId: null,
             activeFolderId: null,
             activeListId: null
-        };
+        });
     }
 
     if (action.type === 'ADD_AGENDA_EVENT') {
@@ -623,12 +702,21 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
             break;
         }
         case 'SET_ACTIVE':
-            return {
+            return applyResolvedSelectionState({
                 ...state,
                 activeSpaceId: action.payload.spaceId !== undefined ? action.payload.spaceId : state.activeSpaceId,
                 activeFolderId: action.payload.folderId !== undefined ? action.payload.folderId : state.activeFolderId,
                 activeListId: action.payload.listId !== undefined ? action.payload.listId : state.activeListId,
-            };
+                lastSelectionByWorkspace: rememberSelectionForWorkspace(
+                    state.lastSelectionByWorkspace,
+                    activeId,
+                    {
+                        spaceId: action.payload.spaceId !== undefined ? action.payload.spaceId : state.activeSpaceId,
+                        folderId: action.payload.folderId !== undefined ? action.payload.folderId : state.activeFolderId,
+                        listId: action.payload.listId !== undefined ? action.payload.listId : state.activeListId,
+                    }
+                )
+            });
         case 'TOGGLE_EXPAND':
             const isExpanded = state.expandedIds.includes(action.payload.id);
             return {
@@ -662,10 +750,7 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
         workspaces: state.workspaces.map((w, i) => i === activeWorkspaceIndex ? { ...w, espacios: updatedEspacios } : w)
     };
 
-    newState = {
-        ...newState,
-        ...resolveSpacesLocalSelection(newState.workspaces, newState)
-    };
+    newState = applyResolvedSelectionState(newState);
 
     // Run scheduling if task operation, data, rules or GCal changed
     if (['ADD_TASK', 'UPDATE_TASK', 'DELETE_TASK', 'ADD_EVENT', 'UPDATE_EVENT', 'DELETE_EVENT', 'UPDATE_RULES', 'SET_GCAL_EVENTS', 'SET_RULES_OVERRIDE'].includes(action.type)) {

@@ -77,6 +77,14 @@ export interface Workspace {
     agendaEvents: SpaceEvent[];
 }
 
+export interface WorkspaceSelection {
+    spaceId: string | null;
+    folderId: string | null;
+    listId: string | null;
+}
+
+export type WorkspaceSelectionMemory = Record<string, WorkspaceSelection>;
+
 export interface RulesOverride {
     workingHoursStart?: string;
     workingHoursEnd?: string;
@@ -90,6 +98,7 @@ export interface SpacesState {
     activeSpaceId: string | null;
     activeFolderId: string | null;
     activeListId: string | null;
+    lastSelectionByWorkspace: WorkspaceSelectionMemory;
     expandedIds: string[];
     rules: BusinessRules;
     gcalEvents: SpaceEvent[];

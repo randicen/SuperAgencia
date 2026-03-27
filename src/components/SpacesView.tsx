@@ -1841,6 +1841,24 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
                     </div>
                     <h3 className="text-lg font-bold text-slate-700 mb-2">Selecciona un Espacio</h3>
                     <p className="text-xs text-slate-500">Haz clic en un espacio, carpeta o lista para visualizar sus tareas.</p>
+                    <div className="mt-5 flex flex-col sm:flex-row gap-3 justify-center">
+                        {spaces[0] && (
+                            <button
+                                type="button"
+                                onClick={() => dispatch({ type: 'SET_ACTIVE', payload: { spaceId: spaces[0].id, folderId: null, listId: null } })}
+                                className="px-4 py-2 rounded-xl bg-blue-600 text-white text-[10px] font-black uppercase tracking-wider shadow-lg shadow-blue-500/20"
+                            >
+                                Abrir primer espacio
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            onClick={() => onOpenTree?.()}
+                            className="md:hidden px-4 py-2 rounded-xl bg-slate-100 text-slate-700 text-[10px] font-black uppercase tracking-wider"
+                        >
+                            Abrir listas
+                        </button>
+                    </div>
                 </div>
             </div>
         );

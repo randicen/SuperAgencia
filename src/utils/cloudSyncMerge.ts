@@ -1,5 +1,6 @@
 import { DEFAULT_RULES } from '../mockData';
 import { BusinessRules, ChatSession, Client, Note, Project, Transaction } from '../types';
+import { WorkspaceSelection, WorkspaceSelectionMemory } from '../spacesTypes';
 
 type EntityWithId = { id: string; [key: string]: any };
 
@@ -12,6 +13,12 @@ export interface CloudSyncStateSnapshot {
   chatSessions: ChatSession[];
   spaces: any;
 }
+
+const EMPTY_WORKSPACE_SELECTION: WorkspaceSelection = {
+  spaceId: null,
+  folderId: null,
+  listId: null,
+};
 
 const isEqual = (left: unknown, right: unknown) => JSON.stringify(left ?? null) === JSON.stringify(right ?? null);
 
@@ -88,6 +95,45 @@ const sanitizeSpacesRoot = (spaces: any) => {
   };
 };
 
+const normalizeWorkspaceSelection = (selection?: any): WorkspaceSelection => ({
+  spaceId: typeof selection?.spaceId === 'string' ? selection.spaceId : null,
+  folderId: typeof selection?.folderId === 'string' ? selection.folderId : null,
+  listId: typeof selection?.listId === 'string' ? selection.listId : null,
+});
+
+const hasSelectionValue = (selection: WorkspaceSelection) =>
+  !!(selection.spaceId || selection.folderId || selection.listId);
+
+export const normalizeLastSelectionByWorkspace = (
+  memory: any,
+  workspaces: any[] = [],
+  activeWorkspaceId?: string | null,
+  activeSelection?: WorkspaceSelection
+): WorkspaceSelectionMemory => {
+  const validWorkspaceIds = new Set(
+    workspaces
+      .map((workspace: any) => workspace?.id)
+      .filter((workspaceId: string | undefined): workspaceId is string => !!workspaceId)
+  );
+
+  const normalizedMemory: WorkspaceSelectionMemory = {};
+  if (memory && typeof memory === 'object') {
+    Object.entries(memory).forEach(([workspaceId, selection]) => {
+      if (!validWorkspaceIds.has(workspaceId)) return;
+      normalizedMemory[workspaceId] = normalizeWorkspaceSelection(selection);
+    });
+  }
+
+  if (activeWorkspaceId && validWorkspaceIds.has(activeWorkspaceId)) {
+    const normalizedActiveSelection = normalizeWorkspaceSelection(activeSelection);
+    if (hasSelectionValue(normalizedActiveSelection)) {
+      normalizedMemory[activeWorkspaceId] = normalizedActiveSelection;
+    }
+  }
+
+  return normalizedMemory;
+};
+
 const collectExpandableIds = (workspaces: any[] = []) => {
   const ids = new Set<string>();
 
@@ -137,65 +183,153 @@ const findListLocation = (space: any, listId?: string | null) => {
   return { folder: null, list: null };
 };
 
+const findSpaceForFolder = (workspace: any, folderId?: string | null) => {
+  if (!workspace || !folderId) return null;
+  return (workspace.espacios || []).find((space: any) =>
+    (space.carpetas || []).some((folder: any) => folder.id === folderId)
+  ) || null;
+};
+
+const findSpaceForList = (workspace: any, listId?: string | null) => {
+  if (!workspace || !listId) return null;
+  return (workspace.espacios || []).find((space: any) => !!findListLocation(space, listId).list) || null;
+};
+
+const resolveExactSelection = (workspace: any, selection: WorkspaceSelection): WorkspaceSelection | null => {
+  if (!workspace || !hasSelectionValue(selection)) return null;
+
+  const targetSpace =
+    (selection.spaceId ? (workspace.espacios || []).find((space: any) => space.id === selection.spaceId) : null) ||
+    findSpaceForFolder(workspace, selection.folderId) ||
+    findSpaceForList(workspace, selection.listId);
+
+  if (!targetSpace) return null;
+
+  if (selection.listId) {
+    const listLocation = findListLocation(targetSpace, selection.listId);
+    if (!listLocation.list) return null;
+
+    return {
+      spaceId: targetSpace.id,
+      folderId: listLocation.folder?.id || null,
+      listId: listLocation.list.id,
+    };
+  }
+
+  if (selection.folderId) {
+    const folder = (targetSpace.carpetas || []).find((currentFolder: any) => currentFolder.id === selection.folderId);
+    if (!folder) return null;
+
+    return {
+      spaceId: targetSpace.id,
+      folderId: folder.id,
+      listId: null,
+    };
+  }
+
+  return {
+    spaceId: targetSpace.id,
+    folderId: null,
+    listId: null,
+  };
+};
+
+const resolveClosestSelection = (workspace: any, selection: WorkspaceSelection): WorkspaceSelection | null => {
+  if (!workspace || !hasSelectionValue(selection)) return null;
+
+  const targetSpace =
+    (selection.spaceId ? (workspace.espacios || []).find((space: any) => space.id === selection.spaceId) : null) ||
+    findSpaceForFolder(workspace, selection.folderId) ||
+    findSpaceForList(workspace, selection.listId);
+
+  if (!targetSpace) return null;
+
+  if (selection.listId) {
+    const listLocation = findListLocation(targetSpace, selection.listId);
+    if (listLocation.list) {
+      return {
+        spaceId: targetSpace.id,
+        folderId: listLocation.folder?.id || null,
+        listId: listLocation.list.id,
+      };
+    }
+  }
+
+  if (selection.folderId) {
+    const folder = (targetSpace.carpetas || []).find((currentFolder: any) => currentFolder.id === selection.folderId);
+    if (folder) {
+      return {
+        spaceId: targetSpace.id,
+        folderId: folder.id,
+        listId: null,
+      };
+    }
+  }
+
+  return {
+    spaceId: targetSpace.id,
+    folderId: null,
+    listId: null,
+  };
+};
+
+const getFirstSpaceSelection = (workspace: any): WorkspaceSelection | null => {
+  const firstSpace = workspace?.espacios?.[0];
+  if (!firstSpace?.id) return null;
+
+  return {
+    spaceId: firstSpace.id,
+    folderId: null,
+    listId: null,
+  };
+};
+
 export const resolveSpacesLocalSelection = (workspaces: any[] = [], currentLocalSpaces: any = {}) => {
+  const currentSelection = normalizeWorkspaceSelection({
+    spaceId: currentLocalSpaces.activeSpaceId,
+    folderId: currentLocalSpaces.activeFolderId,
+    listId: currentLocalSpaces.activeListId,
+  });
+  const lastSelectionByWorkspace = normalizeLastSelectionByWorkspace(
+    currentLocalSpaces.lastSelectionByWorkspace,
+    workspaces,
+    currentLocalSpaces.activeWorkspaceId,
+    currentSelection
+  );
   const activeWorkspace =
     workspaces.find((workspace: any) => workspace.id === currentLocalSpaces.activeWorkspaceId) ||
     workspaces[0] ||
     null;
 
-  let activeSpace: any | null = null;
-  if (activeWorkspace) {
-    const availableSpaces = activeWorkspace.espacios || [];
-    const hasPreferredSelection = !!(
-      currentLocalSpaces.activeSpaceId ||
-      currentLocalSpaces.activeFolderId ||
-      currentLocalSpaces.activeListId
-    );
-    activeSpace =
-      availableSpaces.find((space: any) => space.id === currentLocalSpaces.activeSpaceId) ||
-      availableSpaces.find((space: any) => {
-        if (currentLocalSpaces.activeFolderId && (space.carpetas || []).some((folder: any) => folder.id === currentLocalSpaces.activeFolderId)) {
-          return true;
-        }
+  const rememberedSelection = activeWorkspace
+    ? normalizeWorkspaceSelection(lastSelectionByWorkspace[activeWorkspace.id])
+    : EMPTY_WORKSPACE_SELECTION;
 
-        if (!currentLocalSpaces.activeListId) return false;
-        return !!findListLocation(space, currentLocalSpaces.activeListId).list;
-      }) ||
-      (hasPreferredSelection ? availableSpaces[0] : null) ||
-      null;
-  }
-
-  let activeFolder: any | null = null;
-  let activeList: any | null = null;
-
-  if (activeSpace) {
-    const preferredFolder =
-      (activeSpace.carpetas || []).find((folder: any) => folder.id === currentLocalSpaces.activeFolderId) || null;
-    const preferredListLocation = findListLocation(activeSpace, currentLocalSpaces.activeListId);
-
-    if (preferredFolder) {
-      activeFolder = preferredFolder;
-      activeList =
-        (preferredFolder.listas || []).find((list: any) => list.id === currentLocalSpaces.activeListId) || null;
-    } else if (preferredListLocation.folder && preferredListLocation.list) {
-      activeFolder = preferredListLocation.folder;
-      activeList = preferredListLocation.list;
-    } else if (preferredListLocation.list) {
-      activeList = preferredListLocation.list;
-    }
-  }
+  const resolvedSelection =
+    resolveExactSelection(activeWorkspace, currentSelection) ||
+    resolveExactSelection(activeWorkspace, rememberedSelection) ||
+    resolveClosestSelection(activeWorkspace, currentSelection) ||
+    resolveClosestSelection(activeWorkspace, rememberedSelection) ||
+    getFirstSpaceSelection(activeWorkspace) ||
+    EMPTY_WORKSPACE_SELECTION;
 
   const expandableIds = collectExpandableIds(workspaces);
   const validExpandedIds = Array.isArray(currentLocalSpaces.expandedIds)
     ? currentLocalSpaces.expandedIds.filter((id: string) => expandableIds.has(id))
     : [];
+  const autoExpandedIds = [
+    ...validExpandedIds,
+    resolvedSelection.spaceId,
+    resolvedSelection.folderId,
+  ].filter((id): id is string => !!id && expandableIds.has(id));
 
   return {
     activeWorkspaceId: activeWorkspace?.id || null,
-    activeSpaceId: activeSpace?.id || null,
-    activeFolderId: activeFolder?.id || null,
-    activeListId: activeList?.id || null,
-    expandedIds: validExpandedIds,
+    activeSpaceId: resolvedSelection.spaceId,
+    activeFolderId: resolvedSelection.folderId,
+    activeListId: resolvedSelection.listId,
+    lastSelectionByWorkspace,
+    expandedIds: [...new Set(autoExpandedIds)],
   };
 };
 
@@ -309,6 +443,7 @@ export const rehydrateSpacesLocalState = (cloudSpaces: any, currentLocalSpaces: 
   return {
     ...sanitizedCloud,
     ...activeSelection,
+    lastSelectionByWorkspace: activeSelection.lastSelectionByWorkspace,
     rulesOverride: currentLocal.rulesOverride || null,
   };
 };
