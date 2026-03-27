@@ -87,6 +87,52 @@ const App: React.FC = () => {
     }));
   };
 
+  const readLocalSpacesState = () => {
+    try {
+      const raw = localStorage.getItem('coo_spaces');
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return {};
+    }
+  };
+
+  const setUnsyncedLocalFlags = (hasUnsynced: boolean) => {
+    const value = hasUnsynced ? '1' : '0';
+    localStorage.setItem('coo_has_unsynced_local', value);
+    localStorage.setItem('coo_has_unsynced_local_v2', value);
+    localStorage.setItem('coo_has_unsynced_local_v3', value);
+  };
+
+  const buildCurrentLocalCloudState = () => {
+    const currentLocalSpaces = readLocalSpacesState();
+    return {
+      currentLocalSpaces,
+      currentLocalState: normalizeCloudSyncState({
+        projects: projects || [],
+        clients: clients || [],
+        transactions: transactions || [],
+        rules: rules || DEFAULT_RULES,
+        notes: notes || [],
+        chatSessions: chatSessions || [],
+        spaces: sanitizeSpacesForCloud(currentLocalSpaces)
+      })
+    };
+  };
+
+  const applyDownloadedCloudState = (
+    nextState: ReturnType<typeof normalizeCloudSyncState>,
+    currentLocalSpaces: any = readLocalSpacesState()
+  ) => {
+    setProjects(nextState.projects);
+    setClients(nextState.clients);
+    setTransactions(nextState.transactions);
+    setRules(nextState.rules as any);
+    setNotes(nextState.notes);
+    setChatSessions(nextState.chatSessions);
+    localStorage.setItem('coo_spaces', JSON.stringify(rehydrateSpacesLocalState(nextState.spaces, currentLocalSpaces)));
+    window.dispatchEvent(new Event('coo_cloud_data_received'));
+  };
+
   const getCloudLastModified = useCallback(async (userId: string): Promise<number> => {
     const [
       projectsRes,
@@ -161,21 +207,14 @@ const App: React.FC = () => {
 
       // --- SEGURIDAD: PREVISIÓN DE SOBRESCRITURA (Conflict Resolution) ---
       // Calculamos el lastModified real revisando todas las tablas sincronizadas.
-      const rawSpaces = localStorage.getItem('coo_spaces');
-      const currentLocalSpaces = rawSpaces ? JSON.parse(rawSpaces) : {};
-      const currentLocalState = normalizeCloudSyncState({
-        projects: projects || [],
-        clients: clients || [],
-        transactions: transactions || [],
-        rules: rules || DEFAULT_RULES,
-        notes: notes || [],
-        chatSessions: chatSessions || [],
-        spaces: sanitizeSpacesForCloud(currentLocalSpaces)
-      });
+      const { currentLocalState, currentLocalSpaces } = buildCurrentLocalCloudState();
       const lastSeenCloud = parseInt(localStorage.getItem('coo_last_cloud_mod') || '0');
       const currentCloudModified = await getCloudLastModified(session.user.id);
       const baseSnapshotRaw = localStorage.getItem('coo_last_cloud_state_snapshot');
-      const baseSnapshot = baseSnapshotRaw ? JSON.parse(baseSnapshotRaw) : null;
+      const baseSnapshot = normalizeCloudSyncState(baseSnapshotRaw ? JSON.parse(baseSnapshotRaw) : null);
+      const localComparable = buildComparableStateString(currentLocalState);
+      const baseComparable = buildComparableStateString(baseSnapshot);
+      const localHasMeaningfulChanges = localComparable !== baseComparable;
       const shouldMergeRemoteChanges = currentCloudModified > lastSeenCloud;
       const syncState = shouldMergeRemoteChanges
         ? mergeCloudSyncState(
@@ -190,9 +229,7 @@ const App: React.FC = () => {
       const compareString = buildComparableStateString(syncState);
       if (compareString === lastUploadedState.current) {
         console.log("ℹ️ Saltando subida: Los datos locales base no han cambiado.");
-        localStorage.setItem('coo_has_unsynced_local', '0');
-        localStorage.setItem('coo_has_unsynced_local_v2', '0');
-        localStorage.setItem('coo_has_unsynced_local_v3', '0');
+        setUnsyncedLocalFlags(false);
         setSyncStatus('synced');
         return;
       }
@@ -200,14 +237,19 @@ const App: React.FC = () => {
       const lastFingerprint = localStorage.getItem('coo_last_sync_fingerprint');
       if (compareString === lastFingerprint) {
         lastUploadedState.current = compareString;
-        localStorage.setItem('coo_has_unsynced_local', '0');
-        localStorage.setItem('coo_has_unsynced_local_v2', '0');
-        localStorage.setItem('coo_has_unsynced_local_v3', '0');
+        setUnsyncedLocalFlags(false);
         setSyncStatus('synced');
         return;
       }
 
-      const hasUnsyncedLocal = localStorage.getItem('coo_has_unsynced_local_v3') === '1';
+      if (!localHasMeaningfulChanges) {
+        lastUploadedState.current = compareString;
+        setUnsyncedLocalFlags(false);
+        setSyncStatus('synced');
+        return;
+      }
+
+      const hasUnsyncedLocal = localStorage.getItem('coo_has_unsynced_local_v3') === '1' || localHasMeaningfulChanges;
       if (!hasUnsyncedLocal) {
         lastUploadedState.current = compareString;
         setSyncStatus('synced');
@@ -238,21 +280,12 @@ const App: React.FC = () => {
       replicateToOtherTabs(compareString);
       if (shouldMergeRemoteChanges) {
         isInternalUpdate.current = true;
-        setProjects(syncState.projects);
-        setClients(syncState.clients);
-        setTransactions(syncState.transactions);
-        setRules(syncState.rules as any);
-        setNotes(syncState.notes);
-        setChatSessions(syncState.chatSessions);
-        localStorage.setItem('coo_spaces', JSON.stringify(rehydrateSpacesLocalState(syncState.spaces, currentLocalSpaces)));
-        window.dispatchEvent(new Event('coo_cloud_data_received'));
+        applyDownloadedCloudState(syncState, currentLocalSpaces);
         setTimeout(() => { isInternalUpdate.current = false; }, 2500);
       }
       const lastMod = Date.now();
       localStorage.setItem('coo_last_local_mod', lastMod.toString());
-      localStorage.setItem('coo_has_unsynced_local', '0');
-      localStorage.setItem('coo_has_unsynced_local_v2', '0');
-      localStorage.setItem('coo_has_unsynced_local_v3', '0');
+      setUnsyncedLocalFlags(false);
       persistCloudSnapshot(syncState);
       const cloudLastModified = await getCloudLastModified(session.user.id);
       localStorage.setItem('coo_last_cloud_mod', cloudLastModified.toString());
@@ -279,47 +312,61 @@ const App: React.FC = () => {
       const cloudLastModified = await getCloudLastModified(session.user.id);
       const lastKnownUser = localStorage.getItem('coo_last_user_id');
       const switchedUser = !!lastKnownUser && lastKnownUser !== session.user.id;
-      const hasUnsyncedLocal = localStorage.getItem('coo_has_unsynced_local_v3') === '1';
-      const keepLocalAsSource = hasUnsyncedLocal && !switchedUser;
+      const lastSeenCloud = parseInt(localStorage.getItem('coo_last_cloud_mod') || '0');
+      const baseSnapshotRaw = localStorage.getItem('coo_last_cloud_state_snapshot');
+      const baseSnapshot = normalizeCloudSyncState(baseSnapshotRaw ? JSON.parse(baseSnapshotRaw) : null);
+      const { currentLocalSpaces, currentLocalState } = buildCurrentLocalCloudState();
+      const localComparable = buildComparableStateString(currentLocalState);
+      const baseComparable = buildComparableStateString(baseSnapshot);
+      const remoteComparable = buildComparableStateString(normalizedCloudState);
+      const localHasMeaningfulChanges = localComparable !== baseComparable && localComparable !== remoteComparable;
+      const cloudChangedSinceLastSeen = cloudLastModified > lastSeenCloud;
       localStorage.setItem('coo_last_cloud_mod', cloudLastModified.toString());
 
-      if (!cloudState.isEmpty && !keepLocalAsSource) {
+      if (!cloudState.isEmpty && !switchedUser && cloudChangedSinceLastSeen && localHasMeaningfulChanges) {
+        const mergedState = mergeCloudSyncState(baseSnapshot, currentLocalState, normalizedCloudState);
+        const mergedComparable = buildComparableStateString(mergedState);
+        const mergedNeedsUpload = mergedComparable !== remoteComparable;
+
+        isInternalUpdate.current = true;
+        applyDownloadedCloudState(mergedState, currentLocalSpaces);
+
+        if (!isSilent) console.log("â˜ï¸ Cambios remotos fusionados con cambios locales pendientes.");
+
+        lastUploadedState.current = remoteComparable;
+        localStorage.setItem('coo_last_local_mod', Date.now().toString());
+        persistCloudSnapshot(mergedState);
+        localStorage.setItem('coo_last_user_id', session.user.id);
+        setUnsyncedLocalFlags(mergedNeedsUpload);
+
+        setTimeout(() => {
+          isInternalUpdate.current = false;
+          if (mergedNeedsUpload) {
+            setSpacesSyncTrigger(prev => prev + 1);
+          }
+        }, 2500);
+      } else if (!cloudState.isEmpty && (!localHasMeaningfulChanges || switchedUser)) {
         isInternalUpdate.current = true; // Bloqueamos subidas temporales
 
-        setProjects(normalizedCloudState.projects);
-        setClients(normalizedCloudState.clients);
-        setTransactions(normalizedCloudState.transactions);
-        setRules(normalizedCloudState.rules as any);
-        setNotes(normalizedCloudState.notes);
-        setChatSessions(normalizedCloudState.chatSessions);
-        if (cloudState.spaces) {
-          const currentLocalSpacesRaw = localStorage.getItem('coo_spaces');
-          const currentLocalSpaces = currentLocalSpacesRaw ? JSON.parse(currentLocalSpacesRaw) : null;
-          localStorage.setItem('coo_spaces', JSON.stringify(rehydrateSpacesLocalState(normalizedCloudState.spaces, currentLocalSpaces)));
-          window.dispatchEvent(new Event('coo_cloud_data_received'));
-        } else {
-          localStorage.removeItem('coo_spaces');
-          window.dispatchEvent(new Event('coo_cloud_data_received'));
-        }
+        applyDownloadedCloudState(normalizedCloudState, currentLocalSpaces);
 
         if (!isSilent) console.log("✅ Datos sincronizados desde tablas relacionales.");
 
         // Actualizar el estado fantasma de comparación ignorando el ruido temporal
-        lastUploadedState.current = buildComparableStateString(normalizedCloudState);
+        lastUploadedState.current = remoteComparable;
         localStorage.setItem('coo_last_sync_fingerprint', lastUploadedState.current);
         localStorage.setItem('coo_last_local_mod', Date.now().toString());
-        localStorage.setItem('coo_has_unsynced_local', '0');
-        localStorage.setItem('coo_has_unsynced_local_v2', '0');
-        localStorage.setItem('coo_has_unsynced_local_v3', '0');
+        setUnsyncedLocalFlags(false);
         persistCloudSnapshot(normalizedCloudState);
         localStorage.setItem('coo_last_user_id', session.user.id);
 
         // Liberamos el bloqueo tras un safety delay mayor que el debounce (1500ms)
         setTimeout(() => { isInternalUpdate.current = false; }, 2500);
 
-      } else if (keepLocalAsSource) {
+      } else if (localHasMeaningfulChanges && !switchedUser) {
         if (!isSilent) console.log("ℹ️ Hay cambios locales pendientes: conservando estado local y subiendo.");
         localStorage.setItem('coo_last_user_id', session.user.id);
+        setUnsyncedLocalFlags(true);
         setSpacesSyncTrigger(prev => prev + 1);
       } else {
         if (!isSilent) console.log("⚠️ Usuario sin datos en la nube: limpiando caché local de seguridad...");
@@ -328,12 +375,10 @@ const App: React.FC = () => {
         setTransactions([]);
         setNotes([]);
         setChatSessions([{ id: 'default', title: 'Nuevo Chat', messages: [], lastModified: Date.now() }]);
-        localStorage.removeItem('coo_spaces');
+        localStorage.setItem('coo_spaces', JSON.stringify(rehydrateSpacesLocalState(normalizedCloudState.spaces, null)));
         window.dispatchEvent(new Event('coo_cloud_data_received'));
         localStorage.setItem('coo_last_local_mod', Date.now().toString());
-        localStorage.setItem('coo_has_unsynced_local', '0');
-        localStorage.setItem('coo_has_unsynced_local_v2', '0');
-        localStorage.setItem('coo_has_unsynced_local_v3', '0');
+        setUnsyncedLocalFlags(false);
         persistCloudSnapshot(normalizedCloudState);
         localStorage.setItem('coo_last_user_id', session.user.id);
         isInternalUpdate.current = true;
@@ -347,7 +392,7 @@ const App: React.FC = () => {
       if (!isSilent) setIsLoadingCloud(false);
       setHasCheckedCloud(true);
     }
-  }, [session, getCloudLastModified]); // CRITICAL: session MUST be here or the function will always see null
+  }, [session, getCloudLastModified, projects, clients, transactions, rules, notes, chatSessions]); // CRITICAL: session MUST be here or the function will always see null
 
   useEffect(() => {
     handleInitialDownload();

@@ -4,6 +4,7 @@ import { SpacesState, SpacesAction, Space, SpaceFolder, SpaceList, SpaceTask, Wo
 import { runAutoScheduling } from '../utils/schedulingLogic';
 import { DEFAULT_RULES } from '../mockData';
 import { Project, Priority } from '../types';
+import { resolveSpacesLocalSelection } from '../utils/cloudSyncMerge';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
@@ -284,6 +285,11 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
                 loadedState.rulesOverride = null;
             }
         }
+
+        loadedState = {
+            ...loadedState,
+            ...resolveSpacesLocalSelection(loadedState.workspaces || [], loadedState)
+        };
 
         return recalculateScheduling(loadedState);
     }
@@ -654,6 +660,11 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
         ...newState,
         activeWorkspaceId: activeId, // Sync in case we auto-selected
         workspaces: state.workspaces.map((w, i) => i === activeWorkspaceIndex ? { ...w, espacios: updatedEspacios } : w)
+    };
+
+    newState = {
+        ...newState,
+        ...resolveSpacesLocalSelection(newState.workspaces, newState)
     };
 
     // Run scheduling if task operation, data, rules or GCal changed
