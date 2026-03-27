@@ -52,6 +52,14 @@ const Sidebar: React.FC<SidebarProps> = ({ activeTab, setActiveTab, onExport, on
         if (window.matchMedia('(display-mode: standalone)').matches || (window.navigator as any).standalone) {
             setIsAppInstalled(true);
         }
+
+        const handleInstalled = () => {
+            setIsAppInstalled(true);
+            setDeferredPrompt(null);
+        };
+
+        window.addEventListener('appinstalled', handleInstalled);
+        return () => window.removeEventListener('appinstalled', handleInstalled);
     }, []);
 
     // Cargar llaves

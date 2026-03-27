@@ -12,6 +12,7 @@ import NotebookView from './components/NotebookView';
 import SpacesSidebar from './components/SpacesSidebar';
 import SpacesView from './components/SpacesView';
 import AgendaView from './components/AgendaView';
+import PwaUpdateBanner from './components/PwaUpdateBanner';
 import { SpacesProvider } from './contexts/SpacesContext';
 import { runAutoScheduling } from './utils/schedulingLogic';
 import ActiveWorkspaceName from './components/ActiveWorkspaceName';
@@ -668,6 +669,7 @@ const App: React.FC = () => {
         )}
 
       </div>
+      <PwaUpdateBanner />
     </SpacesProvider >
   );
 };
