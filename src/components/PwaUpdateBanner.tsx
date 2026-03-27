@@ -12,16 +12,30 @@ const PwaUpdateBanner: React.FC = () => {
     if (!('serviceWorker' in navigator)) return;
 
     const checkForUpdates = async () => {
-      const registration = await navigator.serviceWorker.getRegistration();
-      await registration?.update();
+      try {
+        const registration = await navigator.serviceWorker.getRegistration();
+        await registration?.update();
+      } catch (error) {
+        console.warn('No se pudo verificar actualización PWA:', error);
+      }
     };
 
-    const intervalId = window.setInterval(checkForUpdates, 5 * 60 * 1000);
+    const checkOnVisible = () => {
+      if (document.visibilityState === 'visible') checkForUpdates();
+    };
+
+    const bootTimer = window.setTimeout(checkForUpdates, 2000);
+    const intervalId = window.setInterval(checkForUpdates, 60 * 1000);
     window.addEventListener('focus', checkForUpdates);
+    window.addEventListener('pageshow', checkForUpdates);
+    document.addEventListener('visibilitychange', checkOnVisible);
 
     return () => {
+      window.clearTimeout(bootTimer);
       window.clearInterval(intervalId);
       window.removeEventListener('focus', checkForUpdates);
+      window.removeEventListener('pageshow', checkForUpdates);
+      document.removeEventListener('visibilitychange', checkOnVisible);
     };
   }, []);
 

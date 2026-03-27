@@ -206,9 +206,6 @@ const App: React.FC = () => {
 
       console.log("Intentando UPSERT relacional en Supabase...");
 
-      // CRITICAL FIX: Update the local timestamp BEFORE the network call
-      localStorage.setItem('coo_last_local_mod', lastMod.toString());
-
       // ── FASE 2: Subida a tablas relacionales (reemplaza app_state_dump) ──
       await uploadRelationalState(
         session!.user!.id,
@@ -224,6 +221,7 @@ const App: React.FC = () => {
       console.log("✅ CONFIRMADO: Estado sincronizado a tablas relacionales.");
       lastUploadedState.current = compareString;
       replicateToOtherTabs(compareString);
+      localStorage.setItem('coo_last_local_mod', lastMod.toString());
       localStorage.setItem('coo_last_user_id', session.user.id);
       setSyncStatus('synced');
 
@@ -247,8 +245,9 @@ const App: React.FC = () => {
       const cloudLastModified = await getCloudLastModified(session.user.id);
       const lastKnownUser = localStorage.getItem('coo_last_user_id');
       const switchedUser = !!lastKnownUser && lastKnownUser !== session.user.id;
+      const keepLocalAsSource = !switchedUser && localLastSync > (cloudLastModified + 1000);
 
-      if (!cloudState.isEmpty) {
+      if (!cloudState.isEmpty && !keepLocalAsSource) {
         isInternalUpdate.current = true; // Bloqueamos subidas temporales
 
         if (cloudState.projects?.length) setProjects(cloudState.projects);
@@ -290,7 +289,7 @@ const App: React.FC = () => {
         // Liberamos el bloqueo tras un safety delay mayor que el debounce (1500ms)
         setTimeout(() => { isInternalUpdate.current = false; }, 2500);
 
-      } else if (!switchedUser && localLastSync > cloudLastModified) {
+      } else if (keepLocalAsSource) {
         if (!isSilent) console.log("ℹ️ Nube vacía: conservando datos locales y programando subida.");
         localStorage.setItem('coo_last_user_id', session.user.id);
         setSpacesSyncTrigger(prev => prev + 1);

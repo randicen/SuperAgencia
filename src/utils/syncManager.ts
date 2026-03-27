@@ -28,6 +28,8 @@ export const uploadRelationalState = async (
     chatSessions: ChatSession[],
     spacesData: any
 ) => {
+    const nowIso = new Date().toISOString();
+
     // 1. Projects
     const projectPayload = projects.map(p => ({
         id: p.id, user_id: userId, client_id: p.clientId, client_name: p.clientName,
@@ -36,7 +38,8 @@ export const uploadRelationalState = async (
         total_value: p.totalValue, paid_value: p.paidValue, status: p.status,
         duration: p.duration, deadline_type: p.deadlineType, auto_schedule: p.autoSchedule,
         elasticity: p.elasticity, scheduled_slots: p.scheduledSlots,
-        has_conflict: p.hasConflict, conflict_description: p.conflictDescription
+        has_conflict: p.hasConflict, conflict_description: p.conflictDescription,
+        updated_at: nowIso
     }));
     if (projectPayload.length > 0) {
         await runSupabaseMutation('upsert projects', supabase.from('projects').upsert(projectPayload));
@@ -53,7 +56,8 @@ export const uploadRelationalState = async (
 
     // 2. Clients
     const clientPayload = clients.map(c => ({
-        id: c.id, user_id: userId, name: c.name, email: c.email, phone: c.phone
+        id: c.id, user_id: userId, name: c.name, email: c.email, phone: c.phone,
+        updated_at: nowIso
     }));
     if (clientPayload.length > 0) {
         await runSupabaseMutation('upsert clients', supabase.from('clients').upsert(clientPayload));
@@ -72,7 +76,8 @@ export const uploadRelationalState = async (
     const txPayload = transactions.map(t => ({
         id: t.id, user_id: userId, date: t.date, description: t.description,
         amount: t.amount, type: t.type, category: t.category,
-        is_predictive: t.isPredictive, project_id: t.projectId
+        is_predictive: t.isPredictive, project_id: t.projectId,
+        updated_at: nowIso
     }));
     if (txPayload.length > 0) {
         await runSupabaseMutation('upsert transactions', supabase.from('transactions').upsert(txPayload));
@@ -90,7 +95,8 @@ export const uploadRelationalState = async (
     // 4. Notes
     const notesPayload = notes.map(n => ({
         id: n.id, user_id: userId, title: n.title, content: n.content,
-        last_modified: n.lastModified, tags: n.tags
+        last_modified: n.lastModified, tags: n.tags,
+        updated_at: nowIso
     }));
     if (notesPayload.length > 0) {
         await runSupabaseMutation('upsert notes', supabase.from('notes').upsert(notesPayload));
@@ -108,7 +114,8 @@ export const uploadRelationalState = async (
     // 5. Chat Sessions
     const chatPayload = chatSessions.map(cs => ({
         id: cs.id, user_id: userId, title: cs.title, messages: cs.messages,
-        last_modified: cs.lastModified
+        last_modified: cs.lastModified,
+        updated_at: nowIso
     }));
     if (chatPayload.length > 0) {
         await runSupabaseMutation('upsert chat sessions', supabase.from('chat_sessions').upsert(chatPayload));
@@ -135,13 +142,15 @@ export const uploadRelationalState = async (
         working_hours_end: rules.workingHoursEnd,
         gcal_ical_url: rules.gcalIcalUrl,
         custom_rules: rules.customRules,
-        historical_seasonality: rules.historicalSeasonality
+        historical_seasonality: rules.historicalSeasonality,
+        updated_at: nowIso
     }));
 
     // 7. Spaces
     await runSupabaseMutation('upsert spaces store', supabase.from('spaces_store').upsert({
         user_id: userId,
-        spaces_data: spacesData
+        spaces_data: spacesData,
+        updated_at: nowIso
     }));
 };
 
