@@ -335,18 +335,54 @@ const App: React.FC = () => {
 
     // --- REAL-TIME LISTENER ---
     let channel: any;
+    let secondaryChannel: any;
+    let refreshTimer: number | null = null;
+    let fallbackPollTimer: number | null = null;
+
+    const scheduleCloudRefresh = () => {
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      refreshTimer = window.setTimeout(() => handleInitialDownload(true), 350);
+    };
     if (session?.user?.id) {
       // Escuchar cambios en tablas relacionales (cualquier cambio del usuario en otro dispositivo)
       channel = supabase
-        .channel('relational-db-changes')
+        .channel(`relational-db-changes-${session.user.id}`)
         .on('postgres_changes',
           { event: '*', schema: 'public', table: 'projects', filter: `user_id=eq.${session.user.id}` },
           () => {
             console.log("☁️ Cambio en projects detectado en otro dispositivo, descargando...");
-            handleInitialDownload(true);
+            scheduleCloudRefresh();
           }
         )
         .subscribe();
+
+      const extraTables = ['clients', 'transactions', 'notes', 'chat_sessions', 'business_rules', 'spaces_store'];
+      secondaryChannel = supabase.channel(`relational-db-changes-extra-${session.user.id}`);
+      extraTables.forEach((tableName) => {
+        secondaryChannel = secondaryChannel.on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: tableName, filter: `user_id=eq.${session.user.id}` },
+          () => {
+            console.log(`Cambio en ${tableName} detectado, descargando...`);
+            scheduleCloudRefresh();
+          }
+        );
+      });
+      secondaryChannel.subscribe();
+
+      fallbackPollTimer = window.setInterval(async () => {
+        if (document.visibilityState !== 'visible' || !navigator.onLine || isInternalUpdate.current) return;
+        try {
+          const cloudLastModified = await getCloudLastModified(session.user.id);
+          const localLastSync = parseInt(localStorage.getItem('coo_last_local_mod') || '0');
+          if (cloudLastModified > localLastSync) {
+            console.log('Fallback polling detectó cambios remotos, refrescando...');
+            handleInitialDownload(true);
+          }
+        } catch (error) {
+          console.warn('Polling de fallback falló:', error);
+        }
+      }, 15000);
     }
 
     const handleFingerprintSync = (e: StorageEvent) => {
@@ -361,9 +397,12 @@ const App: React.FC = () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('storage', handleFingerprintSync);
+      if (refreshTimer) window.clearTimeout(refreshTimer);
+      if (fallbackPollTimer) window.clearInterval(fallbackPollTimer);
       if (channel) channel.unsubscribe();
+      if (secondaryChannel) secondaryChannel.unsubscribe();
     };
-  }, [handleCloudSync, handleInitialDownload]);
+  }, [handleCloudSync, handleInitialDownload, getCloudLastModified, session]);
 
   // Sincronización automática debounced
   useEffect(() => {
