@@ -1,5 +1,5 @@
 
-import React, { createContext, useContext, useReducer, useEffect, ReactNode } from 'react';
+import React, { createContext, useContext, useReducer, useEffect, useRef, ReactNode } from 'react';
 import { SpacesState, SpacesAction, Space, SpaceFolder, SpaceList, SpaceTask, Workspace, SpaceEvent } from '../spacesTypes';
 import { runAutoScheduling } from '../utils/schedulingLogic';
 import { DEFAULT_RULES } from '../mockData';
@@ -671,8 +671,21 @@ interface SpacesContextValue {
 
 const SpacesContext = createContext<SpacesContextValue | null>(null);
 
+const NON_SYNCED_SPACES_ACTIONS = new Set<SpacesAction['type']>([
+    'LOAD_STATE',
+    'SET_ACTIVE',
+    'SET_ACTIVE_WORKSPACE',
+    'TOGGLE_EXPAND',
+]);
+
 export function SpacesProvider({ children }: { children: ReactNode }) {
-    const [state, dispatch] = useReducer(spacesReducer, initialState);
+    const [state, rawDispatch] = useReducer(spacesReducer, initialState);
+    const shouldBroadcastPersistRef = useRef(false);
+
+    const dispatch: React.Dispatch<SpacesAction> = (action) => {
+        shouldBroadcastPersistRef.current = !NON_SYNCED_SPACES_ACTIONS.has(action.type);
+        rawDispatch(action);
+    };
 
     // Load from localStorage on mount
     useEffect(() => {
@@ -680,19 +693,19 @@ export function SpacesProvider({ children }: { children: ReactNode }) {
         if (saved) {
             try {
                 const parsed = JSON.parse(saved);
-                dispatch({ type: 'LOAD_STATE', payload: parsed });
+                rawDispatch({ type: 'LOAD_STATE', payload: parsed });
 
                 // If after loading we have NO active workspace, but have workspaces, fix it
                 if (!parsed.activeWorkspaceId && parsed.workspaces && parsed.workspaces.length > 0) {
-                    dispatch({ type: 'SET_ACTIVE_WORKSPACE', payload: { workspaceId: parsed.workspaces[0].id } });
+                    rawDispatch({ type: 'SET_ACTIVE_WORKSPACE', payload: { workspaceId: parsed.workspaces[0].id } });
                 }
             } catch (e) {
                 console.error('Error loading spaces from localStorage:', e);
-                dispatch({ type: 'ADD_WORKSPACE', payload: { nombre: 'Personal Workspace' } });
+                rawDispatch({ type: 'ADD_WORKSPACE', payload: { nombre: 'Personal Workspace' } });
             }
         } else {
             // Init default workspace if clean start
-            dispatch({ type: 'ADD_WORKSPACE', payload: { nombre: 'Mi Primer Workspace' } });
+            rawDispatch({ type: 'ADD_WORKSPACE', payload: { nombre: 'Mi Primer Workspace' } });
         }
     }, []);
 
@@ -702,7 +715,7 @@ export function SpacesProvider({ children }: { children: ReactNode }) {
             const saved = localStorage.getItem('coo_spaces');
             if (saved) {
                 try {
-                    dispatch({ type: 'LOAD_STATE', payload: JSON.parse(saved) });
+                    rawDispatch({ type: 'LOAD_STATE', payload: JSON.parse(saved) });
                 } catch (e) {
                     console.error("Error al cargar datos de nube en espacios:", e);
                 }
@@ -721,8 +734,10 @@ export function SpacesProvider({ children }: { children: ReactNode }) {
         // overwriting with initial empty state on first render before LOAD_STATE.
         if (state.workspaces.length > 0) {
             localStorage.setItem('coo_spaces', JSON.stringify(state));
-            // Notificar a App.tsx que hubo un cambio en los espacios para sincronizar
-            window.dispatchEvent(new Event('coo_spaces_updated'));
+            if (shouldBroadcastPersistRef.current) {
+                window.dispatchEvent(new Event('coo_spaces_updated'));
+            }
+            shouldBroadcastPersistRef.current = false;
         }
     }, [state]);
 

@@ -87,6 +87,7 @@ export const useAgencyStore = create<AgencyState>()(
         localStorage.setItem('coo_last_local_mod', Date.now().toString());
         localStorage.setItem('coo_has_unsynced_local', '1');
         localStorage.setItem('coo_has_unsynced_local_v2', '1');
+        localStorage.setItem('coo_has_unsynced_local_v3', '1');
       },
 
       handleAddProject: (newProject) => {
