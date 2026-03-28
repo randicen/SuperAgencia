@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
-import { Project, Transaction, BusinessRules, Message, Client, Priority, ChatSession, Note } from './types';
+import { Transaction, BusinessRules, Message, Client, Priority, ChatSession, Note } from './types';
 import { TEMPLATE_PROJECTS, TEMPLATE_TRANSACTIONS, DEFAULT_RULES, TEMPLATE_CLIENTS } from './mockData';
 import Sidebar from './components/Sidebar';
 import Dashboard from './components/Dashboard';
@@ -39,11 +39,6 @@ const App: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'dashboard' | 'chat' | 'spaces' | 'agenda' | 'finance' | 'notebook'>('dashboard');
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSpacesSidebarOpen, setIsSpacesSidebarOpen] = useState(false);
-
-  // Estado para el Briefing (Reporte de SituaciÃƒÂ³n)
-  const [showBriefing, setShowBriefing] = useState(false);
-  const [briefingData, setBriefingData] = useState<{ overdue: Project[], upcoming: Project[], income: number } | null>(null);
-
   const {
     projects, setProjects,
     transactions, setTransactions,
@@ -104,7 +99,7 @@ const App: React.FC = () => {
   };
 
   const replicateToOtherTabs = (payload: string) => {
-    // Comunicar a otras pestaÃƒÂ±as que NO deben re-subir este estado especÃƒÂ­fico
+    // Comunicar a otras pestaÃƒÆ’Ã‚Â±as que NO deben re-subir este estado especÃƒÆ’Ã‚Â­fico
     localStorage.setItem('coo_last_sync_fingerprint', payload);
     window.dispatchEvent(new StorageEvent('storage', {
       key: 'coo_last_sync_fingerprint',
@@ -246,7 +241,7 @@ const App: React.FC = () => {
 
     // --- SEGURIDAD: NO SUBIR SI EL CAMBIO VINO DE LA NUBE ---
     if (isInternalUpdate.current) {
-      console.log("Ã¢â€žÂ¹Ã¯Â¸Â Saltando subida: El cambio es una actualizaciÃƒÂ³n interna (descarga).");
+      console.log("ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¹ÃƒÂ¯Ã‚Â¸Ã‚Â Saltando subida: El cambio es una actualizaciÃƒÆ’Ã‚Â³n interna (descarga).");
       return;
     }
 
@@ -255,13 +250,13 @@ const App: React.FC = () => {
     try {
       // --- SEGURIDAD: NO SUBIR SI NO HEMOS DESCARGADO PRIMERO ---
       if (!hasCheckedCloud) {
-        console.warn("SincronizaciÃƒÂ³n bloqueada: AÃƒÂºn no se ha verificado la nube. Verificando...");
+        console.warn("SincronizaciÃƒÆ’Ã‚Â³n bloqueada: AÃƒÆ’Ã‚Âºn no se ha verificado la nube. Verificando...");
         await handleInitialDownload(true);
         setSyncStatus('idle'); // REPARADO: No se queda pegado
         return;
       }
 
-      // --- SEGURIDAD: PREVISIÃƒâ€œN DE SOBRESCRITURA (Conflict Resolution) ---
+      // --- SEGURIDAD: PREVISIÃƒÆ’Ã¢â‚¬Å“N DE SOBRESCRITURA (Conflict Resolution) ---
       // Calculamos el lastModified real revisando todas las tablas sincronizadas.
       const { currentLocalState } = buildCurrentLocalCloudState();
       const lastSeenCloud = parseInt(localStorage.getItem('coo_last_cloud_mod') || '0');
@@ -280,11 +275,11 @@ const App: React.FC = () => {
           )
         : currentLocalState;
 
-      // --- SEGURIDAD ANTI-PING PONG: COMPARACIÃƒâ€œN PROFUNDA (Ignorando ruido temporal) ---
+      // --- SEGURIDAD ANTI-PING PONG: COMPARACIÃƒÆ’Ã¢â‚¬Å“N PROFUNDA (Ignorando ruido temporal) ---
       // Ignoramos campos auto-generados que cambian cada minuto por el setInterval(runAutoScheduling)
       const compareString = buildComparableStateString(syncState);
       if (compareString === lastUploadedState.current) {
-        console.log("Ã¢â€žÂ¹Ã¯Â¸Â Saltando subida: Los datos locales base no han cambiado.");
+        console.log("ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¹ÃƒÂ¯Ã‚Â¸Ã‚Â Saltando subida: Los datos locales base no han cambiado.");
         setUnsyncedLocalFlags(false);
         setSyncStatus('synced');
         return;
@@ -314,7 +309,7 @@ const App: React.FC = () => {
 
       console.log("Intentando UPSERT relacional en Supabase...");
 
-      // Ã¢â€â‚¬Ã¢â€â‚¬ FASE 2: Subida a tablas relacionales (reemplaza app_state_dump) Ã¢â€â‚¬Ã¢â€â‚¬
+      // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ FASE 2: Subida a tablas relacionales (reemplaza app_state_dump) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
       await uploadRelationalState(
         session!.user!.id,
         syncState.projects,
@@ -325,7 +320,7 @@ const App: React.FC = () => {
         syncState.chatSessions
       );
 
-      console.log("Ã¢Å“â€¦ CONFIRMADO: Estado sincronizado a tablas relacionales.");
+      console.log("ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ CONFIRMADO: Estado sincronizado a tablas relacionales.");
       lastUploadedState.current = compareString;
       replicateToOtherTabs(compareString);
       if (shouldMergeRemoteChanges) {
@@ -410,7 +405,7 @@ const App: React.FC = () => {
       }
       setSpacesSyncStatus(result.diagnostics.mode === 'safe' ? 'safe' : 'synced');
       if (reason !== 'remote-change') {
-        setDebugMsg(`Spaces sync ${executionMode === 'push' && result.didUpload ? 'push+pull' : 'pull'} · ${deviceId}`);
+        setDebugMsg(`Spaces sync ${executionMode === 'push' && result.didUpload ? 'push+pull' : 'pull'} - ${deviceId}`);
       }
     } catch (error: any) {
       console.error('Spaces sync error:', error);
@@ -441,7 +436,7 @@ const App: React.FC = () => {
     }
 
     try {
-      // Ã¢â€â‚¬Ã¢â€â‚¬ FASE 1: Descarga desde tablas relacionales (reemplaza app_state_dump) Ã¢â€â‚¬Ã¢â€â‚¬
+      // ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ FASE 1: Descarga desde tablas relacionales (reemplaza app_state_dump) ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬ÃƒÂ¢Ã¢â‚¬ÂÃ¢â€šÂ¬
       const cloudState = await downloadRelationalState(session.user.id);
       const normalizedCloudState = normalizeCloudSyncState(cloudState);
       const cloudLastModified = await getCloudLastModified(session.user.id);
@@ -466,7 +461,7 @@ const App: React.FC = () => {
         isInternalUpdate.current = true;
         applyDownloadedCloudState(mergedState);
 
-        if (!isSilent) console.log("ÃƒÂ¢Ã‹Å“Ã‚ÂÃƒÂ¯Ã‚Â¸Ã‚Â Cambios remotos fusionados con cambios locales pendientes.");
+        if (!isSilent) console.log("ÃƒÆ’Ã‚Â¢Ãƒâ€¹Ã…â€œÃƒâ€šÃ‚ÂÃƒÆ’Ã‚Â¯Ãƒâ€šÃ‚Â¸Ãƒâ€šÃ‚Â Cambios remotos fusionados con cambios locales pendientes.");
 
         lastUploadedState.current = remoteComparable;
         localStorage.setItem('coo_last_local_mod', Date.now().toString());
@@ -485,9 +480,9 @@ const App: React.FC = () => {
 
         applyDownloadedCloudState(normalizedCloudState);
 
-        if (!isSilent) console.log("Ã¢Å“â€¦ Datos sincronizados desde tablas relacionales.");
+        if (!isSilent) console.log("ÃƒÂ¢Ã…â€œÃ¢â‚¬Â¦ Datos sincronizados desde tablas relacionales.");
 
-        // Actualizar el estado fantasma de comparaciÃƒÂ³n ignorando el ruido temporal
+        // Actualizar el estado fantasma de comparaciÃƒÆ’Ã‚Â³n ignorando el ruido temporal
         lastUploadedState.current = remoteComparable;
         localStorage.setItem('coo_last_sync_fingerprint', lastUploadedState.current);
         localStorage.setItem('coo_last_local_mod', Date.now().toString());
@@ -499,11 +494,11 @@ const App: React.FC = () => {
         setTimeout(() => { isInternalUpdate.current = false; }, 2500);
 
       } else if (localHasMeaningfulChanges && !switchedUser) {
-        if (!isSilent) console.log("Ã¢â€žÂ¹Ã¯Â¸Â Hay cambios locales pendientes: conservando estado local y subiendo.");
+        if (!isSilent) console.log("ÃƒÂ¢Ã¢â‚¬Å¾Ã‚Â¹ÃƒÂ¯Ã‚Â¸Ã‚Â Hay cambios locales pendientes: conservando estado local y subiendo.");
         localStorage.setItem('coo_last_user_id', session.user.id);
         setUnsyncedLocalFlags(true);
       } else {
-        if (!isSilent) console.log("Ã¢Å¡Â Ã¯Â¸Â Usuario sin datos core en la nube: limpiando cachÃƒÂ© core de seguridad...");
+        if (!isSilent) console.log("ÃƒÂ¢Ã…Â¡Ã‚Â ÃƒÂ¯Ã‚Â¸Ã‚Â Usuario sin datos core en la nube: limpiando cachÃƒÆ’Ã‚Â© core de seguridad...");
         setProjects([]);
         setClients([]);
         setTransactions([]);
@@ -535,7 +530,7 @@ const App: React.FC = () => {
     handleSpacesSync('bootstrap');
   }, [handleSpacesSync, session?.user?.id]);
 
-  // Monitorear conexiÃƒÂ³n y suscripciÃƒÂ³n Real-time
+  // Monitorear conexiÃƒÆ’Ã‚Â³n y suscripciÃƒÆ’Ã‚Â³n Real-time
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
@@ -569,7 +564,7 @@ const App: React.FC = () => {
         .on('postgres_changes',
           { event: '*', schema: 'public', table: 'projects', filter: `user_id=eq.${session.user.id}` },
           () => {
-            console.log("Ã¢ËœÂÃ¯Â¸Â Cambio en projects detectado en otro dispositivo, descargando...");
+            console.log("ÃƒÂ¢Ã‹Å“Ã‚ÂÃƒÂ¯Ã‚Â¸Ã‚Â Cambio en projects detectado en otro dispositivo, descargando...");
             scheduleCloudRefresh();
           }
         )
@@ -595,18 +590,18 @@ const App: React.FC = () => {
           const cloudLastModified = await getCloudLastModified(session.user.id);
           const lastSeenCloud = parseInt(localStorage.getItem('coo_last_cloud_mod') || '0');
           if (cloudLastModified > lastSeenCloud) {
-            console.log('Fallback polling detectÃƒÂ³ cambios remotos, refrescando...');
+            console.log('Fallback polling detectÃƒÆ’Ã‚Â³ cambios remotos, refrescando...');
             handleInitialDownload(true);
           }
         } catch (error) {
-          console.warn('Polling de fallback fallÃƒÂ³:', error);
+          console.warn('Polling de fallback fallÃƒÆ’Ã‚Â³:', error);
         }
       }, 15000);
     }
 
     const handleFingerprintSync = (e: StorageEvent) => {
       if (e.key === 'coo_last_sync_fingerprint' && e.newValue) {
-        console.log("Ã°Å¸â€œâ€˜ Sincronizando fingerprint con otra pestaÃƒÂ±a activa...");
+        console.log("ÃƒÂ°Ã…Â¸Ã¢â‚¬Å“Ã¢â‚¬Ëœ Sincronizando fingerprint con otra pestaÃƒÆ’Ã‚Â±a activa...");
         lastUploadedState.current = e.newValue;
       }
     };
@@ -655,7 +650,7 @@ const App: React.FC = () => {
           handleSpacesSync('remote-change');
         }
       } catch (error) {
-        console.warn('Polling de Espacios fallÃƒÂ³:', error);
+        console.warn('Polling de Espacios fallÃƒÆ’Ã‚Â³:', error);
       }
     }, 15000);
 
@@ -686,7 +681,7 @@ const App: React.FC = () => {
     };
   }, [projects, clients, transactions, rules, notes, chatSessions, isOnline, handleCloudSync]);
 
-  // SincronizaciÃƒÂ³n automÃƒÂ¡tica debounced
+  // SincronizaciÃƒÆ’Ã‚Â³n automÃƒÆ’Ã‚Â¡tica debounced
   useEffect(() => {
     const handleTriggerSync = () => {
       const currentLocalSpaces = readLocalSpacesState();
@@ -714,7 +709,7 @@ const App: React.FC = () => {
     };
     window.addEventListener('coo_spaces_updated', handleTriggerSync);
 
-    // Seguro: Sincronizar si el usuario cambia de pestaÃƒÂ±a o cierra la app
+    // Seguro: Sincronizar si el usuario cambia de pestaÃƒÆ’Ã‚Â±a o cierra la app
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden' && isOnline) {
         handleSpacesSync('manual');
@@ -734,55 +729,7 @@ const App: React.FC = () => {
 
   // --- HEARTBEAT & SYNC: LATIDO OPERATIVO ---
   useEffect(() => {
-    // 2. Detectar si hay diferencias crÃƒÂ­ticas para el Briefing
-    const sessionKey = sessionStorage.getItem('coo_session_active');
-
-    if (!sessionKey) {
-      // Trigger one immediate scheduling run for accurate briefing using FRESH state
-      useAgencyStore.getState().tickAutoScheduling();
-      const currentProjects = useAgencyStore.getState().projects;
-
-      const now = new Date();
-      const overdue = currentProjects.filter(p => {
-        const dueDate = new Date(p.dueDate.includes('T') ? p.dueDate : p.dueDate + 'T23:59:59');
-        return dueDate < now && p.status !== 'completed';
-      });
-
-      const upcoming = currentProjects.filter(p => {
-        const dueDate = new Date(p.dueDate.includes('T') ? p.dueDate : p.dueDate + 'T23:59:59');
-        const diffTime = Math.abs(dueDate.getTime() - now.getTime());
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-        return diffDays <= 2 && dueDate >= now && p.status !== 'completed';
-      });
-
-      // Calculate pending income from tasks in spaces
-      let pendingIncome = 0;
-      try {
-        const rawSpaces = localStorage.getItem('coo_spaces');
-        if (rawSpaces) {
-          const spacesData = JSON.parse(rawSpaces);
-          const extractInstallments = (tasks: any[]) => {
-            tasks?.forEach((t: any) => {
-              t.installments?.forEach((i: any) => { if (i.status === 'PENDIENTE') pendingIncome += i.amount; });
-              if (t.subtasks) extractInstallments(t.subtasks);
-            });
-          };
-          spacesData.workspaces?.forEach((ws: any) => {
-            ws.espacios?.forEach((s: any) => {
-              s.listas?.forEach((l: any) => extractInstallments(l.tareas || []));
-              s.carpetas?.forEach((f: any) => f.listas?.forEach((l: any) => extractInstallments(l.tareas || [])));
-            });
-          });
-        }
-      } catch (e) { /* ignore parse errors */ }
-
-      if (overdue.length > 0 || upcoming.length > 0) {
-        setBriefingData({ overdue, upcoming, income: pendingIncome });
-        setShowBriefing(true);
-      }
-
-      sessionStorage.setItem('coo_session_active', 'true');
-    }
+    useAgencyStore.getState().tickAutoScheduling();
 
     const interval = setInterval(() => {
       useAgencyStore.getState().tickAutoScheduling();
@@ -837,13 +784,13 @@ const App: React.FC = () => {
           }
         }
 
-        // --- SANITIZACIÃƒâ€œN Y MIGRACIÃƒâ€œN DE DATOS (AUTO-HEALING) ---
+        // --- SANITIZACIÃƒÆ’Ã¢â‚¬Å“N Y MIGRACIÃƒÆ’Ã¢â‚¬Å“N DE DATOS (AUTO-HEALING) ---
         // Esto asegura que backups viejos funcionen en versiones nuevas rellenando datos faltantes
 
         if (rawData.projects) {
           const migratedProjects = rawData.projects.map((p: any) => ({
             ...p,
-            // Rellenar campos que podrÃƒÂ­an no existir en backups viejos
+            // Rellenar campos que podrÃƒÆ’Ã‚Â­an no existir en backups viejos
             elasticity: p.elasticity !== undefined ? p.elasticity : 1, // Default Flexible
             autoSchedule: p.autoSchedule !== undefined ? p.autoSchedule : true, // Default Auto
             deadlineType: p.deadlineType || 'Soft Deadline',
@@ -862,15 +809,15 @@ const App: React.FC = () => {
           window.dispatchEvent(new Event('coo_cloud_data_received'));
         }
 
-        // Forzamos sincronizaciÃƒÂ³n a la nube de todos los datos restaurados
+        // Forzamos sincronizaciÃƒÆ’Ã‚Â³n a la nube de todos los datos restaurados
         updateLastMod();
         handleCloudSync();
         handleSpacesSync('manual');
 
-        alert('Ã¢Å“â€¦ Datos restaurados y guardados en la nube.');
+        alert('✅ Datos restaurados y guardados en la nube.');
       } catch (error) {
         console.error(error);
-        alert('Ã¢ÂÅ’ Error al leer el archivo de respaldo. AsegÃƒÂºrate que sea un .json vÃƒÂ¡lido.');
+        alert('❌ Error al leer el archivo de respaldo. Asegúrate de que sea un .json válido.');
       }
     };
     reader.readAsText(file);
@@ -898,7 +845,7 @@ const App: React.FC = () => {
   }
 
   const handleSignOutWrapper = async () => {
-    // Al cerrar sesiÃƒÂ³n, limpiamos la memoria pero JAMÃƒÂS usando .clear() global,
+    // Al cerrar sesiÃƒÆ’Ã‚Â³n, limpiamos la memoria pero JAMÃƒÆ’Ã‚ÂS usando .clear() global,
     // ya que eso destruye la persistencia necesaria para conectarse a Vercel/Supabase
     [
       'coo_spaces',
@@ -945,7 +892,7 @@ const App: React.FC = () => {
           {/* Topbar estilo App Nativa */}
           <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-6 shrink-0 z-20">
             <div className="flex items-center gap-2 md:gap-3 text-slate-500 text-sm font-medium">
-              {/* BotÃƒÂ³n Hamburguesa MÃƒÂ³vil */}
+              {/* BotÃƒÆ’Ã‚Â³n Hamburguesa MÃƒÆ’Ã‚Â³vil */}
               <button
                 onClick={() => setIsMobileMenuOpen(true)}
                 className="md:hidden w-8 h-8 flex items-center justify-center text-slate-600 hover:bg-slate-100 rounded-lg"
@@ -962,7 +909,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-3 md:gap-4">
               <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-md border border-gray-200 cursor-pointer hover:border-gray-300 transition-colors">
                 <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                <span className="text-xs font-semibold text-slate-600 hidden md:inline">En lÃƒÂ­nea</span>
+                <span className="text-xs font-semibold text-slate-600 hidden md:inline">En línea</span>
               </div>
               <button className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-gray-100 rounded-md transition-all">
                 <i className="fa-regular fa-bell"></i>
@@ -970,7 +917,7 @@ const App: React.FC = () => {
             </div>
           </header>
 
-          {/* ÃƒÂrea de Contenido Principal */}
+          {/* ÃƒÆ’Ã‚Ârea de Contenido Principal */}
           {activeTab === 'spaces' ? (
             <div className="flex-1 flex overflow-hidden relative">
               <div className="hidden md:block h-full">
@@ -1027,72 +974,12 @@ const App: React.FC = () => {
             </div>
           )}
         </main>
-
-        {/* MODAL DE BRIEFING (REPORTE DE SITUACIÃƒâ€œN) */}
-        {showBriefing && briefingData && (
-          <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[200] flex items-center justify-center p-4" onClick={() => setShowBriefing(false)}>
-            <div className="bg-white w-full max-w-lg rounded-[2rem] p-8 shadow-2xl animate-in zoom-in-95 flex flex-col" onClick={e => e.stopPropagation()}>
-              <div className="flex items-center gap-4 mb-6">
-                <div className="w-14 h-14 bg-slate-900 rounded-2xl flex items-center justify-center text-white text-2xl shadow-lg shadow-slate-500/20">
-                  <i className="fa-solid fa-mug-hot"></i>
-                </div>
-                <div>
-                  <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Reporte de SituaciÃƒÂ³n</h3>
-                  <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Resumen de tu ausencia</p>
-                </div>
-              </div>
-
-              <div className="space-y-4 mb-8">
-                {briefingData.overdue.length > 0 ? (
-                  <div className="bg-red-50 p-4 rounded-2xl border border-red-100 flex items-start gap-3">
-                    <i className="fa-solid fa-triangle-exclamation text-red-500 mt-1"></i>
-                    <div>
-                      <h4 className="font-black text-red-900 text-sm uppercase">AtenciÃƒÂ³n Requerida</h4>
-                      <p className="text-xs text-red-700 leading-relaxed">
-                        {briefingData.overdue.length} tarea(s) vencieron mientras no estabas.
-                        <br />
-                        <span className="font-bold opacity-80">{briefingData.overdue.map(p => p.projectName).join(', ')}</span>
-                      </p>
-                    </div>
-                  </div>
-                ) : (
-                  <div className="bg-green-50 p-4 rounded-2xl border border-green-100 flex items-center gap-3">
-                    <i className="fa-solid fa-check-circle text-green-500"></i>
-                    <span className="text-xs font-bold text-green-800">Nada vencido. Buen trabajo.</span>
-                  </div>
-                )}
-
-                {briefingData.upcoming.length > 0 && (
-                  <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex items-start gap-3">
-                    <i className="fa-solid fa-clock text-blue-500 mt-1"></i>
-                    <div>
-                      <h4 className="font-black text-blue-900 text-sm uppercase">PrÃƒÂ³ximos Vencimientos (48h)</h4>
-                      <p className="text-xs text-blue-700">
-                        {briefingData.upcoming.map(p => p.projectName).join(', ')}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                <div className="flex justify-between items-center p-4 bg-slate-50 rounded-2xl border border-slate-100">
-                  <span className="text-xs font-black text-slate-500 uppercase">Flujo Pendiente</span>
-                  <span className="text-lg font-black text-slate-800">${briefingData.income.toLocaleString()}</span>
-                </div>
-              </div>
-
-              <button onClick={() => setShowBriefing(false)} className="w-full py-4 bg-slate-900 text-white rounded-2xl font-black text-xs uppercase shadow-xl hover:bg-slate-800 transition-all">
-                Entendido, A Trabajar
-              </button>
-            </div>
-          </div>
-        )}
-
       </div>
       <PwaUpdateBanner
         onNeedRefreshChange={setHasPendingPwaRefresh}
         writeLockReason={spacesWriteLockReason}
       />
-    </SpacesProvider >
+    </SpacesProvider>
   );
 };
 

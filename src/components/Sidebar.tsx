@@ -446,13 +446,13 @@ npx supabase db push
                                     spacesSyncDiagnostics.lastError ? 'fa-triangle-exclamation text-amber-300' : 'fa-arrows-rotate text-sky-300'
                                 } mt-0.5 text-[11px]`}></i>
                                 <div className="min-w-0">
-                                    <p className="text-[10px] font-black uppercase tracking-wider text-white">Sincronizaci?n de tareas</p>
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-white">Sincronización de tareas</p>
                                     <p className="text-[10px] leading-relaxed text-slate-300">
                                         {spacesSyncDiagnostics.lastError
-                                            ? 'Estamos reparando la sincronizaci?n entre dispositivos.'
+                                            ? 'Estamos reparando la sincronización entre dispositivos.'
                                             : spacesSyncDiagnostics.mode === 'migrating'
                                                 ? 'Reorganizando tareas en la nube para estabilizar el guardado.'
-                                                : 'La sincronizaci?n qued? en modo seguro temporalmente.'}
+                                                : 'La sincronización quedó en modo seguro temporalmente.'}
                                     </p>
                                     {spacesSyncDiagnostics.lastError && (
                                         <p className="text-[9px] leading-relaxed text-amber-200/90 mt-1 break-words">

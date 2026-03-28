@@ -130,8 +130,8 @@ const CalendarViewComponent: React.FC<{
                 <div className="flex bg-slate-100 p-1 rounded-xl">
                     <button onClick={() => { setView('month'); setSelectedDay(null); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'month' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>Mes</button>
                     <button onClick={() => { setView('week'); setSelectedDay(null); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'week' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>Semana</button>
-                    <button onClick={() => { setView('4days'); setSelectedDay(null); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === '4days' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>4 DÌas</button>
-                    <button onClick={() => { setView('day'); setSelectedDay(null); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'day' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>DÌa</button>
+                    <button onClick={() => { setView('4days'); setSelectedDay(null); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === '4days' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>4 D√≠as</button>
+                    <button onClick={() => { setView('day'); setSelectedDay(null); }} className={`px-3 py-1.5 rounded-lg text-[10px] font-black uppercase transition-all ${view === 'day' ? 'bg-white shadow-sm text-blue-600' : 'text-slate-400 hover:text-slate-600'}`}>D√≠a</button>
                 </div>
 
                 <div className="flex items-center gap-4">
@@ -144,7 +144,7 @@ const CalendarViewComponent: React.FC<{
             </div>
 
             <div className={`grid ${gridCols} gap-2 mb-2`}>
-                {view !== 'day' && ['Lun', 'Mar', 'MiÈ', 'Jue', 'Vie', 'S·b', 'Dom'].slice(0, view === '4days' ? 4 : 7).map((label, index) => (
+                {view !== 'day' && ['Lun', 'Mar', 'Mi√©', 'Jue', 'Vie', 'S√°b', 'Dom'].slice(0, view === '4days' ? 4 : 7).map((label, index) => (
                     <div key={index} className="text-center text-[10px] font-black uppercase text-slate-400 tracking-widest py-2">
                         {view === '4days' ? new Date(datesToShow[index]).toLocaleDateString('es-ES', { weekday: 'short' }) : label}
                     </div>
@@ -187,7 +187,7 @@ const CalendarViewComponent: React.FC<{
                                 ))}
                                 {(activeEvents.length + activeTasks.length) > 6 && (
                                     <div className="text-[7px] font-black text-slate-400 uppercase tracking-widest mt-1">
-                                        +{(activeEvents.length + activeTasks.length) - 6} m·s
+                                        +{(activeEvents.length + activeTasks.length) - 6} m√°s
                                     </div>
                                 )}
                             </div>
@@ -209,7 +209,7 @@ const CalendarViewComponent: React.FC<{
                                 <div>
                                     <h4 className="text-2xl font-black text-slate-900 uppercase tracking-tight leading-none mb-1">{dayExpanded.toLocaleDateString('es-ES', { weekday: 'long' })}</h4>
                                     <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">
-                                        {events.filter(event => isEventActiveOnDay(event, dayExpanded)).length} Eventos ∑ {tasks.filter(task => isTaskActiveOnDay(task, dayExpanded) && task.estado !== 'DONE').length} Pendientes
+                                        {events.filter(event => isEventActiveOnDay(event, dayExpanded)).length} Eventos ¬∑ {tasks.filter(task => isTaskActiveOnDay(task, dayExpanded) && task.estado !== 'DONE').length} Pendientes
                                     </p>
                                 </div>
                             </div>
@@ -225,14 +225,14 @@ const CalendarViewComponent: React.FC<{
                                     <h5 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Agenda y Eventos</h5>
                                 </div>
                                 <div className="space-y-3">
-                                    {events.filter(event => isEventActiveOnDay(event, dayExpanded)).length === 0 && <p className="text-xs italic text-slate-300">No hay eventos para este dÌa.</p>}
+                                    {events.filter(event => isEventActiveOnDay(event, dayExpanded)).length === 0 && <p className="text-xs italic text-slate-300">No hay eventos para este d√≠a.</p>}
                                     {events.filter(event => isEventActiveOnDay(event, dayExpanded)).map(event => (
                                         <div key={event.id} onClick={() => onEditEvent(event)} className="group bg-white p-6 rounded-[2rem] border border-slate-100 shadow-sm hover:shadow-md hover:border-orange-200 transition-all cursor-pointer flex items-center gap-6">
                                             <div className="w-1.5 h-12 bg-orange-500 rounded-full"></div>
                                             <div className="flex-1">
                                                 <div className="flex justify-between items-center mb-1">
                                                     <span className="text-[10px] font-black text-orange-500 uppercase tracking-tighter">Evento en agenda</span>
-                                                    <span className="text-[10px] font-bold text-slate-400">{event.startDate.includes('T') ? new Date(event.startDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase() : 'Todo el dÌa'}</span>
+                                                    <span className="text-[10px] font-bold text-slate-400">{event.startDate.includes('T') ? new Date(event.startDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase() : 'Todo el d√≠a'}</span>
                                                 </div>
                                                 <h6 className="font-bold text-slate-800 text-lg group-hover:text-orange-600 transition-colors">{event.nombre}</h6>
                                                 {event.description && <p className="text-xs text-slate-400 mt-2 line-clamp-2 italic">{event.description}</p>}
@@ -245,7 +245,7 @@ const CalendarViewComponent: React.FC<{
                             <section>
                                 <div className="flex items-center gap-3 mb-6">
                                     <div className="w-8 h-8 bg-blue-100 text-blue-600 rounded-xl flex items-center justify-center"><i className="fa-solid fa-list-check text-xs"></i></div>
-                                    <h5 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Tareas de ProducciÛn</h5>
+                                    <h5 className="text-xs font-black text-slate-400 uppercase tracking-[0.2em]">Tareas de Producci√≥n</h5>
                                 </div>
                                 <div className="space-y-3">
                                     {tasks.filter(task => isTaskActiveOnDay(task, dayExpanded) && task.estado !== 'DONE').length === 0 && <p className="text-xs italic text-slate-300">No hay tareas pendientes.</p>}
@@ -446,7 +446,7 @@ const AgendaView: React.FC<AgendaViewProps> = ({ onGoToSpaces }) => {
                 <div>
                     <p className="text-[10px] font-black uppercase tracking-[0.25em] text-blue-500 mb-2">Agenda Global</p>
                     <h2 className="text-2xl font-black text-slate-900 tracking-tight">{activeWorkspace.nombre}</h2>
-                    <p className="text-sm text-slate-500">AquÌ puedes registrar compromisos del workspace sin atarlos a una lista especÌfica.</p>
+                    <p className="text-sm text-slate-500">Aqu√≠ puedes registrar compromisos del workspace sin atarlos a una lista espec√≠fica.</p>
                 </div>
                 <button
                     onClick={() => { resetEventDraft(); setShowEventModal(true); }}
@@ -505,12 +505,12 @@ const AgendaView: React.FC<AgendaViewProps> = ({ onGoToSpaces }) => {
                                 </div>
                             )}
                             <div className="space-y-1.5">
-                                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">DescripciÛn (Opcional)</label>
+                                <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest">Descripci√≥n (Opcional)</label>
                                 <textarea
                                     className="w-full p-4 bg-slate-50 border border-slate-200 rounded-2xl text-xs outline-none resize-none min-h-[80px]"
                                     value={eventDraft.description || ''}
                                     onChange={(event) => setEventDraft({ ...eventDraft, description: event.target.value })}
-                                    placeholder="AÒade detalles sobre este evento..."
+                                    placeholder="A√±ade detalles sobre este evento..."
                                 />
                             </div>
                         </div>

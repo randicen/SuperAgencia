@@ -1,140 +1,323 @@
-
 import React, { useMemo } from 'react';
-import { Project, Transaction, SeasonalityData, Priority, Client } from '../types';
-import { useSpaces, getAllTasks } from '../contexts/SpacesContext';
-import { XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, AreaChart, Area, LineChart, Line, ComposedChart } from 'recharts';
+import { CartesianGrid, ComposedChart, Area, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { getAllTasks, useSpaces } from '../contexts/SpacesContext';
+import { Client, Project, SeasonalityData, Transaction } from '../types';
+import { buildPanoramaOperationalSummary, PanoramaCommitmentItem, PanoramaTaskItem } from '../utils/panoramaSummary';
 
 interface DashboardProps {
   projects: Project[];
   transactions: Transaction[];
   clients: Client[];
   seasonality: SeasonalityData[];
-  setActiveTab: (tab: any) => void;
+  setActiveTab: (tab: 'dashboard' | 'chat' | 'spaces' | 'agenda' | 'finance' | 'notebook') => void;
 }
 
-const Dashboard: React.FC<DashboardProps> = ({ projects, transactions, clients, seasonality, setActiveTab }) => {
+const formatCurrency = (value: number) => `$${value.toLocaleString('es-CO')}`;
+
+const formatDateTime = (value: string | null) => {
+  if (!value) return 'Sin fecha';
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return value;
+  return parsed.toLocaleString('es-CO', {
+    day: 'numeric',
+    month: 'short',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+};
+
+const Dashboard: React.FC<DashboardProps> = ({ transactions, clients, setActiveTab }) => {
   const { state } = useSpaces();
-  const allTasks = useMemo(() => getAllTasks(state), [state]);
+  const allTaskLocations = useMemo(() => getAllTasks(state), [state]);
+  const operationalSummary = useMemo(() => buildPanoramaOperationalSummary(state), [state]);
 
-  const currentBalance = useMemo(() => 
-    transactions.reduce((acc, t) => acc + (t.type === 'income' ? t.amount : -t.amount), 0)
-  , [transactions]);
+  const currentBalance = useMemo(
+    () => transactions.reduce((accumulator, transaction) => accumulator + (transaction.type === 'income' ? transaction.amount : -transaction.amount), 0),
+    [transactions]
+  );
 
-  const totalReceivable = useMemo(() => {
-    let pending = 0;
-    allTasks.forEach(({ task }) => {
-      (task.installments || []).forEach(inst => { if (inst.status === 'PENDIENTE') pending += inst.amount; });
-    });
-    return pending;
-  }, [allTasks]);
-
-  // --- LÓGICA PREDICTIVA DE CFO ---
   const financialProjection = useMemo(() => {
-    const data: any[] = [];
+    const data: Array<{ date: string; balance: number; type: 'actual' | 'projected' }> = [];
     let rollingBalance = currentBalance;
+    let realizedBalance = 0;
 
-    // Pasado (Transacciones reales)
-    const pastTransactions = transactions.filter(t => !t.isPredictive).sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    let tempBalance = 0;
-    pastTransactions.forEach(t => {
-        tempBalance += (t.type === 'income' ? t.amount : -t.amount);
-        data.push({ date: t.date, balance: tempBalance, type: 'actual' });
-    });
-
-    // Futuro (Cuotas pendientes from tasks)
-    const futureIncomes: {date: string, amount: number}[] = [];
-    allTasks.forEach(({ task }) => {
-      (task.installments || []).forEach(inst => {
-        if (inst.status === 'PENDIENTE') futureIncomes.push({ date: inst.dueDate, amount: inst.amount });
+    transactions
+      .filter((transaction) => !transaction.isPredictive)
+      .sort((left, right) => new Date(left.date).getTime() - new Date(right.date).getTime())
+      .forEach((transaction) => {
+        realizedBalance += transaction.type === 'income' ? transaction.amount : -transaction.amount;
+        data.push({ date: transaction.date, balance: realizedBalance, type: 'actual' });
       });
-    });
-    
-    futureIncomes.sort((a,b) => new Date(a.date).getTime() - new Date(b.date).getTime());
-    
-    futureIncomes.forEach(inc => {
-        rollingBalance += inc.amount;
-        data.push({ date: inc.date, balance: rollingBalance, type: 'projected' });
-    });
 
-    return data.length > 0 ? data : [{ date: 'Hoy', balance: 0, type: 'actual' }];
-  }, [transactions, allTasks, currentBalance]);
+    allTaskLocations
+      .flatMap(({ task }) =>
+        (task.installments || [])
+          .filter((installment) => installment.status === 'PENDIENTE')
+          .map((installment) => ({ date: installment.dueDate, amount: installment.amount }))
+      )
+      .sort((left, right) => new Date(left.date).getTime() - new Date(right.date).getTime())
+      .forEach((installment) => {
+        rollingBalance += installment.amount;
+        data.push({ date: installment.date, balance: rollingBalance, type: 'projected' });
+      });
+
+    return data.length > 0 ? data : [{ date: new Date().toISOString(), balance: currentBalance, type: 'actual' as const }];
+  }, [allTaskLocations, currentBalance, transactions]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-7xl mx-auto">
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-        <SummaryCard title="Caja Real" value={`$${currentBalance.toLocaleString()}`} icon="fa-vault" color="text-slate-800" />
-        <SummaryCard title="Proyectado" value={`$${(currentBalance + totalReceivable).toLocaleString()}`} icon="fa-chart-line" color="text-[#3A57E8]" trend="Futuro" />
-        <SummaryCard title="Por Cobrar" value={`$${totalReceivable.toLocaleString()}`} icon="fa-hand-holding-dollar" color="text-emerald-600" />
-        <SummaryCard title="Proyectos Activos" value={`${projects.filter(p => p.status === 'active').length}`} icon="fa-layer-group" color="text-orange-600" />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-2 bg-white p-6 rounded-lg border border-gray-200 shadow-sm">
-            <div className="flex justify-between items-center mb-6">
-                <div>
-                    <h3 className="text-sm font-bold text-slate-800">Flujo de Caja Predictivo</h3>
-                    <p className="text-xs text-slate-500 mt-0.5">Realidad vs Proyección IA</p>
-                </div>
-                <div className="flex gap-4">
-                    <div className="flex items-center gap-2"><div className="w-2 h-2 bg-blue-500 rounded-full"></div><span className="text-[10px] font-semibold text-slate-500 uppercase">Real</span></div>
-                    <div className="flex items-center gap-2"><div className="w-2 h-2 bg-blue-200 rounded-full"></div><span className="text-[10px] font-semibold text-slate-500 uppercase">Futuro</span></div>
-                </div>
-            </div>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <ComposedChart data={financialProjection}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f1f5f9" />
-                  <XAxis dataKey="date" hide />
-                  <YAxis hide />
-                  <Tooltip 
-                    contentStyle={{ borderRadius: '8px', border: '1px solid #E2E8F0', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '12px' }}
-                    formatter={(value: any) => [`$${value.toLocaleString()}`, 'Balance']}
-                  />
-                  <Area type="monotone" dataKey="balance" fill="#3b82f6" fillOpacity={0.05} stroke="none" />
-                  <Line type="monotone" dataKey="balance" stroke="#3b82f6" strokeWidth={2} dot={false} strokeDasharray={(props: any) => props.payload.type === 'projected' ? "4 4" : "0"} />
-                </ComposedChart>
-              </ResponsiveContainer>
-            </div>
+      <section className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6 md:p-8">
+        <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-blue-500 mb-2">Panorama</p>
+            <h1 className="text-3xl font-black tracking-tight text-slate-900">Centro operativo</h1>
+            <p className="text-sm text-slate-500 mt-2 max-w-2xl">
+              Vista unificada del trabajo pendiente, compromisos del workspace y salud financiera.
+              {operationalSummary.activeWorkspaceName ? ` Workspace activo: ${operationalSummary.activeWorkspaceName}.` : ''}
+            </p>
           </div>
-
-          <div className="bg-white rounded-lg border border-gray-200 shadow-sm flex flex-col">
-            <div className="px-5 py-4 border-b border-gray-100 flex justify-between items-center">
-                <h3 className="text-sm font-bold text-slate-800">Prioridad Alta</h3>
-                <button onClick={() => setActiveTab('gantt')} className="text-[10px] font-bold text-[#3A57E8] hover:underline">Ver Todo</button>
-            </div>
-            <div className="flex-1 overflow-y-auto p-2">
-              {projects.filter(p => p.status === 'active' || p.status === 'todo').slice(0, 6).map(p => (
-                <div key={p.id} className="p-3 flex items-center gap-3 hover:bg-gray-50 rounded-md cursor-default transition-colors border border-transparent hover:border-gray-100">
-                  <div className={`w-2 h-2 rounded-full shrink-0 ${p.priority === Priority.HIGH || p.priority === Priority.ASAP ? 'bg-red-500' : 'bg-blue-500'}`}></div>
-                  <div className="flex-1 min-w-0">
-                    <h4 className="font-semibold text-slate-700 text-xs truncate">{p.projectName}</h4>
-                    <p className="text-[10px] text-slate-400 truncate">{p.clientName}</p>
-                  </div>
-                  <div className="text-[10px] font-mono text-slate-500 bg-gray-100 px-2 py-0.5 rounded text-right">
-                    {p.progress}%
-                  </div>
-                </div>
-              ))}
-              {projects.filter(p => p.status === 'active').length === 0 && (
-                  <div className="h-full flex flex-col items-center justify-center text-slate-300">
-                      <i className="fa-solid fa-check-circle text-2xl mb-2"></i>
-                      <span className="text-xs">Todo limpio</span>
-                  </div>
-              )}
-            </div>
+          <div className="flex flex-wrap gap-2">
+            <QuickAction label="Espacios" icon="fa-layer-group" onClick={() => setActiveTab('spaces')} />
+            <QuickAction label="Agenda" icon="fa-calendar-days" onClick={() => setActiveTab('agenda')} />
+            <QuickAction label="Finanzas" icon="fa-wallet" onClick={() => setActiveTab('finance')} />
           </div>
+        </div>
+      </section>
+
+      <section className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <MetricCard title="Vencidas" value={String(operationalSummary.overdueCount)} subtitle="Requieren atención inmediata" icon="fa-triangle-exclamation" tone="red" />
+        <MetricCard title="Próximas 48h" value={String(operationalSummary.upcomingCount)} subtitle="Entregas cercanas" icon="fa-clock" tone="blue" />
+        <MetricCard title="Compromisos" value={String(operationalSummary.commitmentCount)} subtitle="Agenda del workspace" icon="fa-calendar-check" tone="orange" />
+        <MetricCard title="Flujo pendiente" value={formatCurrency(operationalSummary.pendingIncome)} subtitle="Cobros aún no recibidos" icon="fa-hand-holding-dollar" tone="emerald" />
+      </section>
+
+      <section className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+        <div className="xl:col-span-2 space-y-6">
+          <Panel title="Radar operativo" description="Tareas que necesitan seguimiento en este momento.">
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <TaskListCard
+                title="Con atraso"
+                emptyLabel="No tienes tareas vencidas."
+                tasks={operationalSummary.overdueTasks.slice(0, 5)}
+                accent="red"
+              />
+              <TaskListCard
+                title="Próximas 48h"
+                emptyLabel="No hay entregas inminentes."
+                tasks={operationalSummary.upcomingTasks.slice(0, 5)}
+                accent="blue"
+              />
+            </div>
+          </Panel>
+
+          <Panel title="Próximos compromisos" description="Eventos y bloqueos que impactan tu planificación.">
+            <CommitmentList items={operationalSummary.upcomingCommitments} />
+          </Panel>
+        </div>
+
+        <Panel title="Enfoque inmediato" description="Prioridades recomendadas para retomar trabajo.">
+          <div className="space-y-3">
+            {operationalSummary.focusTasks.length > 0 ? operationalSummary.focusTasks.map((task) => (
+              <TaskFocusItem key={task.id} task={task} />
+            )) : (
+              <EmptyState icon="fa-check-circle" label="No hay tareas pendientes por priorizar." />
+            )}
+          </div>
+          <div className="mt-5 grid grid-cols-3 gap-3">
+            <StatPill label="Pendientes" value={operationalSummary.todoCount} />
+            <StatPill label="En curso" value={operationalSummary.activeCount} />
+            <StatPill label="Hechas" value={operationalSummary.doneCount} />
+          </div>
+        </Panel>
+      </section>
+
+      <section className="space-y-4">
+        <div className="flex items-center justify-between">
+          <div>
+            <p className="text-[10px] font-black uppercase tracking-[0.3em] text-slate-400 mb-1">Finanzas</p>
+            <h2 className="text-xl font-black text-slate-900">Módulo financiero</h2>
+          </div>
+          <button
+            onClick={() => setActiveTab('finance')}
+            className="text-[10px] font-black uppercase tracking-wide text-blue-600 hover:text-blue-700"
+          >
+            Abrir finanzas
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+          <MetricCard title="Caja real" value={formatCurrency(currentBalance)} subtitle="Saldo según movimientos" icon="fa-vault" tone="slate" />
+          <MetricCard title="Proyectado" value={formatCurrency(currentBalance + operationalSummary.pendingIncome)} subtitle="Caja real + cobros pendientes" icon="fa-chart-line" tone="blue" />
+          <MetricCard title="Por cobrar" value={formatCurrency(operationalSummary.pendingIncome)} subtitle="Cuotas pendientes en tareas" icon="fa-file-invoice-dollar" tone="emerald" />
+          <MetricCard title="Clientes" value={String(clients.length)} subtitle="Base registrada" icon="fa-users" tone="orange" />
+        </div>
+
+        <Panel title="Flujo de caja predictivo" description="Realidad actual frente a próximos cobros pendientes.">
+          <div className="h-72">
+            <ResponsiveContainer width="100%" height="100%">
+              <ComposedChart data={financialProjection}>
+                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                <XAxis
+                  dataKey="date"
+                  tickFormatter={(value) => new Date(value).toLocaleDateString('es-CO', { day: 'numeric', month: 'short' })}
+                  tick={{ fontSize: 11, fill: '#64748b' }}
+                  axisLine={false}
+                  tickLine={false}
+                />
+                <YAxis hide />
+                <Tooltip
+                  contentStyle={{ borderRadius: '16px', border: '1px solid #E2E8F0', boxShadow: '0 10px 30px rgba(15, 23, 42, 0.08)', fontSize: '12px' }}
+                  labelFormatter={(value) => formatDateTime(value as string)}
+                  formatter={(value: number) => [formatCurrency(value), 'Balance']}
+                />
+                <Area type="monotone" dataKey="balance" fill="#3b82f6" fillOpacity={0.08} stroke="none" />
+                <Line type="monotone" dataKey="balance" stroke="#2563eb" strokeWidth={3} dot={false} />
+              </ComposedChart>
+            </ResponsiveContainer>
+          </div>
+        </Panel>
+      </section>
+    </div>
+  );
+};
+
+const QuickAction = ({ label, icon, onClick }: { label: string; icon: string; onClick: () => void }) => (
+  <button
+    onClick={onClick}
+    className="px-4 py-2 rounded-2xl border border-slate-200 bg-slate-50 text-slate-700 text-[10px] font-black uppercase tracking-widest hover:border-blue-200 hover:text-blue-700 hover:bg-blue-50 transition-all"
+  >
+    <i className={`fa-solid ${icon} mr-2`}></i>{label}
+  </button>
+);
+
+const Panel = ({ title, description, children }: { title: string; description: string; children: React.ReactNode }) => (
+  <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-6">
+    <div className="mb-5">
+      <h3 className="text-lg font-black tracking-tight text-slate-900">{title}</h3>
+      <p className="text-sm text-slate-500 mt-1">{description}</p>
+    </div>
+    {children}
+  </div>
+);
+
+const MetricCard = ({
+  title,
+  value,
+  subtitle,
+  icon,
+  tone,
+}: {
+  title: string;
+  value: string;
+  subtitle: string;
+  icon: string;
+  tone: 'red' | 'blue' | 'orange' | 'emerald' | 'slate';
+}) => {
+  const toneStyles: Record<typeof tone, string> = {
+    red: 'bg-red-50 text-red-600',
+    blue: 'bg-blue-50 text-blue-600',
+    orange: 'bg-orange-50 text-orange-600',
+    emerald: 'bg-emerald-50 text-emerald-600',
+    slate: 'bg-slate-100 text-slate-700',
+  };
+
+  return (
+    <div className="bg-white rounded-3xl border border-slate-200 shadow-sm p-5">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">{title}</p>
+          <p className="text-3xl font-black tracking-tight text-slate-900 mt-3">{value}</p>
+          <p className="text-xs text-slate-500 mt-2">{subtitle}</p>
+        </div>
+        <div className={`w-12 h-12 rounded-2xl flex items-center justify-center ${toneStyles[tone]}`}>
+          <i className={`fa-solid ${icon}`}></i>
+        </div>
       </div>
     </div>
   );
 };
 
-const SummaryCard = ({ title, value, icon, color }: any) => (
-  <div className="bg-white p-5 rounded-lg border border-gray-200 shadow-sm hover:border-blue-200 transition-colors">
-    <div className="flex justify-between items-start mb-2">
-        <p className="text-slate-500 text-[10px] font-bold uppercase tracking-wider">{title}</p>
-        <i className={`fa-solid ${icon} ${color} text-sm opacity-80`}></i>
+const TaskListCard = ({
+  title,
+  emptyLabel,
+  tasks,
+  accent,
+}: {
+  title: string;
+  emptyLabel: string;
+  tasks: PanoramaTaskItem[];
+  accent: 'red' | 'blue';
+}) => {
+  const accentStyles = accent === 'red' ? 'border-red-100 bg-red-50/60' : 'border-blue-100 bg-blue-50/60';
+
+  return (
+    <div className={`rounded-2xl border p-4 ${accentStyles}`}>
+      <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-500 mb-4">{title}</p>
+      <div className="space-y-3">
+        {tasks.length > 0 ? tasks.map((task) => <TaskSummaryItem key={task.id} task={task} />) : <EmptyState icon="fa-check-circle" label={emptyLabel} />}
+      </div>
     </div>
-    <h2 className="text-2xl font-bold text-slate-800 tracking-tight">{value}</h2>
+  );
+};
+
+const TaskSummaryItem = ({ task }: { task: PanoramaTaskItem }) => (
+  <div className="rounded-2xl bg-white border border-white px-4 py-3 shadow-sm">
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-sm font-black text-slate-900 truncate">{task.nombre}</p>
+        <p className="text-[11px] text-slate-500 truncate">
+          {task.clientName ? `${task.clientName} · ` : ''}{task.workspaceName}
+        </p>
+      </div>
+      <span className="text-[10px] font-black uppercase text-slate-400 whitespace-nowrap">{task.priority}</span>
+    </div>
+    <p className="text-[11px] text-slate-500 mt-3">Límite: {formatDateTime(task.dueDate)}</p>
+  </div>
+);
+
+const TaskFocusItem = ({ task }: { task: PanoramaTaskItem }) => (
+  <div className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-sm font-black text-slate-900 truncate">{task.nombre}</p>
+        <p className="text-[11px] text-slate-500 truncate">{task.clientName || task.workspaceName}</p>
+      </div>
+      <span className="text-[10px] font-black uppercase text-blue-600 whitespace-nowrap">{task.priority}</span>
+    </div>
+    <div className="flex items-center justify-between mt-3 text-[11px] text-slate-500">
+      <span>Progreso {task.progress}%</span>
+      <span>{formatDateTime(task.dueDate)}</span>
+    </div>
+  </div>
+);
+
+const CommitmentList = ({ items }: { items: PanoramaCommitmentItem[] }) => (
+  <div className="space-y-3">
+    {items.length > 0 ? items.map((item) => (
+      <div key={item.id} className="rounded-2xl border border-slate-100 bg-slate-50 px-4 py-3">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-sm font-black text-slate-900 truncate">{item.nombre}</p>
+            <p className="text-[11px] text-slate-500 truncate">{item.workspaceName} · {item.sourceLabel}</p>
+          </div>
+          <span className="text-[11px] font-bold text-slate-500 whitespace-nowrap">{formatDateTime(item.startDate)}</span>
+        </div>
+      </div>
+    )) : <EmptyState icon="fa-calendar-check" label="No hay compromisos próximos registrados." />}
+  </div>
+);
+
+const StatPill = ({ label, value }: { label: string; value: number }) => (
+  <div className="rounded-2xl border border-slate-200 bg-slate-50 px-3 py-3 text-center">
+    <p className="text-[10px] font-black uppercase tracking-[0.25em] text-slate-400">{label}</p>
+    <p className="text-lg font-black text-slate-900 mt-2">{value}</p>
+  </div>
+);
+
+const EmptyState = ({ icon, label }: { icon: string; label: string }) => (
+  <div className="rounded-2xl border border-dashed border-slate-200 bg-white px-4 py-6 text-center text-slate-400">
+    <i className={`fa-solid ${icon} text-xl mb-3`}></i>
+    <p className="text-xs font-bold">{label}</p>
   </div>
 );
 
