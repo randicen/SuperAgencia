@@ -202,7 +202,8 @@ const getLocalDateTimeString = (isoString: string): string => {
 export const runAutoScheduling = (projects: Project[], rules: BusinessRules, events: { nombre: string, startDate: string, endDate: string }[] = []): Project[] => {
   const sortedQueue = getSortedSchedulingQueue(projects);
   const updatedProjects = [...projects];
-  const anchors: { id: string, start: number, end: number, label: string }[] = [];
+  const baseAnchors: { id: string, start: number, end: number, label: string }[] = [];
+  const placedTaskAnchors = new Map<string, { id: string, start: number, end: number, label: string }[]>();
 
   // Helper local para parsear fechas respetando la zona horaria del usuario
   const parseLocal = (dateStr: string, endOfDay: boolean = false): number => {
@@ -248,27 +249,21 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
     return isNaN(fallback.getTime()) ? 0 : fallback.getTime();
   };
 
+  const getTaskExclusionIds = (project: Project) => project.temporalExclusionTaskIds || [];
+  const getRelevantAnchors = (project: Project) => [
+    ...baseAnchors,
+    ...getTaskExclusionIds(project).flatMap((taskId) => placedTaskAnchors.get(taskId) || [])
+  ];
+
   // 1. ANCLAS PRIMORDIALES: Eventos (Piedras inmovibles)
   events.forEach(e => {
     if (e.startDate && e.endDate) {
-      anchors.push({
+      baseAnchors.push({
         id: `event-${e.nombre}-${e.startDate}`,
         start: parseLocal(e.startDate),
         end: parseLocal(e.endDate, true),
         label: `Evento: ${e.nombre}`
       });
-    }
-  });
-
-  // 2. Registrar anclas de Tareas (bloques manuales o completados)
-  projects.forEach(p => {
-    if (p.status !== 'completed' && !p.autoSchedule) {
-      (p.scheduledSlots || []).forEach(s => anchors.push({
-        id: p.id,
-        start: parseLocal(s.start),
-        end: parseLocal(s.end, true),
-        label: `Tarea: ${p.projectName}`
-      }));
     }
   });
 
@@ -296,7 +291,7 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
         const sEnd = parseLocal(slot.end, true);
 
         // Buscar solapamiento con anclas (excluyendo la propia tarea por ID)
-        const overlap = anchors.find(a =>
+        const overlap = getRelevantAnchors(project).find(a =>
           a.id !== project.id &&
           sStart < a.end && sEnd > a.start
         );
@@ -322,15 +317,12 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
         console.log(`[Scheduler] MANUAL task conflict: ${project.projectName} -> ${conflictDescription}`);
       }
 
-      // Si no tiene conflicto, registrar sus bloques como anclas para las siguientes tareas "Agua"
-      if (!conflictDescription) {
-        slots.forEach(s => anchors.push({
-          id: project.id,
-          start: parseLocal(s.start),
-          end: parseLocal(s.end, true),
-          label: `Tarea: ${project.projectName}`
-        }));
-      }
+      placedTaskAnchors.set(project.id, slots.map(s => ({
+        id: project.id,
+        start: parseLocal(s.start),
+        end: parseLocal(s.end, true),
+        label: `Tarea: ${project.projectName}`
+      })));
       continue;
     }
 
@@ -371,7 +363,7 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
 
       const pointerTime = searchPointer.getTime();
       // Filtrar anclas que NO sean la propia tarea
-      const validAnchors = anchors.filter(a => a.id !== project.id);
+      const validAnchors = getRelevantAnchors(project).filter(a => a.id !== project.id);
       const nextAnchor = validAnchors.filter(a => a.end > pointerTime).sort((a, b) => a.start - b.start)[0];
       let gap = 1440;
 
@@ -396,9 +388,6 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
         const allocated = Math.min(remainingMinutes, gap);
         const slotEnd = new Date(searchPointer.getTime() + allocated * 60 * 1000);
         slots.push({ id: Math.random().toString(36).substr(2, 9), start: searchPointer.toISOString(), end: slotEnd.toISOString(), isFragment: true });
-
-        // Registrar el avance en anclas para la siguiente tarea
-        anchors.push({ id: project.id, start: searchPointer.getTime(), end: slotEnd.getTime(), label: `Tarea: ${project.projectName}` });
 
         remainingMinutes -= allocated;
         searchPointer = new Date(slotEnd);
@@ -450,7 +439,7 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
       };
 
       // Determine: did any other task/event actually block us?
-      const blockingAnchors = anchors
+      const blockingAnchors = getRelevantAnchors(project)
         .filter(a => a.id !== project.id)
         .filter(a => {
           // Anchors that overlap with our scheduling window (startDate -> dueDate)
@@ -499,6 +488,13 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
       }
       console.log(`[Scheduler] AUTO task conflict: ${project.projectName} -> ${conflictDescription}`, { remainingMinutes, endAfterDue });
     }
+
+    placedTaskAnchors.set(project.id, slots.map(slot => ({
+      id: project.id,
+      start: parseLocal(slot.start),
+      end: parseLocal(slot.end),
+      label: `Tarea: ${project.projectName}`
+    })));
 
     updatedProjects[idx] = { ...updatedProjects[idx], scheduledSlots: slots, startDate: calculatedStart, endDate: calculatedEnd, hasConflict, conflictDescription };
   }

@@ -7,6 +7,8 @@ import { getPriorityBadgeStyle, getFormattedSlack } from '../utils/schedulingUti
 import { getFormattedSlack as getFormattedSlackProject, runAutoScheduling } from '../utils/schedulingLogic';
 import GanttChartView from './GanttChartView';
 import SettingsView from './SettingsView';
+import TaskCompatibilityReviewModal from './TaskCompatibilityReviewModal';
+import { extractTaskCompatibilityCandidates, suggestTemporalExclusions, TaskCompatibilitySuggestion } from '../services/taskCompatibilityAdvisor';
 
 // Helper: Calculate financial progress from installments
 const getFinancialProgress = (task: SpaceTask): number => {
@@ -17,6 +19,12 @@ const getFinancialProgress = (task: SpaceTask): number => {
 
 type ViewMode = 'lista' | 'kanban' | 'gantt' | 'calendar' | 'settings';
 type GroupBy = 'estado' | 'prioridad' | 'fecha';
+type TaskDraft = Omit<SpaceTask, 'orden'>;
+type TaskContainerLocation = { spaceId: string; listId: string; folderId?: string; list?: SpaceList };
+type CompatibilityReviewState =
+    | { mode: 'create'; task: TaskDraft; suggestions: TaskCompatibilitySuggestion[]; selectedIds: string[] }
+    | { mode: 'edit'; task: SpaceTask; container: TaskContainerLocation; suggestions: TaskCompatibilitySuggestion[]; selectedIds: string[] }
+    | null;
 
 // Translation maps for UI labels
 const STATUS_LABELS: Record<TaskStatus, string> = {
@@ -99,6 +107,7 @@ const getDefaultTask = (): Omit<SpaceTask, 'id' | 'orden'> => ({
     nombre: '',
     estado: 'TODO',
     progress: 0,
+    temporalExclusionTaskIds: [],
     autoSchedule: true,
     startDate: '',
     endDate: '', // Empty by default
@@ -1243,6 +1252,8 @@ const SpacesView: React.FC<SpacesViewProps> = ({
     const [showWorkHoursQuickfix, setShowWorkHoursQuickfix] = useState(false);
     const [tempWorkStart, setTempWorkStart] = useState(state.rules.workingHoursStart);
     const [tempWorkEnd, setTempWorkEnd] = useState(state.rules.workingHoursEnd);
+    const [compatibilityReview, setCompatibilityReview] = useState<CompatibilityReviewState>(null);
+    const [isAnalyzingCompatibility, setIsAnalyzingCompatibility] = useState(false);
 
     // CLIENTS STATE (read from localStorage, synced with App.tsx)
     const [clients, setClients] = useState<Client[]>(() => {
@@ -1437,11 +1448,219 @@ const SpacesView: React.FC<SpacesViewProps> = ({
         return null;
     };
 
+    const getWorkspaceTaskLocations = useCallback(() => {
+        return getAllTasks(state).filter(item => item.workspaceId === activeWorkspace.id);
+    }, [state, activeWorkspace.id]);
+
+    const findTaskContainerInWorkspace = useCallback((taskId: string): TaskContainerLocation | null => {
+        const match = getWorkspaceTaskLocations().find(item => item.task.id === taskId);
+        if (!match) return null;
+        return {
+            spaceId: match.spaceId,
+            folderId: match.folderId,
+            listId: match.listId,
+        };
+    }, [getWorkspaceTaskLocations]);
+
+    const getLinkedTaskNames = useCallback((taskIds: string[] = []) => {
+        const byId = new Map(getWorkspaceTaskLocations().map(item => [item.task.id, item.task]));
+        return taskIds
+            .map(taskId => byId.get(taskId))
+            .filter((task): task is SpaceTask => Boolean(task));
+    }, [getWorkspaceTaskLocations]);
+
+    const syncTemporalExclusions = useCallback((savedTask: SpaceTask, selectedIds: string[]) => {
+        const desiredIds = Array.from(new Set(selectedIds.filter(taskId => taskId !== savedTask.id)));
+        const taskLocations = getWorkspaceTaskLocations();
+        const byId = new Map(taskLocations.map(item => [item.task.id, item]));
+
+        desiredIds.forEach(taskId => {
+            const related = byId.get(taskId);
+            if (!related) return;
+            const nextIds = Array.from(new Set([...(related.task.temporalExclusionTaskIds || []), savedTask.id]));
+            if (nextIds.length === (related.task.temporalExclusionTaskIds || []).length) return;
+
+            dispatch({
+                type: 'UPDATE_TASK',
+                payload: {
+                    spaceId: related.spaceId,
+                    folderId: related.folderId,
+                    listId: related.listId,
+                    task: { ...related.task, temporalExclusionTaskIds: nextIds }
+                }
+            });
+        });
+
+        taskLocations
+            .filter(item => item.task.temporalExclusionTaskIds?.includes(savedTask.id) && !desiredIds.includes(item.task.id))
+            .forEach(item => {
+                dispatch({
+                    type: 'UPDATE_TASK',
+                    payload: {
+                        spaceId: item.spaceId,
+                        folderId: item.folderId,
+                        listId: item.listId,
+                        task: {
+                            ...item.task,
+                            temporalExclusionTaskIds: (item.task.temporalExclusionTaskIds || []).filter(id => id !== savedTask.id)
+                        }
+                    }
+                });
+            });
+    }, [dispatch, getWorkspaceTaskLocations]);
+
+    const analyzeTaskCompatibility = useCallback(async (task: TaskDraft) => {
+        const existingTasks = extractTaskCompatibilityCandidates(
+            getWorkspaceTaskLocations()
+                .filter(item => item.task.id !== task.id && item.task.estado !== 'DONE')
+                .map(item => item.task)
+        );
+
+        return suggestTemporalExclusions({
+            id: task.id,
+            nombre: task.nombre,
+            clientName: task.clientName,
+            autoSchedule: task.autoSchedule,
+            startDate: task.startDate,
+            endDate: task.endDate,
+            dueDate: task.dueDate,
+            priority: task.priority,
+            description: task.description,
+        }, existingTasks);
+    }, [getWorkspaceTaskLocations]);
+
+    const toggleCompatibilitySelection = (taskId: string) => {
+        setCompatibilityReview(prev => {
+            if (!prev) return prev;
+            return {
+                ...prev,
+                selectedIds: prev.selectedIds.includes(taskId)
+                    ? prev.selectedIds.filter(id => id !== taskId)
+                    : [...prev.selectedIds, taskId]
+            };
+        });
+    };
+
+    const finalizeTaskCreate = useCallback((task: TaskDraft, selectedIds: string[]) => {
+        if (!state.activeSpaceId || !state.activeListId) return;
+
+        const savedTask: SpaceTask = {
+            ...task,
+            temporalExclusionTaskIds: Array.from(new Set(selectedIds.filter(taskId => taskId !== task.id))),
+            orden: Date.now(),
+        };
+
+        dispatch({
+            type: 'ADD_TASK',
+            payload: {
+                spaceId: state.activeSpaceId,
+                folderId: state.activeFolderId || undefined,
+                listId: state.activeListId,
+                task: savedTask,
+            },
+        });
+
+        syncTemporalExclusions(savedTask, savedTask.temporalExclusionTaskIds || []);
+        setCompatibilityReview(null);
+        setIsAnalyzingCompatibility(false);
+        setNewTask(getDefaultTask());
+        setShowModal(false);
+    }, [dispatch, state.activeFolderId, state.activeListId, state.activeSpaceId, syncTemporalExclusions]);
+
+    const finalizeTaskUpdate = useCallback((task: SpaceTask, container: TaskContainerLocation, selectedIds: string[]) => {
+        const savedTask: SpaceTask = {
+            ...task,
+            temporalExclusionTaskIds: Array.from(new Set(selectedIds.filter(taskId => taskId !== task.id))),
+        };
+
+        dispatch({
+            type: 'UPDATE_TASK',
+            payload: {
+                spaceId: container.spaceId,
+                folderId: container.folderId,
+                listId: container.listId,
+                task: savedTask,
+            },
+        });
+
+        syncTemporalExclusions(savedTask, savedTask.temporalExclusionTaskIds || []);
+        setCompatibilityReview(null);
+        setIsAnalyzingCompatibility(false);
+        setEditingTask(null);
+    }, [dispatch, syncTemporalExclusions]);
+
+    const reviewTaskCompatibility = useCallback(async (
+        mode: 'create' | 'edit',
+        task: TaskDraft,
+        container?: TaskContainerLocation | null
+    ) => {
+        const linkedTasks = getLinkedTaskNames(task.temporalExclusionTaskIds || []);
+
+        setIsAnalyzingCompatibility(true);
+        try {
+            const aiSuggestions = await analyzeTaskCompatibility(task);
+            const mergedSuggestions = new Map<string, TaskCompatibilitySuggestion>();
+
+            linkedTasks.forEach((linkedTask) => {
+                mergedSuggestions.set(linkedTask.id, {
+                    taskId: linkedTask.id,
+                    taskName: linkedTask.nombre,
+                    reason: 'Ya estaba marcada como excluyente para esta tarea.',
+                });
+            });
+
+            aiSuggestions.forEach((suggestion) => {
+                if (!mergedSuggestions.has(suggestion.taskId)) {
+                    mergedSuggestions.set(suggestion.taskId, suggestion);
+                }
+            });
+
+            const mergedSuggestionList = Array.from(mergedSuggestions.values());
+            const initialSelection = Array.from(new Set([
+                ...(task.temporalExclusionTaskIds || []),
+                ...aiSuggestions.map(suggestion => suggestion.taskId),
+            ]));
+
+            if (mergedSuggestionList.length === 0) {
+                if (mode === 'create') {
+                    finalizeTaskCreate(task, task.temporalExclusionTaskIds || []);
+                } else if (container) {
+                    finalizeTaskUpdate(task as SpaceTask, container, task.temporalExclusionTaskIds || []);
+                }
+                return;
+            }
+
+            setCompatibilityReview(
+                mode === 'create'
+                    ? { mode, task, suggestions: mergedSuggestionList, selectedIds: initialSelection }
+                    : { mode, task: task as SpaceTask, container: container!, suggestions: mergedSuggestionList, selectedIds: initialSelection }
+            );
+        } catch (error) {
+            console.warn('Compatibility review failed, saving without new exclusions:', error);
+            if (mode === 'create') {
+                finalizeTaskCreate(task, task.temporalExclusionTaskIds || []);
+            } else if (container) {
+                finalizeTaskUpdate(task as SpaceTask, container, task.temporalExclusionTaskIds || []);
+            }
+        } finally {
+            setIsAnalyzingCompatibility(false);
+        }
+    }, [analyzeTaskCompatibility, finalizeTaskCreate, finalizeTaskUpdate, getLinkedTaskNames]);
+
     const handleAddTask = () => {
         if (blockWritesIfNeeded()) return;
         if (!newTask.nombre.trim() || !state.activeSpaceId || !state.activeListId) return;
 
-        let finalTask = { ...newTask, nombre: newTask.nombre.trim() };
+        const generatedId = typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function'
+            ? crypto.randomUUID()
+            : Math.random().toString(36).slice(2, 11);
+
+        let finalTask: TaskDraft = {
+            ...newTask,
+            id: generatedId,
+            nombre: newTask.nombre.trim(),
+            temporalExclusionTaskIds: newTask.temporalExclusionTaskIds || [],
+        };
 
         // AUTO-SYNC for Manual Mode
         if (!finalTask.autoSchedule) {
@@ -1461,17 +1680,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({
             }];
         }
 
-        dispatch({
-            type: 'ADD_TASK',
-            payload: {
-                spaceId: state.activeSpaceId,
-                folderId: state.activeFolderId || undefined,
-                listId: state.activeListId,
-                task: { ...finalTask, startDate: finalStartDate },
-            },
-        });
-        setNewTask(getDefaultTask());
-        setShowModal(false);
+        reviewTaskCompatibility('create', { ...finalTask, startDate: finalStartDate });
     };
 
     const handleUpdateTask = (): boolean => {
@@ -1544,7 +1753,10 @@ const SpacesView: React.FC<SpacesViewProps> = ({
             }
         }
 
-        let finalTask = { ...editingTask };
+        let finalTask: SpaceTask = {
+            ...editingTask,
+            temporalExclusionTaskIds: editingTask.temporalExclusionTaskIds || [],
+        };
 
         // AUTO-SYNC for Manual Mode
         if (!finalTask.autoSchedule) {
@@ -1562,16 +1774,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({
             }
         }
 
-        dispatch({
-            type: 'UPDATE_TASK',
-            payload: {
-                spaceId: taskContainer.spaceId,
-                folderId: taskContainer.folderId,
-                listId: taskContainer.listId,
-                task: finalTask,
-            },
-        });
-        setEditingTask(null);
+        reviewTaskCompatibility('edit', finalTask, taskContainer);
         return true;
     };
 
@@ -2573,6 +2776,30 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                         </button>
                     </div>
                 </div>
+            )}
+
+            {compatibilityReview && (
+                <TaskCompatibilityReviewModal
+                    taskName={compatibilityReview.task.nombre}
+                    suggestions={compatibilityReview.suggestions}
+                    selectedIds={compatibilityReview.selectedIds}
+                    isLoading={isAnalyzingCompatibility}
+                    onToggle={toggleCompatibilitySelection}
+                    onSkip={() => {
+                        if (compatibilityReview.mode === 'create') {
+                            finalizeTaskCreate(compatibilityReview.task, []);
+                            return;
+                        }
+                        finalizeTaskUpdate(compatibilityReview.task, compatibilityReview.container, []);
+                    }}
+                    onConfirm={() => {
+                        if (compatibilityReview.mode === 'create') {
+                            finalizeTaskCreate(compatibilityReview.task, compatibilityReview.selectedIds);
+                            return;
+                        }
+                        finalizeTaskUpdate(compatibilityReview.task, compatibilityReview.container, compatibilityReview.selectedIds);
+                    }}
+                />
             )}
 
             {/* MODERN TOAST NOTIFICATION */}

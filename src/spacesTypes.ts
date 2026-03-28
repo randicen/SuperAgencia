@@ -19,6 +19,7 @@ export interface SpaceTask {
     orden: number;
     progress: number;
     startedAt?: string;
+    temporalExclusionTaskIds?: string[];
     // SCHEDULING
     autoSchedule: boolean;
     startDate: string;
@@ -125,7 +126,7 @@ export type SpacesAction =
     | { type: 'DELETE_LIST'; payload: { spaceId: string; folderId?: string; listId: string } }
     | { type: 'RENAME_LIST'; payload: { spaceId: string; folderId?: string; listId: string; nombre: string } }
     | { type: 'MOVE_LIST'; payload: { spaceId: string; listId: string; sourceFolderId?: string; targetFolderId: string } }
-    | { type: 'ADD_TASK'; payload: { spaceId: string; folderId?: string; listId: string; task: Omit<SpaceTask, 'id' | 'orden'> } }
+    | { type: 'ADD_TASK'; payload: { spaceId: string; folderId?: string; listId: string; task: Omit<SpaceTask, 'orden'> } }
     | { type: 'UPDATE_TASK'; payload: { spaceId: string; folderId?: string; listId: string; task: SpaceTask } }
     | { type: 'DELETE_TASK'; payload: { spaceId: string; folderId?: string; listId: string; taskId: string } }
     // EVENT ACTIONS

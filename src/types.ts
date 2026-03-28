@@ -34,6 +34,7 @@ export interface Project {
   clientName: string;
   projectName: string;
   startedAt?: string;
+  temporalExclusionTaskIds?: string[];
   startDate: string;
   endDate: string;
   priority: Priority;

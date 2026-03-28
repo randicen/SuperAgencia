@@ -140,6 +140,7 @@ const recalculateScheduling = (state: SpacesState): SpacesState => {
                 clientName: t.clientName || '',
                 projectName: t.nombre,
                 startedAt: t.startedAt,
+                temporalExclusionTaskIds: t.temporalExclusionTaskIds || [],
                 startDate: t.startDate || localToday,
                 endDate: t.endDate || localToday,
                 priority: t.priority === 'ASAP' ? Priority.ASAP : t.priority === 'High' ? Priority.HIGH : t.priority === 'Medium' ? Priority.MEDIUM : Priority.LOW,
@@ -230,6 +231,7 @@ const recalculateScheduling = (state: SpacesState): SpacesState => {
             // Always update conflict status (informational)
             newTask.hasConflict = p.hasConflict;
             newTask.conflictDescription = p.conflictDescription;
+            newTask.temporalExclusionTaskIds = p.temporalExclusionTaskIds || t.temporalExclusionTaskIds || [];
         }
 
         // 2. Process Children (Depth-First)
@@ -601,7 +603,7 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
             break;
         }
         case 'ADD_TASK': {
-            const newTask = stampTaskStartedAtRecursive({ ...action.payload.task, id: generateId(), orden: Date.now() });
+            const newTask = stampTaskStartedAtRecursive({ ...action.payload.task, id: action.payload.task.id || generateId(), orden: Date.now() });
             const updateList = (l: SpaceList) => l.id === action.payload.listId ? { ...l, tareas: [...l.tareas, newTask] } : l;
             updatedEspacios = updatedEspacios.map(s => {
                 if (s.id !== action.payload.spaceId) return s;
