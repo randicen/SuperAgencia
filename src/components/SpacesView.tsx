@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
 import { useSpaces, getAllTasks } from '../contexts/SpacesContext';
 import { Space, SpaceFolder, SpaceList, SpaceTask, SpaceEvent, TaskPriority, TaskStatus, DeadlineType } from '../spacesTypes';
 import { Client } from '../types';
@@ -1217,9 +1217,17 @@ const ClientSelector: React.FC<{
 
 interface SpacesViewProps {
     onOpenTree?: () => void;
+    writesLocked?: boolean;
+    writeLockReason?: string | null;
+    isHydrating?: boolean;
 }
 
-const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
+const SpacesView: React.FC<SpacesViewProps> = ({
+    onOpenTree,
+    writesLocked = false,
+    writeLockReason = null,
+    isHydrating = false,
+}) => {
     const { state, dispatch } = useSpaces();
     const [viewMode, setViewMode] = useState<ViewMode>('lista');
     const [showModal, setShowModal] = useState(false);
@@ -1292,6 +1300,15 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
             return () => clearTimeout(timer);
         }
     }, [notification]);
+
+    const blockWritesIfNeeded = useCallback(() => {
+        if (!writesLocked) return false;
+        setNotification({
+            message: writeLockReason || 'Sincronizando tareas con la nube antes de permitir cambios.',
+            type: 'error'
+        });
+        return true;
+    }, [writeLockReason, writesLocked]);
 
     // LIVE PREVIEW: Recalculate scheduledSlots when user changes scheduling fields
     useEffect(() => {
@@ -1421,6 +1438,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
     };
 
     const handleAddTask = () => {
+        if (blockWritesIfNeeded()) return;
         if (!newTask.nombre.trim() || !state.activeSpaceId || !state.activeListId) return;
 
         let finalTask = { ...newTask, nombre: newTask.nombre.trim() };
@@ -1457,6 +1475,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
     };
 
     const handleUpdateTask = (): boolean => {
+        if (blockWritesIfNeeded()) return false;
         if (!editingTask || !state.activeSpaceId) return;
 
         const taskContainer = findTaskContainer(editingTask.id);
@@ -1557,6 +1576,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
     };
 
     const handleToggleTask = (taskId: string, forceAction?: 'RESOLVE_ALL' | 'IGNORE' | 'CANCEL') => {
+        if (blockWritesIfNeeded()) return;
         if (!state.activeSpaceId || !activeWorkspace) return;
 
         let foundListId: string | null = null;
@@ -1682,6 +1702,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
     };
 
     const handleDeleteTask = (taskId: string) => {
+        if (blockWritesIfNeeded()) return;
         if (!state.activeSpaceId) return;
 
         let foundListId = state.activeListId;
@@ -1713,6 +1734,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
 
     // EVENT HANDLERS
     const handleAddEvent = () => {
+        if (blockWritesIfNeeded()) return;
         if (!newEvent.nombre.trim() || !state.activeSpaceId || !state.activeListId) {
             alert('Debes seleccionar una lista específica en el panel izquierdo para crear eventos.');
             return;
@@ -1770,6 +1792,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
     };
 
     const handleDeleteEvent = (eventId: string) => {
+        if (blockWritesIfNeeded()) return;
         if (!state.activeSpaceId) return;
 
         let foundListId = state.activeListId;
@@ -1799,6 +1822,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
     };
 
     const openEditModal = (task: SpaceTask) => {
+        if (blockWritesIfNeeded()) return;
         // Find parent task to ensure validation uses correct data
         const findParentTask = (tasks: SpaceTask[], childId: string): SpaceTask | null => {
             for (const t of tasks) {
@@ -1837,10 +1861,14 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
             <div className="flex-1 flex items-center justify-center bg-[#F4F5F8]">
                 <div className="text-center max-w-sm p-8">
                     <div className="w-16 h-16 bg-slate-200 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                        <i className="fa-solid fa-hand-pointer text-2xl text-slate-400"></i>
+                        <i className={`fa-solid ${isHydrating ? 'fa-arrows-rotate animate-spin' : 'fa-hand-pointer'} text-2xl text-slate-400`}></i>
                     </div>
-                    <h3 className="text-lg font-bold text-slate-700 mb-2">Selecciona un Espacio</h3>
-                    <p className="text-xs text-slate-500">Haz clic en un espacio, carpeta o lista para visualizar sus tareas.</p>
+                    <h3 className="text-lg font-bold text-slate-700 mb-2">{isHydrating ? 'Sincronizando tareas...' : 'Selecciona un Espacio'}</h3>
+                    <p className="text-xs text-slate-500">
+                        {isHydrating
+                            ? 'Leyendo la nube antes de permitir cambios en esta sesión.'
+                            : 'Haz clic en un espacio, carpeta o lista para visualizar sus tareas.'}
+                    </p>
                     <div className="mt-5 flex flex-col sm:flex-row gap-3 justify-center">
                         {spaces[0] && (
                             <button
@@ -1897,6 +1925,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
         () => filterCompletedTasks(tasks, showCompletedTasks),
         [tasks, showCompletedTasks]
     );
+    const writesLockedBannerText = writeLockReason || 'Sincronizando tareas con la nube antes de permitir cambios.';
 
     return (
         <div className="flex-1 flex flex-col bg-[#F4F5F8] overflow-hidden">
@@ -1921,7 +1950,14 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
                                 </span>
                             </div>
                         </div>
-                        <button onClick={() => dispatch({ type: 'SET_RULES_OVERRIDE', payload: null })} className="px-4 py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/40 text-amber-800 text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 border border-amber-300 hover:border-amber-400">
+                        <button
+                            onClick={() => {
+                                if (blockWritesIfNeeded()) return;
+                                dispatch({ type: 'SET_RULES_OVERRIDE', payload: null });
+                            }}
+                            disabled={writesLocked}
+                            className={`px-4 py-1.5 rounded-xl text-[9px] font-black uppercase tracking-wider transition-all flex items-center gap-1.5 border ${writesLocked ? 'bg-amber-100 text-amber-300 border-amber-200 cursor-not-allowed' : 'bg-amber-500/20 hover:bg-amber-500/40 text-amber-800 border-amber-300 hover:border-amber-400'}`}
+                        >
                             <i className="fa-solid fa-rotate-left text-[8px]"></i> Restaurar horario normal
                         </button>
                     </div>
@@ -2004,19 +2040,23 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
                     <div className="flex gap-2 justify-end">
                         <button
                             onClick={() => {
+                                if (blockWritesIfNeeded()) return;
                                 if (!activeList) { alert('Debes seleccionar una lista específica en el panel izquierdo para crear un evento.'); return; }
                                 setNewEvent({ nombre: '', startDate: '', endDate: '', description: '' }); setShowEventModal(true);
                             }}
-                            className="px-4 py-2 bg-orange-500 text-white rounded-xl text-[10px] font-black uppercase shadow-lg shadow-orange-200 hover:bg-orange-600 transition-colors"
+                            disabled={writesLocked}
+                            className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg transition-colors ${writesLocked ? 'bg-orange-300 text-white cursor-not-allowed shadow-none' : 'bg-orange-500 text-white shadow-orange-200 hover:bg-orange-600'}`}
                         >
                             <i className="fa-solid fa-calendar-plus mr-2"></i>Evento
                         </button>
                         <button
                             onClick={() => {
+                                if (blockWritesIfNeeded()) return;
                                 if (!activeList) { alert('Debes seleccionar una lista específica en el panel izquierdo para crear una tarea.'); return; }
                                 setNewTask(getDefaultTask()); setShowModal(true);
                             }}
-                            className="px-6 py-2 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase shadow-lg shadow-blue-200 hover:bg-blue-700 transition-colors"
+                            disabled={writesLocked}
+                            className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg transition-colors ${writesLocked ? 'bg-blue-300 text-white cursor-not-allowed shadow-none' : 'bg-blue-600 text-white shadow-blue-200 hover:bg-blue-700'}`}
                         >
                             <i className="fa-solid fa-plus mr-2"></i>Nueva Tarea
                         </button>
@@ -2027,10 +2067,26 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
             {/* Content area */}
             <div className="flex-1 overflow-y-auto p-3 md:p-6">
                 <div className="max-w-6xl mx-auto h-full">
-                    {viewMode === 'lista' && <ListaView tasks={displayTasks} rules={state.rules} groupBy={groupBy} onEditTask={openEditModal} onToggleTask={handleToggleTask} onDeleteTask={(t) => setTaskToDelete(t)} deletingTaskId={deletingTaskId} onAddTask={(defaults) => {
+                    {writesLocked && (
+                        <div className="mb-4 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900">
+                            <div className="flex items-start gap-3">
+                                <i className="fa-solid fa-lock mt-0.5"></i>
+                                <div>
+                                    <p className="font-black uppercase tracking-wide text-[10px]">Edición temporalmente bloqueada</p>
+                                    <p className="mt-1 leading-relaxed">{writesLockedBannerText}</p>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                    {viewMode === 'lista' && <ListaView tasks={displayTasks} rules={state.rules} groupBy={groupBy} onEditTask={openEditModal} onToggleTask={handleToggleTask} onDeleteTask={(t) => {
+                        if (blockWritesIfNeeded()) return;
+                        setTaskToDelete(t);
+                    }} deletingTaskId={deletingTaskId} onAddTask={(defaults) => {
+                        if (blockWritesIfNeeded()) return;
                         setNewTask({ ...getDefaultTask(), ...defaults });
                         setShowModal(true);
                     }} onAddSubtask={(p) => {
+                        if (blockWritesIfNeeded()) return;
                         const taskContainer = findTaskContainer(p.id);
                         if (!taskContainer) return;
                         // Quick-add subtask logic
@@ -2055,7 +2111,11 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
                         setEditingTask(subtask);
                     }}
                     />}
-                    {viewMode === 'kanban' && <KanbanView tasks={displayTasks} groupBy={groupBy} showCompletedTasks={showCompletedTasks} onEditTask={openEditModal} onDeleteTask={(t) => setTaskToDelete(t)} deletingTaskId={deletingTaskId} onUpdateTask={(id, updates) => {
+                    {viewMode === 'kanban' && <KanbanView tasks={displayTasks} groupBy={groupBy} showCompletedTasks={showCompletedTasks} onEditTask={openEditModal} onDeleteTask={(t) => {
+                        if (blockWritesIfNeeded()) return;
+                        setTaskToDelete(t);
+                    }} deletingTaskId={deletingTaskId} onUpdateTask={(id, updates) => {
+                        if (blockWritesIfNeeded()) return;
                         // FIX: Aggregated tasks update needs to locate the correct list of the task
                         const taskToUpdate = tasks.find(t => t.id === id);
                         if (!taskToUpdate) return;
@@ -2074,6 +2134,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
                     }} />}
                     {viewMode === 'gantt' && <GanttChartView tasks={displayTasks} rules={state.rules} groupBy={groupBy} onEditTask={openEditModal} />}
                     {viewMode === 'calendar' && <CalendarViewComponent tasks={displayTasks} events={events} rules={state.rules} onEditTask={openEditModal} onEditEvent={(e) => {
+                        if (blockWritesIfNeeded()) return;
                         setNewEvent({ ...e });
                         setShowEventModal(true);
                     }} />}
@@ -2170,7 +2231,14 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
 
                         <div className="flex gap-4 pt-4">
                             <button type="button" onClick={() => setShowModal(false)} className="flex-1 font-black text-slate-400 uppercase text-[10px]">Cerrar</button>
-                            <button type="button" onClick={handleAddTask} className="flex-1 py-4 bg-blue-600 text-white rounded-2xl font-black text-[10px] uppercase shadow-2xl tracking-widest">Crear Tarea</button>
+                            <button
+                                type="button"
+                                onClick={handleAddTask}
+                                disabled={writesLocked}
+                                className={`flex-1 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest ${writesLocked ? 'bg-blue-300 text-white cursor-not-allowed shadow-none' : 'bg-blue-600 text-white shadow-2xl'}`}
+                            >
+                                Crear Tarea
+                            </button>
                         </div>
                     </div>
                 </div>
@@ -2293,7 +2361,8 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
                                                             </div>
                                                             {!isValid && <p className="text-[9px] text-red-500 font-bold mt-2"><i className="fa-solid fa-triangle-exclamation mr-1"></i>El fin debe ser al menos 1h después del inicio.</p>}
                                                             <div className="flex items-center gap-2 mt-3">
-                                                                <button type="button" disabled={!isValid || !isChanged} onClick={() => {
+                                                                <button type="button" disabled={!isValid || !isChanged || writesLocked} onClick={() => {
+                                                                    if (blockWritesIfNeeded()) return;
                                                                     const endOfToday = new Date();
                                                                     endOfToday.setHours(23, 59, 59, 999);
                                                                     dispatch({
@@ -2304,7 +2373,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
                                                                         }
                                                                     });
                                                                     setShowWorkHoursQuickfix(false);
-                                                                }} className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${isValid && isChanged ? 'bg-amber-500 text-white shadow-lg shadow-amber-200 hover:bg-amber-600 cursor-pointer' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}>
+                                                                }} className={`flex-1 py-2 rounded-xl text-[9px] font-black uppercase tracking-widest transition-all ${isValid && isChanged && !writesLocked ? 'bg-amber-500 text-white shadow-lg shadow-amber-200 hover:bg-amber-600 cursor-pointer' : 'bg-slate-100 text-slate-400 cursor-not-allowed'}`}>
                                                                     <i className="fa-solid fa-check mr-1"></i> Aplicar solo hoy
                                                                 </button>
                                                                 <button type="button" onClick={() => setShowWorkHoursQuickfix(false)} className="px-3 py-2 rounded-xl text-[9px] font-black uppercase text-slate-400 hover:text-slate-600 hover:bg-slate-50 transition-colors">Cancelar</button>
@@ -2481,13 +2550,24 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
 
                         <div className="flex gap-4 pt-4">
                             <button type="button" onClick={() => setEditingTask(null)} className="flex-1 font-black text-slate-400 uppercase text-[10px]">Descartar</button>
-                            <button type="button" onClick={handleUpdateTask} className="flex-1 py-4 bg-slate-900 text-white rounded-2xl font-black text-[10px] uppercase shadow-xl">Guardar y Cerrar</button>
+                            <button
+                                type="button"
+                                onClick={handleUpdateTask}
+                                disabled={writesLocked}
+                                className={`flex-1 py-4 rounded-2xl font-black text-[10px] uppercase ${writesLocked ? 'bg-slate-300 text-white cursor-not-allowed shadow-none' : 'bg-slate-900 text-white shadow-xl'}`}
+                            >
+                                Guardar y Cerrar
+                            </button>
                         </div>
 
                         <button
                             type="button"
-                            onClick={() => { setTaskToDelete(editingTask); }}
-                            className="w-full py-3 rounded-2xl font-black text-[9px] uppercase text-red-400 hover:bg-red-50 transition-colors"
+                            onClick={() => {
+                                if (blockWritesIfNeeded()) return;
+                                setTaskToDelete(editingTask);
+                            }}
+                            disabled={writesLocked}
+                            className={`w-full py-3 rounded-2xl font-black text-[9px] uppercase transition-colors ${writesLocked ? 'text-red-200 cursor-not-allowed' : 'text-red-400 hover:bg-red-50'}`}
                         >
                             Eliminar Tarea
                         </button>
@@ -2541,6 +2621,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
                             </button>
                             <button
                                 onClick={() => {
+                                    if (blockWritesIfNeeded()) return;
                                     const id = taskToDelete.id;
                                     setDeletingTaskId(id);
                                     setTaskToDelete(null);
@@ -2552,7 +2633,8 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
                                         setDeletingTaskId(null);
                                     }, 400);
                                 }}
-                                className="flex-1 py-4 bg-red-500 text-white rounded-2xl font-black text-[10px] uppercase shadow-lg shadow-red-200 hover:bg-red-600 transition-colors"
+                                disabled={writesLocked}
+                                className={`flex-1 py-4 rounded-2xl font-black text-[10px] uppercase transition-colors ${writesLocked ? 'bg-red-200 text-white cursor-not-allowed shadow-none' : 'bg-red-500 text-white shadow-lg shadow-red-200 hover:bg-red-600'}`}
                             >
                                 Sí, Eliminar
                             </button>
@@ -2681,12 +2763,18 @@ const SpacesView: React.FC<SpacesViewProps> = ({ onOpenTree }) => {
                                 <button
                                     type="button"
                                     onClick={() => handleDeleteEvent((newEvent as any).id)}
-                                    className="px-6 py-4 bg-red-50 text-red-500 rounded-2xl font-black text-[10px] uppercase hover:bg-red-100 transition-colors"
+                                    disabled={writesLocked}
+                                    className={`px-6 py-4 rounded-2xl font-black text-[10px] uppercase transition-colors ${writesLocked ? 'bg-red-50 text-red-200 cursor-not-allowed' : 'bg-red-50 text-red-500 hover:bg-red-100'}`}
                                 >
                                     Eliminar
                                 </button>
                             )}
-                            <button type="button" onClick={handleAddEvent} className="flex-1 py-4 bg-orange-500 text-white rounded-2xl font-black text-[10px] uppercase shadow-2xl tracking-widest hover:bg-orange-600 transition-colors">
+                            <button
+                                type="button"
+                                onClick={handleAddEvent}
+                                disabled={writesLocked}
+                                className={`flex-1 py-4 rounded-2xl font-black text-[10px] uppercase tracking-widest transition-colors ${writesLocked ? 'bg-orange-300 text-white cursor-not-allowed shadow-none' : 'bg-orange-500 text-white shadow-2xl hover:bg-orange-600'}`}
+                            >
                                 {(newEvent as any).id ? 'Guardar Cambios' : 'Crear Evento'}
                             </button>
                         </div>

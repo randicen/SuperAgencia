@@ -59,12 +59,13 @@ interface LegacySpacesBackup {
 interface LocalSyncCache {
   base: SpacesSyncDataset;
   diagnostics: SpacesSyncDiagnostics;
+  buildId: string | null;
 }
 
 interface SpacesSyncCycleOptions {
   userId: string;
   currentLocalSpaces: any;
-  reason: SpacesSyncCycleReason;
+  currentBuildId?: string | null;
 }
 
 interface SpacesSyncCycleResult {
@@ -164,11 +165,19 @@ const readLocalCache = (): LocalSyncCache => {
       ...rawCache.diagnostics,
       deviceId: getOrCreateSpacesSyncDeviceId(),
     }),
+    buildId: typeof rawCache.buildId === 'string' ? rawCache.buildId : null,
   };
 };
 
 const writeLocalCache = (cache: LocalSyncCache) => {
   writeJson(CACHE_KEY, cache);
+};
+
+export const getSpacesSyncCacheMetadata = () => {
+  const cache = readLocalCache();
+  return {
+    buildId: cache.buildId,
+  };
 };
 
 export const getSpacesSyncDiagnostics = () => {
@@ -717,6 +726,33 @@ const repairNormalizedSnapshot = async (userId: string, currentLocalSpaces: any,
   };
 };
 
+const loadSpacesSnapshot = async (userId: string, currentLocalSpaces: any) => {
+  const diagnostics: Partial<SpacesSyncDiagnostics> = {};
+  let snapshot = await downloadSpacesSnapshot();
+  diagnostics.lastPull = new Date().toISOString();
+  diagnostics.lastRemote = snapshot.meta.updated_at || diagnostics.lastPull;
+  diagnostics.schemaVersion = snapshot.meta.schema_version;
+  diagnostics.snapshotVersion = snapshot.meta.snapshot_version;
+  diagnostics.repairStatus = snapshot.meta.status;
+
+  if (needsRepair(snapshot.meta)) {
+    diagnostics.mode = 'migrating';
+    const repaired = await repairNormalizedSnapshot(userId, currentLocalSpaces, snapshot);
+    snapshot = { dataset: repaired.dataset, meta: repaired.meta };
+    diagnostics.lastPush = repaired.appliedMeta.updated_at || new Date().toISOString();
+    diagnostics.lastPull = new Date().toISOString();
+    diagnostics.lastRemote = snapshot.meta.updated_at || diagnostics.lastPull;
+    diagnostics.schemaVersion = snapshot.meta.schema_version;
+    diagnostics.snapshotVersion = snapshot.meta.snapshot_version;
+    diagnostics.repairStatus = snapshot.meta.status;
+    diagnostics.migrationSource = repaired.migrationSource;
+  } else {
+    diagnostics.migrationSource = 'normalized';
+  }
+
+  return { snapshot, diagnostics };
+};
+
 export const getLocalPendingSpacesCount = (userId: string, currentLocalSpaces: any) => {
   const cache = readLocalCache();
   const currentDataset = buildCurrentDataset(userId, currentLocalSpaces);
@@ -732,7 +768,7 @@ export const getLocalPendingSpacesCount = (userId: string, currentLocalSpaces: a
   return countDatasetRows(pending);
 };
 
-export const runSpacesSyncCycle = async ({ userId, currentLocalSpaces, reason }: SpacesSyncCycleOptions): Promise<SpacesSyncCycleResult> => {
+export const runSpacesPullCycle = async ({ userId, currentLocalSpaces, currentBuildId }: SpacesSyncCycleOptions): Promise<SpacesSyncCycleResult> => {
   const cache = readLocalCache();
   const diagnostics: SpacesSyncDiagnostics = normalizeDiagnostics({
     ...cache.diagnostics,
@@ -742,27 +778,77 @@ export const runSpacesSyncCycle = async ({ userId, currentLocalSpaces, reason }:
   });
 
   try {
-    let snapshot = await downloadSpacesSnapshot();
-    diagnostics.lastPull = new Date().toISOString();
-    diagnostics.lastRemote = snapshot.meta.updated_at || diagnostics.lastPull;
-    diagnostics.schemaVersion = snapshot.meta.schema_version;
-    diagnostics.snapshotVersion = snapshot.meta.snapshot_version;
-    diagnostics.repairStatus = snapshot.meta.status;
+    const loaded = await loadSpacesSnapshot(userId, currentLocalSpaces);
+    const snapshot = loaded.snapshot;
+    Object.assign(diagnostics, loaded.diagnostics);
 
-    if (needsRepair(snapshot.meta)) {
-      diagnostics.mode = 'migrating';
-      const repaired = await repairNormalizedSnapshot(userId, currentLocalSpaces, snapshot);
-      snapshot = { dataset: repaired.dataset, meta: repaired.meta };
-      diagnostics.lastPush = repaired.appliedMeta.updated_at || new Date().toISOString();
-      diagnostics.lastPull = new Date().toISOString();
-      diagnostics.lastRemote = snapshot.meta.updated_at || diagnostics.lastPull;
-      diagnostics.schemaVersion = snapshot.meta.schema_version;
-      diagnostics.snapshotVersion = snapshot.meta.snapshot_version;
-      diagnostics.repairStatus = snapshot.meta.status;
-      diagnostics.migrationSource = repaired.migrationSource;
-    } else {
-      diagnostics.migrationSource = 'normalized';
-    }
+    const nextSpacesState = buildSpacesStateFromDataset(snapshot.dataset, currentLocalSpaces);
+    const nextDiagnostics: SpacesSyncDiagnostics = normalizeDiagnostics({
+      ...diagnostics,
+      mode: snapshot.meta.status === 'ready' ? 'live' : 'migrating',
+      pending: 0,
+      lastRemote: snapshot.meta.updated_at || diagnostics.lastPull,
+      lastError: snapshot.meta.last_error || null,
+    });
+
+    writeLocalCache({
+      base: snapshot.dataset,
+      diagnostics: nextDiagnostics,
+      buildId: currentBuildId || cache.buildId,
+    });
+
+    return {
+      nextSpacesState,
+      diagnostics: nextDiagnostics,
+      didUpload: false,
+    };
+  } catch (error: any) {
+    const nextDiagnostics: SpacesSyncDiagnostics = normalizeDiagnostics({
+      ...diagnostics,
+      mode: 'safe',
+      lastError: error?.message || 'No se pudo sincronizar Espacios.',
+      pending: getLocalPendingSpacesCount(userId, currentLocalSpaces),
+    });
+
+    writeLocalCache({
+      base: cache.base,
+      diagnostics: nextDiagnostics,
+      buildId: cache.buildId,
+    });
+
+    return {
+      nextSpacesState: {
+        ...(currentLocalSpaces || {}),
+        workspaces: Array.isArray(currentLocalSpaces?.workspaces) ? currentLocalSpaces.workspaces : [],
+        activeWorkspaceId: currentLocalSpaces?.activeWorkspaceId || null,
+        activeSpaceId: currentLocalSpaces?.activeSpaceId || null,
+        activeFolderId: currentLocalSpaces?.activeFolderId || null,
+        activeListId: currentLocalSpaces?.activeListId || null,
+        lastSelectionByWorkspace: currentLocalSpaces?.lastSelectionByWorkspace || {},
+        expandedIds: currentLocalSpaces?.expandedIds || [],
+        rules: currentLocalSpaces?.rules || DEFAULT_RULES,
+        gcalEvents: currentLocalSpaces?.gcalEvents || [],
+        rulesOverride: currentLocalSpaces?.rulesOverride || null,
+      } as SpacesState,
+      diagnostics: nextDiagnostics,
+      didUpload: false,
+    };
+  }
+};
+
+export const runSpacesPushCycle = async ({ userId, currentLocalSpaces, currentBuildId, reason }: SpacesSyncCycleOptions & { reason: SpacesSyncCycleReason }): Promise<SpacesSyncCycleResult> => {
+  const cache = readLocalCache();
+  const diagnostics: SpacesSyncDiagnostics = normalizeDiagnostics({
+    ...cache.diagnostics,
+    deviceId: getOrCreateSpacesSyncDeviceId(),
+    mode: 'live',
+    lastError: null,
+  });
+
+  try {
+    const loaded = await loadSpacesSnapshot(userId, currentLocalSpaces);
+    let snapshot = loaded.snapshot;
+    Object.assign(diagnostics, loaded.diagnostics);
 
     const currentDataset = buildCurrentDataset(userId, currentLocalSpaces);
     const nowIso = new Date().toISOString();
@@ -799,6 +885,7 @@ export const runSpacesSyncCycle = async ({ userId, currentLocalSpaces, reason }:
     writeLocalCache({
       base: snapshot.dataset,
       diagnostics: nextDiagnostics,
+      buildId: currentBuildId || cache.buildId,
     });
 
     return {
@@ -817,6 +904,7 @@ export const runSpacesSyncCycle = async ({ userId, currentLocalSpaces, reason }:
     writeLocalCache({
       base: cache.base,
       diagnostics: nextDiagnostics,
+      buildId: cache.buildId,
     });
 
     return {
@@ -838,3 +926,6 @@ export const runSpacesSyncCycle = async ({ userId, currentLocalSpaces, reason }:
     };
   }
 };
+
+export const runSpacesSyncCycle = async (options: SpacesSyncCycleOptions & { reason: SpacesSyncCycleReason }): Promise<SpacesSyncCycleResult> =>
+  runSpacesPushCycle(options);

@@ -22,7 +22,17 @@ import { mergeCloudSyncState, normalizeCloudSyncState } from './utils/cloudSyncM
 import { useAuth } from './contexts/AuthContext';
 import LoginView from './components/LoginView';
 import { useAgencyStore } from './stores/useAgencyStore';
-import { SpacesSyncDiagnostics, getLocalPendingSpacesCount, getOrCreateSpacesSyncDeviceId, getSpacesCloudLastModified, getSpacesSyncDiagnostics, runSpacesSyncCycle } from './utils/spacesSyncService';
+import {
+  SpacesSyncDiagnostics,
+  getLocalPendingSpacesCount,
+  getOrCreateSpacesSyncDeviceId,
+  getSpacesCloudLastModified,
+  getSpacesSyncCacheMetadata,
+  getSpacesSyncDiagnostics,
+  runSpacesPullCycle,
+  runSpacesPushCycle,
+} from './utils/spacesSyncService';
+import { resolveSpacesSyncExecutionMode, shouldLockSpacesWrites } from './utils/spacesSyncMode';
 
 const App: React.FC = () => {
   const { session, isLoading: isAuthLoading } = useAuth();
@@ -30,7 +40,7 @@ const App: React.FC = () => {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [isSpacesSidebarOpen, setIsSpacesSidebarOpen] = useState(false);
 
-  // Estado para el Briefing (Reporte de Situación)
+  // Estado para el Briefing (Reporte de SituaciÃƒÂ³n)
   const [showBriefing, setShowBriefing] = useState(false);
   const [briefingData, setBriefingData] = useState<{ overdue: Project[], upcoming: Project[], income: number } | null>(null);
 
@@ -61,11 +71,18 @@ const App: React.FC = () => {
   const [isLoadingCloud, setIsLoadingCloud] = useState(false);
   const [hasCheckedCloud, setHasCheckedCloud] = useState(false); // Bloqueo de seguridad
   const [debugMsg, setDebugMsg] = useState<string | null>(null); // DEBUG HUD
+  const [currentBuildId] = useState(() => __APP_BUILD_ID__);
+  const [cachedBuildId, setCachedBuildId] = useState<string | null>(() => getSpacesSyncCacheMetadata().buildId);
+  const [hasHydratedSpacesThisSession, setHasHydratedSpacesThisSession] = useState(false);
+  const [hasPendingPwaRefresh, setHasPendingPwaRefresh] = useState(false);
+  const [spacesWritesLocked, setSpacesWritesLocked] = useState(true);
+  const lastUploadedState = React.useRef('');
   const isInternalUpdate = React.useRef(false); // Ref para evitar bucles de subida tras descarga core
   const isRunningSpacesSync = React.useRef(false);
   const rerunSpacesSync = React.useRef(false);
   const spacesRefreshTimer = React.useRef<number | null>(null);
-  const lastUploadedState = React.useRef<string>(''); // Reflete el último estado guardado/descargado para evitar uploads redundantes
+  
+  const preHydrationBackupSaved = React.useRef(false);
 
 
 
@@ -87,7 +104,7 @@ const App: React.FC = () => {
   };
 
   const replicateToOtherTabs = (payload: string) => {
-    // Comunicar a otras pestañas que NO deben re-subir este estado específico
+    // Comunicar a otras pestaÃƒÂ±as que NO deben re-subir este estado especÃƒÂ­fico
     localStorage.setItem('coo_last_sync_fingerprint', payload);
     window.dispatchEvent(new StorageEvent('storage', {
       key: 'coo_last_sync_fingerprint',
@@ -104,12 +121,50 @@ const App: React.FC = () => {
     }
   };
 
+  const spacesBuildChangedSinceLastSnapshot = !!cachedBuildId && cachedBuildId !== currentBuildId;
+
+  const getSpacesWriteLockReason = useCallback(() => {
+    if (hasPendingPwaRefresh) return 'Actualiza la app instalada para volver a sincronizar tareas con seguridad.';
+    if (!hasHydratedSpacesThisSession && spacesBuildChangedSinceLastSnapshot) {
+      return 'Actualizando tareas tras una nueva versión antes de permitir cambios.';
+    }
+    if (!hasHydratedSpacesThisSession) return 'Sincronizando tareas con la nube antes de permitir cambios.';
+    return null;
+  }, [hasHydratedSpacesThisSession, hasPendingPwaRefresh, spacesBuildChangedSinceLastSnapshot]);
+
   const setUnsyncedLocalFlags = (hasUnsynced: boolean) => {
     const value = hasUnsynced ? '1' : '0';
     localStorage.setItem('coo_has_unsynced_local', value);
     localStorage.setItem('coo_has_unsynced_local_v2', value);
     localStorage.setItem('coo_has_unsynced_local_v3', value);
   };
+
+  useEffect(() => {
+    setSpacesWritesLocked(shouldLockSpacesWrites({
+      hasHydratedSpacesThisSession,
+      hasPendingPwaRefresh,
+    }));
+  }, [hasHydratedSpacesThisSession, hasPendingPwaRefresh]);
+
+  useEffect(() => {
+    window.__COO_SPACES_WRITES_LOCKED__ = spacesWritesLocked;
+    return () => {
+      window.__COO_SPACES_WRITES_LOCKED__ = false;
+    };
+  }, [spacesWritesLocked]);
+
+  useEffect(() => {
+    setCachedBuildId(getSpacesSyncCacheMetadata().buildId);
+  }, [hasHydratedSpacesThisSession]);
+
+  useEffect(() => {
+    if (session?.user?.id) return;
+    setHasHydratedSpacesThisSession(false);
+    setHasPendingPwaRefresh(false);
+    setCachedBuildId(null);
+    setSpacesWritesLocked(true);
+    preHydrationBackupSaved.current = false;
+  }, [session?.user?.id]);
 
   const buildCurrentLocalCloudState = () => {
     return {
@@ -191,7 +246,7 @@ const App: React.FC = () => {
 
     // --- SEGURIDAD: NO SUBIR SI EL CAMBIO VINO DE LA NUBE ---
     if (isInternalUpdate.current) {
-      console.log("ℹ️ Saltando subida: El cambio es una actualización interna (descarga).");
+      console.log("Ã¢â€žÂ¹Ã¯Â¸Â Saltando subida: El cambio es una actualizaciÃƒÂ³n interna (descarga).");
       return;
     }
 
@@ -200,13 +255,13 @@ const App: React.FC = () => {
     try {
       // --- SEGURIDAD: NO SUBIR SI NO HEMOS DESCARGADO PRIMERO ---
       if (!hasCheckedCloud) {
-        console.warn("Sincronización bloqueada: Aún no se ha verificado la nube. Verificando...");
+        console.warn("SincronizaciÃƒÂ³n bloqueada: AÃƒÂºn no se ha verificado la nube. Verificando...");
         await handleInitialDownload(true);
         setSyncStatus('idle'); // REPARADO: No se queda pegado
         return;
       }
 
-      // --- SEGURIDAD: PREVISIÓN DE SOBRESCRITURA (Conflict Resolution) ---
+      // --- SEGURIDAD: PREVISIÃƒâ€œN DE SOBRESCRITURA (Conflict Resolution) ---
       // Calculamos el lastModified real revisando todas las tablas sincronizadas.
       const { currentLocalState } = buildCurrentLocalCloudState();
       const lastSeenCloud = parseInt(localStorage.getItem('coo_last_cloud_mod') || '0');
@@ -225,11 +280,11 @@ const App: React.FC = () => {
           )
         : currentLocalState;
 
-      // --- SEGURIDAD ANTI-PING PONG: COMPARACIÓN PROFUNDA (Ignorando ruido temporal) ---
+      // --- SEGURIDAD ANTI-PING PONG: COMPARACIÃƒâ€œN PROFUNDA (Ignorando ruido temporal) ---
       // Ignoramos campos auto-generados que cambian cada minuto por el setInterval(runAutoScheduling)
       const compareString = buildComparableStateString(syncState);
       if (compareString === lastUploadedState.current) {
-        console.log("ℹ️ Saltando subida: Los datos locales base no han cambiado.");
+        console.log("Ã¢â€žÂ¹Ã¯Â¸Â Saltando subida: Los datos locales base no han cambiado.");
         setUnsyncedLocalFlags(false);
         setSyncStatus('synced');
         return;
@@ -259,7 +314,7 @@ const App: React.FC = () => {
 
       console.log("Intentando UPSERT relacional en Supabase...");
 
-      // ── FASE 2: Subida a tablas relacionales (reemplaza app_state_dump) ──
+      // Ã¢â€â‚¬Ã¢â€â‚¬ FASE 2: Subida a tablas relacionales (reemplaza app_state_dump) Ã¢â€â‚¬Ã¢â€â‚¬
       await uploadRelationalState(
         session!.user!.id,
         syncState.projects,
@@ -270,7 +325,7 @@ const App: React.FC = () => {
         syncState.chatSessions
       );
 
-      console.log("✅ CONFIRMADO: Estado sincronizado a tablas relacionales.");
+      console.log("Ã¢Å“â€¦ CONFIRMADO: Estado sincronizado a tablas relacionales.");
       lastUploadedState.current = compareString;
       replicateToOtherTabs(compareString);
       if (shouldMergeRemoteChanges) {
@@ -298,6 +353,12 @@ const App: React.FC = () => {
 
     const deviceId = getOrCreateSpacesSyncDeviceId();
     const currentLocalSpaces = readLocalSpacesState();
+    const executionMode = resolveSpacesSyncExecutionMode({
+      reason,
+      hasHydratedSpacesThisSession,
+      spacesWritesLocked,
+      hasPendingPwaRefresh,
+    });
 
     if (!navigator.onLine) {
       setSpacesSyncStatus('offline');
@@ -319,20 +380,37 @@ const App: React.FC = () => {
     setSpacesSyncStatus('syncing');
 
     try {
-      const result = await runSpacesSyncCycle({
-        userId: session.user.id,
-        currentLocalSpaces,
-        reason,
-      });
+      if (!hasHydratedSpacesThisSession && !preHydrationBackupSaved.current) {
+        localStorage.setItem('coo_spaces_pre_hydration_backup_v1', JSON.stringify(currentLocalSpaces || {}));
+        preHydrationBackupSaved.current = true;
+      }
+
+      const result = executionMode === 'push'
+        ? await runSpacesPushCycle({
+            userId: session.user.id,
+            currentLocalSpaces,
+            currentBuildId,
+            reason,
+          })
+        : await runSpacesPullCycle({
+            userId: session.user.id,
+            currentLocalSpaces,
+            currentBuildId,
+          });
 
       applyDownloadedSpacesState(result.nextSpacesState);
       setSpacesSyncDiagnostics({
         ...result.diagnostics,
         deviceId,
       });
+      const didHydrateFromRemote = result.diagnostics.mode !== 'safe' && !!result.diagnostics.lastPull;
+      setHasHydratedSpacesThisSession((previous) => previous || didHydrateFromRemote);
+      if (didHydrateFromRemote) {
+        setCachedBuildId(getSpacesSyncCacheMetadata().buildId);
+      }
       setSpacesSyncStatus(result.diagnostics.mode === 'safe' ? 'safe' : 'synced');
       if (reason !== 'remote-change') {
-        setDebugMsg(`Spaces sync ${result.didUpload ? 'push+pull' : 'pull'} · ${deviceId}`);
+        setDebugMsg(`Spaces sync ${executionMode === 'push' && result.didUpload ? 'push+pull' : 'pull'} · ${deviceId}`);
       }
     } catch (error: any) {
       console.error('Spaces sync error:', error);
@@ -349,11 +427,11 @@ const App: React.FC = () => {
       if (rerunSpacesSync.current) {
         rerunSpacesSync.current = false;
         window.setTimeout(() => {
-          handleSpacesSync('local-change');
+          handleSpacesSync(hasHydratedSpacesThisSession ? 'local-change' : 'bootstrap');
         }, 150);
       }
     }
-  }, [applyDownloadedSpacesState, session]);
+  }, [applyDownloadedSpacesState, currentBuildId, hasHydratedSpacesThisSession, hasPendingPwaRefresh, session, spacesWritesLocked]);
 
   // --- CLOUD DOWNLOAD LOGIC (INITIAL LOAD) ---
   const handleInitialDownload = useCallback(async (isSilent = false) => {
@@ -363,7 +441,7 @@ const App: React.FC = () => {
     }
 
     try {
-      // ── FASE 1: Descarga desde tablas relacionales (reemplaza app_state_dump) ──
+      // Ã¢â€â‚¬Ã¢â€â‚¬ FASE 1: Descarga desde tablas relacionales (reemplaza app_state_dump) Ã¢â€â‚¬Ã¢â€â‚¬
       const cloudState = await downloadRelationalState(session.user.id);
       const normalizedCloudState = normalizeCloudSyncState(cloudState);
       const cloudLastModified = await getCloudLastModified(session.user.id);
@@ -388,7 +466,7 @@ const App: React.FC = () => {
         isInternalUpdate.current = true;
         applyDownloadedCloudState(mergedState);
 
-        if (!isSilent) console.log("â˜ï¸ Cambios remotos fusionados con cambios locales pendientes.");
+        if (!isSilent) console.log("ÃƒÂ¢Ã‹Å“Ã‚ÂÃƒÂ¯Ã‚Â¸Ã‚Â Cambios remotos fusionados con cambios locales pendientes.");
 
         lastUploadedState.current = remoteComparable;
         localStorage.setItem('coo_last_local_mod', Date.now().toString());
@@ -407,9 +485,9 @@ const App: React.FC = () => {
 
         applyDownloadedCloudState(normalizedCloudState);
 
-        if (!isSilent) console.log("✅ Datos sincronizados desde tablas relacionales.");
+        if (!isSilent) console.log("Ã¢Å“â€¦ Datos sincronizados desde tablas relacionales.");
 
-        // Actualizar el estado fantasma de comparación ignorando el ruido temporal
+        // Actualizar el estado fantasma de comparaciÃƒÂ³n ignorando el ruido temporal
         lastUploadedState.current = remoteComparable;
         localStorage.setItem('coo_last_sync_fingerprint', lastUploadedState.current);
         localStorage.setItem('coo_last_local_mod', Date.now().toString());
@@ -421,11 +499,11 @@ const App: React.FC = () => {
         setTimeout(() => { isInternalUpdate.current = false; }, 2500);
 
       } else if (localHasMeaningfulChanges && !switchedUser) {
-        if (!isSilent) console.log("ℹ️ Hay cambios locales pendientes: conservando estado local y subiendo.");
+        if (!isSilent) console.log("Ã¢â€žÂ¹Ã¯Â¸Â Hay cambios locales pendientes: conservando estado local y subiendo.");
         localStorage.setItem('coo_last_user_id', session.user.id);
         setUnsyncedLocalFlags(true);
       } else {
-        if (!isSilent) console.log("⚠️ Usuario sin datos core en la nube: limpiando caché core de seguridad...");
+        if (!isSilent) console.log("Ã¢Å¡Â Ã¯Â¸Â Usuario sin datos core en la nube: limpiando cachÃƒÂ© core de seguridad...");
         setProjects([]);
         setClients([]);
         setTransactions([]);
@@ -457,7 +535,7 @@ const App: React.FC = () => {
     handleSpacesSync('bootstrap');
   }, [handleSpacesSync, session?.user?.id]);
 
-  // Monitorear conexión y suscripción Real-time
+  // Monitorear conexiÃƒÂ³n y suscripciÃƒÂ³n Real-time
   useEffect(() => {
     const handleOnline = () => {
       setIsOnline(true);
@@ -491,7 +569,7 @@ const App: React.FC = () => {
         .on('postgres_changes',
           { event: '*', schema: 'public', table: 'projects', filter: `user_id=eq.${session.user.id}` },
           () => {
-            console.log("☁️ Cambio en projects detectado en otro dispositivo, descargando...");
+            console.log("Ã¢ËœÂÃ¯Â¸Â Cambio en projects detectado en otro dispositivo, descargando...");
             scheduleCloudRefresh();
           }
         )
@@ -517,18 +595,18 @@ const App: React.FC = () => {
           const cloudLastModified = await getCloudLastModified(session.user.id);
           const lastSeenCloud = parseInt(localStorage.getItem('coo_last_cloud_mod') || '0');
           if (cloudLastModified > lastSeenCloud) {
-            console.log('Fallback polling detectó cambios remotos, refrescando...');
+            console.log('Fallback polling detectÃƒÂ³ cambios remotos, refrescando...');
             handleInitialDownload(true);
           }
         } catch (error) {
-          console.warn('Polling de fallback falló:', error);
+          console.warn('Polling de fallback fallÃƒÂ³:', error);
         }
       }, 15000);
     }
 
     const handleFingerprintSync = (e: StorageEvent) => {
       if (e.key === 'coo_last_sync_fingerprint' && e.newValue) {
-        console.log("📑 Sincronizando fingerprint con otra pestaña activa...");
+        console.log("Ã°Å¸â€œâ€˜ Sincronizando fingerprint con otra pestaÃƒÂ±a activa...");
         lastUploadedState.current = e.newValue;
       }
     };
@@ -577,7 +655,7 @@ const App: React.FC = () => {
           handleSpacesSync('remote-change');
         }
       } catch (error) {
-        console.warn('Polling de Espacios falló:', error);
+        console.warn('Polling de Espacios fallÃƒÂ³:', error);
       }
     }, 15000);
 
@@ -608,7 +686,7 @@ const App: React.FC = () => {
     };
   }, [projects, clients, transactions, rules, notes, chatSessions, isOnline, handleCloudSync]);
 
-  // Sincronización automática debounced
+  // SincronizaciÃƒÂ³n automÃƒÂ¡tica debounced
   useEffect(() => {
     const handleTriggerSync = () => {
       const currentLocalSpaces = readLocalSpacesState();
@@ -636,7 +714,7 @@ const App: React.FC = () => {
     };
     window.addEventListener('coo_spaces_updated', handleTriggerSync);
 
-    // Seguro: Sincronizar si el usuario cambia de pestaña o cierra la app
+    // Seguro: Sincronizar si el usuario cambia de pestaÃƒÂ±a o cierra la app
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden' && isOnline) {
         handleSpacesSync('manual');
@@ -656,7 +734,7 @@ const App: React.FC = () => {
 
   // --- HEARTBEAT & SYNC: LATIDO OPERATIVO ---
   useEffect(() => {
-    // 2. Detectar si hay diferencias críticas para el Briefing
+    // 2. Detectar si hay diferencias crÃƒÂ­ticas para el Briefing
     const sessionKey = sessionStorage.getItem('coo_session_active');
 
     if (!sessionKey) {
@@ -759,13 +837,13 @@ const App: React.FC = () => {
           }
         }
 
-        // --- SANITIZACIÓN Y MIGRACIÓN DE DATOS (AUTO-HEALING) ---
+        // --- SANITIZACIÃƒâ€œN Y MIGRACIÃƒâ€œN DE DATOS (AUTO-HEALING) ---
         // Esto asegura que backups viejos funcionen en versiones nuevas rellenando datos faltantes
 
         if (rawData.projects) {
           const migratedProjects = rawData.projects.map((p: any) => ({
             ...p,
-            // Rellenar campos que podrían no existir en backups viejos
+            // Rellenar campos que podrÃƒÂ­an no existir en backups viejos
             elasticity: p.elasticity !== undefined ? p.elasticity : 1, // Default Flexible
             autoSchedule: p.autoSchedule !== undefined ? p.autoSchedule : true, // Default Auto
             deadlineType: p.deadlineType || 'Soft Deadline',
@@ -784,15 +862,15 @@ const App: React.FC = () => {
           window.dispatchEvent(new Event('coo_cloud_data_received'));
         }
 
-        // Forzamos sincronización a la nube de todos los datos restaurados
+        // Forzamos sincronizaciÃƒÂ³n a la nube de todos los datos restaurados
         updateLastMod();
         handleCloudSync();
         handleSpacesSync('manual');
 
-        alert('✅ Datos restaurados y guardados en la nube.');
+        alert('Ã¢Å“â€¦ Datos restaurados y guardados en la nube.');
       } catch (error) {
         console.error(error);
-        alert('❌ Error al leer el archivo de respaldo. Asegúrate que sea un .json válido.');
+        alert('Ã¢ÂÅ’ Error al leer el archivo de respaldo. AsegÃƒÂºrate que sea un .json vÃƒÂ¡lido.');
       }
     };
     reader.readAsText(file);
@@ -806,6 +884,7 @@ const App: React.FC = () => {
   // Acciones globales migradas centralmente al stores/useAgencyStore
 
   const activeMessages = chatSessions.find(s => s.id === currentChatId)?.messages || [];
+  const spacesWriteLockReason = getSpacesWriteLockReason();
 
   if (isLoadingCloud || isAuthLoading) {
     return (
@@ -819,7 +898,7 @@ const App: React.FC = () => {
   }
 
   const handleSignOutWrapper = async () => {
-    // Al cerrar sesión, limpiamos la memoria pero JAMÁS usando .clear() global,
+    // Al cerrar sesiÃƒÂ³n, limpiamos la memoria pero JAMÃƒÂS usando .clear() global,
     // ya que eso destruye la persistencia necesaria para conectarse a Vercel/Supabase
     [
       'coo_spaces',
@@ -866,7 +945,7 @@ const App: React.FC = () => {
           {/* Topbar estilo App Nativa */}
           <header className="h-14 bg-white border-b border-gray-200 flex items-center justify-between px-4 md:px-6 shrink-0 z-20">
             <div className="flex items-center gap-2 md:gap-3 text-slate-500 text-sm font-medium">
-              {/* Botón Hamburguesa Móvil */}
+              {/* BotÃƒÂ³n Hamburguesa MÃƒÂ³vil */}
               <button
                 onClick={() => setIsMobileMenuOpen(true)}
                 className="md:hidden w-8 h-8 flex items-center justify-center text-slate-600 hover:bg-slate-100 rounded-lg"
@@ -883,7 +962,7 @@ const App: React.FC = () => {
             <div className="flex items-center gap-3 md:gap-4">
               <div className="flex items-center gap-2 px-3 py-1.5 bg-gray-50 rounded-md border border-gray-200 cursor-pointer hover:border-gray-300 transition-colors">
                 <div className="w-2 h-2 rounded-full bg-green-500"></div>
-                <span className="text-xs font-semibold text-slate-600 hidden md:inline">En línea</span>
+                <span className="text-xs font-semibold text-slate-600 hidden md:inline">En lÃƒÂ­nea</span>
               </div>
               <button className="w-8 h-8 flex items-center justify-center text-slate-400 hover:text-slate-600 hover:bg-gray-100 rounded-md transition-all">
                 <i className="fa-regular fa-bell"></i>
@@ -891,7 +970,7 @@ const App: React.FC = () => {
             </div>
           </header>
 
-          {/* Área de Contenido Principal */}
+          {/* ÃƒÂrea de Contenido Principal */}
           {activeTab === 'spaces' ? (
             <div className="flex-1 flex overflow-hidden relative">
               <div className="hidden md:block h-full">
@@ -906,7 +985,12 @@ const App: React.FC = () => {
               <div className={`md:hidden fixed inset-y-0 left-0 z-40 transition-transform duration-300 ${isSpacesSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
                 <SpacesSidebar onNavigate={() => setIsSpacesSidebarOpen(false)} />
               </div>
-              <SpacesView onOpenTree={() => setIsSpacesSidebarOpen(true)} />
+              <SpacesView
+                onOpenTree={() => setIsSpacesSidebarOpen(true)}
+                writesLocked={spacesWritesLocked}
+                writeLockReason={spacesWriteLockReason}
+                isHydrating={!hasHydratedSpacesThisSession}
+              />
             </div>
           ) : activeTab === 'agenda' ? (
             <div className="flex-1 overflow-hidden p-4 md:p-6 relative">
@@ -944,7 +1028,7 @@ const App: React.FC = () => {
           )}
         </main>
 
-        {/* MODAL DE BRIEFING (REPORTE DE SITUACIÓN) */}
+        {/* MODAL DE BRIEFING (REPORTE DE SITUACIÃƒâ€œN) */}
         {showBriefing && briefingData && (
           <div className="fixed inset-0 bg-slate-900/80 backdrop-blur-md z-[200] flex items-center justify-center p-4" onClick={() => setShowBriefing(false)}>
             <div className="bg-white w-full max-w-lg rounded-[2rem] p-8 shadow-2xl animate-in zoom-in-95 flex flex-col" onClick={e => e.stopPropagation()}>
@@ -953,7 +1037,7 @@ const App: React.FC = () => {
                   <i className="fa-solid fa-mug-hot"></i>
                 </div>
                 <div>
-                  <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Reporte de Situación</h3>
+                  <h3 className="text-2xl font-black text-slate-800 uppercase tracking-tighter">Reporte de SituaciÃƒÂ³n</h3>
                   <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Resumen de tu ausencia</p>
                 </div>
               </div>
@@ -963,7 +1047,7 @@ const App: React.FC = () => {
                   <div className="bg-red-50 p-4 rounded-2xl border border-red-100 flex items-start gap-3">
                     <i className="fa-solid fa-triangle-exclamation text-red-500 mt-1"></i>
                     <div>
-                      <h4 className="font-black text-red-900 text-sm uppercase">Atención Requerida</h4>
+                      <h4 className="font-black text-red-900 text-sm uppercase">AtenciÃƒÂ³n Requerida</h4>
                       <p className="text-xs text-red-700 leading-relaxed">
                         {briefingData.overdue.length} tarea(s) vencieron mientras no estabas.
                         <br />
@@ -982,7 +1066,7 @@ const App: React.FC = () => {
                   <div className="bg-blue-50 p-4 rounded-2xl border border-blue-100 flex items-start gap-3">
                     <i className="fa-solid fa-clock text-blue-500 mt-1"></i>
                     <div>
-                      <h4 className="font-black text-blue-900 text-sm uppercase">Próximos Vencimientos (48h)</h4>
+                      <h4 className="font-black text-blue-900 text-sm uppercase">PrÃƒÂ³ximos Vencimientos (48h)</h4>
                       <p className="text-xs text-blue-700">
                         {briefingData.upcoming.map(p => p.projectName).join(', ')}
                       </p>
@@ -1004,9 +1088,14 @@ const App: React.FC = () => {
         )}
 
       </div>
-      <PwaUpdateBanner />
+      <PwaUpdateBanner
+        onNeedRefreshChange={setHasPendingPwaRefresh}
+        writeLockReason={spacesWriteLockReason}
+      />
     </SpacesProvider >
   );
 };
 
 export default App;
+
+

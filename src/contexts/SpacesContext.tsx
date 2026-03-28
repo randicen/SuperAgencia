@@ -774,11 +774,17 @@ const NON_SYNCED_SPACES_ACTIONS = new Set<SpacesAction['type']>([
     'TOGGLE_EXPAND',
 ]);
 
+const isSpacesWriteLocked = () => typeof window !== 'undefined' && !!window.__COO_SPACES_WRITES_LOCKED__;
+
 export function SpacesProvider({ children }: { children: ReactNode }) {
     const [state, rawDispatch] = useReducer(spacesReducer, initialState);
     const shouldBroadcastPersistRef = useRef(false);
 
     const dispatch: React.Dispatch<SpacesAction> = (action) => {
+        if (!NON_SYNCED_SPACES_ACTIONS.has(action.type) && isSpacesWriteLocked()) {
+            shouldBroadcastPersistRef.current = false;
+            return;
+        }
         shouldBroadcastPersistRef.current = !NON_SYNCED_SPACES_ACTIONS.has(action.type);
         rawDispatch(action);
     };

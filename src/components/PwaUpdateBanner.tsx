@@ -1,12 +1,21 @@
 import React, { useEffect } from 'react';
 import { useRegisterSW } from 'virtual:pwa-register/react';
 
-const PwaUpdateBanner: React.FC = () => {
+interface PwaUpdateBannerProps {
+  onNeedRefreshChange?: (value: boolean) => void;
+  writeLockReason?: string | null;
+}
+
+const PwaUpdateBanner: React.FC<PwaUpdateBannerProps> = ({ onNeedRefreshChange, writeLockReason }) => {
   const {
-    needRefresh: [needRefresh, setNeedRefresh],
+    needRefresh: [needRefresh],
     offlineReady: [offlineReady, setOfflineReady],
-    updateServiceWorker
+    updateServiceWorker,
   } = useRegisterSW();
+
+  useEffect(() => {
+    onNeedRefreshChange?.(needRefresh);
+  }, [needRefresh, onNeedRefreshChange]);
 
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
@@ -21,17 +30,18 @@ const PwaUpdateBanner: React.FC = () => {
     };
 
     const checkOnVisible = () => {
-      if (document.visibilityState === 'visible') checkForUpdates();
+      if (document.visibilityState === 'visible') {
+        checkForUpdates();
+      }
     };
 
-    const bootTimer = window.setTimeout(checkForUpdates, 2000);
+    checkForUpdates();
     const intervalId = window.setInterval(checkForUpdates, 60 * 1000);
     window.addEventListener('focus', checkForUpdates);
     window.addEventListener('pageshow', checkForUpdates);
     document.addEventListener('visibilitychange', checkOnVisible);
 
     return () => {
-      window.clearTimeout(bootTimer);
       window.clearInterval(intervalId);
       window.removeEventListener('focus', checkForUpdates);
       window.removeEventListener('pageshow', checkForUpdates);
@@ -48,22 +58,19 @@ const PwaUpdateBanner: React.FC = () => {
           ? 'Hay una actualización de la app disponible.'
           : 'App lista para abrir sin internet. La sincronización con Supabase sigue activa cuando hay conexión.'}
       </p>
+      {needRefresh && (
+        <p className="mt-2 text-xs text-slate-500">
+          {writeLockReason || 'Actualiza la app para volver a editar tareas con seguridad.'}
+        </p>
+      )}
       <div className="mt-3 flex items-center gap-2">
         {needRefresh ? (
-          <>
-            <button
-              onClick={() => updateServiceWorker(true)}
-              className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-blue-700"
-            >
-              Actualizar ahora
-            </button>
-            <button
-              onClick={() => setNeedRefresh(false)}
-              className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold uppercase tracking-wide text-slate-600 hover:bg-slate-50"
-            >
-              Luego
-            </button>
-          </>
+          <button
+            onClick={() => updateServiceWorker(true)}
+            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-blue-700"
+          >
+            Actualizar ahora
+          </button>
         ) : (
           <button
             onClick={() => setOfflineReady(false)}
