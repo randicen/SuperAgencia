@@ -33,7 +33,7 @@ const TaskCompatibilityReviewModal: React.FC<TaskCompatibilityReviewModalProps> 
             <p className="text-[10px] font-black uppercase tracking-[0.25em] text-violet-500 mb-2">Hipótesis de compatibilidad</p>
             <h3 className="text-2xl font-black text-slate-900 tracking-tight">La IA detectó posibles choques temporales</h3>
             <p className="text-sm text-slate-500 mt-2">
-              Para <span className="font-bold text-slate-700">{taskName}</span>, estas tareas podrían requerir atención incompatible al mismo tiempo. Confirma solo las que quieras marcar como excluyentes.
+              Para <span className="font-bold text-slate-700">{taskName}</span>, estas tareas podrían requerir atención incompatible al mismo tiempo. La IA no las marca sola: confirma solo las que quieras guardar como excluyentes.
             </p>
           </div>
         </div>

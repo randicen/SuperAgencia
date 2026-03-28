@@ -8,6 +8,7 @@ import { getFormattedSlack as getFormattedSlackProject, runAutoScheduling } from
 import GanttChartView from './GanttChartView';
 import SettingsView from './SettingsView';
 import TaskCompatibilityReviewModal from './TaskCompatibilityReviewModal';
+import TaskCompatibilityPickerModal from './TaskCompatibilityPickerModal';
 import { extractTaskCompatibilityCandidates, suggestTemporalExclusions, TaskCompatibilitySuggestion } from '../services/taskCompatibilityAdvisor';
 
 // Helper: Calculate financial progress from installments
@@ -21,6 +22,7 @@ type ViewMode = 'lista' | 'kanban' | 'gantt' | 'calendar' | 'settings';
 type GroupBy = 'estado' | 'prioridad' | 'fecha';
 type TaskDraft = Omit<SpaceTask, 'orden'>;
 type TaskContainerLocation = { spaceId: string; listId: string; folderId?: string; list?: SpaceList };
+type CompatibilityPickerMode = 'create' | 'edit' | null;
 type CompatibilityReviewState =
     | { mode: 'create'; task: TaskDraft; suggestions: TaskCompatibilitySuggestion[]; selectedIds: string[] }
     | { mode: 'edit'; task: SpaceTask; container: TaskContainerLocation; suggestions: TaskCompatibilitySuggestion[]; selectedIds: string[] }
@@ -1252,6 +1254,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({
     const [showWorkHoursQuickfix, setShowWorkHoursQuickfix] = useState(false);
     const [tempWorkStart, setTempWorkStart] = useState(state.rules.workingHoursStart);
     const [tempWorkEnd, setTempWorkEnd] = useState(state.rules.workingHoursEnd);
+    const [compatibilityPickerMode, setCompatibilityPickerMode] = useState<CompatibilityPickerMode>(null);
     const [compatibilityReview, setCompatibilityReview] = useState<CompatibilityReviewState>(null);
     const [isAnalyzingCompatibility, setIsAnalyzingCompatibility] = useState(false);
 
@@ -1346,6 +1349,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                             clientName: src.clientName || '',
                             projectName: src.nombre,
                             startedAt: src.startedAt,
+                            temporalExclusionTaskIds: src.temporalExclusionTaskIds || [],
                             startDate: src.startDate || localToday,
                             endDate: src.endDate || localToday,
                             priority: src.priority === 'ASAP' ? 'ASAP' : src.priority === 'High' ? 'High' : src.priority === 'Medium' ? 'Medium' : 'Low',
@@ -1469,6 +1473,37 @@ const SpacesView: React.FC<SpacesViewProps> = ({
             .filter((task): task is SpaceTask => Boolean(task));
     }, [getWorkspaceTaskLocations]);
 
+    const getManualCompatibilityOptions = useCallback((currentTaskId?: string) => {
+        return getWorkspaceTaskLocations()
+            .filter(item => item.task.id !== currentTaskId && item.task.estado !== 'DONE')
+            .map(item => ({
+                id: item.task.id,
+                nombre: item.task.nombre,
+                clientName: item.task.clientName,
+            }))
+            .sort((a, b) => a.nombre.localeCompare(b.nombre, 'es'));
+    }, [getWorkspaceTaskLocations]);
+
+    const toggleManualCompatibility = useCallback((mode: 'create' | 'edit', taskId: string) => {
+        const toggleIds = (currentIds: string[] = []) =>
+            currentIds.includes(taskId)
+                ? currentIds.filter(id => id !== taskId)
+                : [...currentIds, taskId];
+
+        if (mode === 'create') {
+            setNewTask(prev => ({
+                ...prev,
+                temporalExclusionTaskIds: toggleIds(prev.temporalExclusionTaskIds || []),
+            }));
+            return;
+        }
+
+        setEditingTask(prev => prev ? {
+            ...prev,
+            temporalExclusionTaskIds: toggleIds(prev.temporalExclusionTaskIds || []),
+        } : prev);
+    }, []);
+
     const syncTemporalExclusions = useCallback((savedTask: SpaceTask, selectedIds: string[]) => {
         const desiredIds = Array.from(new Set(selectedIds.filter(taskId => taskId !== savedTask.id)));
         const taskLocations = getWorkspaceTaskLocations();
@@ -1561,6 +1596,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({
         });
 
         syncTemporalExclusions(savedTask, savedTask.temporalExclusionTaskIds || []);
+        setCompatibilityPickerMode(null);
         setCompatibilityReview(null);
         setIsAnalyzingCompatibility(false);
         setNewTask(getDefaultTask());
@@ -1584,6 +1620,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({
         });
 
         syncTemporalExclusions(savedTask, savedTask.temporalExclusionTaskIds || []);
+        setCompatibilityPickerMode(null);
         setCompatibilityReview(null);
         setIsAnalyzingCompatibility(false);
         setEditingTask(null);
@@ -1616,10 +1653,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({
             });
 
             const mergedSuggestionList = Array.from(mergedSuggestions.values());
-            const initialSelection = Array.from(new Set([
-                ...(task.temporalExclusionTaskIds || []),
-                ...aiSuggestions.map(suggestion => suggestion.taskId),
-            ]));
+            const initialSelection = Array.from(new Set(task.temporalExclusionTaskIds || []));
 
             if (mergedSuggestionList.length === 0) {
                 if (mode === 'create') {
@@ -1646,6 +1680,22 @@ const SpacesView: React.FC<SpacesViewProps> = ({
             setIsAnalyzingCompatibility(false);
         }
     }, [analyzeTaskCompatibility, finalizeTaskCreate, finalizeTaskUpdate, getLinkedTaskNames]);
+
+    const newTaskLinkedTasks = useMemo(
+        () => getLinkedTaskNames(newTask.temporalExclusionTaskIds || []),
+        [getLinkedTaskNames, newTask.temporalExclusionTaskIds]
+    );
+
+    const editingTaskLinkedTasks = useMemo(
+        () => getLinkedTaskNames(editingTask?.temporalExclusionTaskIds || []),
+        [editingTask?.temporalExclusionTaskIds, getLinkedTaskNames]
+    );
+
+    const compatibilityPickerTask = compatibilityPickerMode === 'create' ? newTask : editingTask;
+    const compatibilityPickerOptions = useMemo(
+        () => getManualCompatibilityOptions(compatibilityPickerTask?.id),
+        [compatibilityPickerTask?.id, getManualCompatibilityOptions]
+    );
 
     const handleAddTask = () => {
         if (blockWritesIfNeeded()) return;
@@ -2430,10 +2480,48 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                                 </div>
                                 <Input label="Valor Total ($)" type="number" value={newTask.totalValue} onChange={(v: string) => setNewTask({ ...newTask, totalValue: Number(v) })} />
                             </div>
+
+                            <div className="rounded-3xl border border-violet-100 bg-violet-50/70 p-5 space-y-4">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-violet-600">Incompatibilidades temporales</p>
+                                        <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                                            Por defecto esta tarea es compatible con las demás. Si quieres, puedes marcar choques manuales ahora; al guardar, la IA igual revisará si detecta otros posibles conflictos.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCompatibilityPickerMode('create')}
+                                        disabled={writesLocked}
+                                        className={`shrink-0 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${writesLocked ? 'bg-violet-200 text-white cursor-not-allowed' : 'bg-violet-600 text-white shadow-lg hover:bg-violet-700'}`}
+                                    >
+                                        Elegir manualmente
+                                    </button>
+                                </div>
+
+                                {newTaskLinkedTasks.length > 0 ? (
+                                    <div className="flex flex-wrap gap-2">
+                                        {newTaskLinkedTasks.map(task => (
+                                            <span key={task.id} className="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-violet-200 text-[10px] font-black text-violet-700 uppercase tracking-wide">
+                                                {task.nombre}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleManualCompatibility('create', task.id)}
+                                                    className="text-violet-400 hover:text-violet-700"
+                                                >
+                                                    <i className="fa-solid fa-xmark"></i>
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-[11px] font-bold text-slate-500">No has marcado incompatibilidades manuales todavía.</p>
+                                )}
+                            </div>
                         </div>
 
                         <div className="flex gap-4 pt-4">
-                            <button type="button" onClick={() => setShowModal(false)} className="flex-1 font-black text-slate-400 uppercase text-[10px]">Cerrar</button>
+                            <button type="button" onClick={() => { setCompatibilityPickerMode(null); setShowModal(false); }} className="flex-1 font-black text-slate-400 uppercase text-[10px]">Cerrar</button>
                             <button
                                 type="button"
                                 onClick={handleAddTask}
@@ -2721,6 +2809,44 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                                 <Input label="Valor Total ($)" type="number" value={editingTask.totalValue} onChange={(v: string) => setEditingTask({ ...editingTask, totalValue: Number(v) })} />
                             </div>
 
+                            <div className="rounded-3xl border border-violet-100 bg-violet-50/70 p-5 space-y-4">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase tracking-widest text-violet-600">Incompatibilidades temporales</p>
+                                        <p className="text-xs text-slate-600 mt-1 leading-relaxed">
+                                            Aquí puedes decidir manualmente qué tareas no deberían compartir tiempo con esta. Al guardar, la IA igual revisará el contexto y podrá sugerir otras para que tú las confirmes.
+                                        </p>
+                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={() => setCompatibilityPickerMode('edit')}
+                                        disabled={writesLocked}
+                                        className={`shrink-0 px-4 py-2 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${writesLocked ? 'bg-violet-200 text-white cursor-not-allowed' : 'bg-violet-600 text-white shadow-lg hover:bg-violet-700'}`}
+                                    >
+                                        Elegir manualmente
+                                    </button>
+                                </div>
+
+                                {editingTaskLinkedTasks.length > 0 ? (
+                                    <div className="flex flex-wrap gap-2">
+                                        {editingTaskLinkedTasks.map(task => (
+                                            <span key={task.id} className="inline-flex items-center gap-2 px-3 py-2 rounded-2xl bg-white border border-violet-200 text-[10px] font-black text-violet-700 uppercase tracking-wide">
+                                                {task.nombre}
+                                                <button
+                                                    type="button"
+                                                    onClick={() => toggleManualCompatibility('edit', task.id)}
+                                                    className="text-violet-400 hover:text-violet-700"
+                                                >
+                                                    <i className="fa-solid fa-xmark"></i>
+                                                </button>
+                                            </span>
+                                        ))}
+                                    </div>
+                                ) : (
+                                    <p className="text-[11px] font-bold text-slate-500">No has marcado incompatibilidades manuales todavía.</p>
+                                )}
+                            </div>
+
                             <div className="grid grid-cols-2 gap-4 pt-4 border-t border-slate-100">
                                 <ProgressInput
                                     progress={editingTask.progress}
@@ -2752,7 +2878,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                         </div>
 
                         <div className="flex gap-4 pt-4">
-                            <button type="button" onClick={() => setEditingTask(null)} className="flex-1 font-black text-slate-400 uppercase text-[10px]">Descartar</button>
+                            <button type="button" onClick={() => { setCompatibilityPickerMode(null); setEditingTask(null); }} className="flex-1 font-black text-slate-400 uppercase text-[10px]">Descartar</button>
                             <button
                                 type="button"
                                 onClick={handleUpdateTask}
@@ -2776,6 +2902,16 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                         </button>
                     </div>
                 </div>
+            )}
+
+            {compatibilityPickerMode && compatibilityPickerTask && (
+                <TaskCompatibilityPickerModal
+                    taskName={compatibilityPickerTask.nombre}
+                    options={compatibilityPickerOptions}
+                    selectedIds={compatibilityPickerTask.temporalExclusionTaskIds || []}
+                    onToggle={(taskId) => toggleManualCompatibility(compatibilityPickerMode, taskId)}
+                    onClose={() => setCompatibilityPickerMode(null)}
+                />
             )}
 
             {compatibilityReview && (
