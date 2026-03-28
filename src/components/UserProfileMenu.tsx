@@ -22,6 +22,7 @@ const UserProfileMenu: React.FC = () => {
             'coo_has_unsynced_local_v3',
             'coo_spaces_sync_device_id',
             'coo_spaces_sync_cache_v1',
+            'coo_spaces_sync_cache_v2',
             'coo_spaces_backup_local_pre_row_sync_v1',
             'coo_spaces_backup_legacy_remote_pre_row_sync_v1'
         ].forEach(k => localStorage.removeItem(k));

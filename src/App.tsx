@@ -22,7 +22,7 @@ import { mergeCloudSyncState, normalizeCloudSyncState } from './utils/cloudSyncM
 import { useAuth } from './contexts/AuthContext';
 import LoginView from './components/LoginView';
 import { useAgencyStore } from './stores/useAgencyStore';
-import { SpacesSyncDiagnostics, getLocalPendingSpacesCount, getOrCreateSpacesSyncDeviceId, getSpacesSyncDiagnostics, runSpacesSyncCycle } from './utils/spacesSyncService';
+import { SpacesSyncDiagnostics, getLocalPendingSpacesCount, getOrCreateSpacesSyncDeviceId, getSpacesCloudLastModified, getSpacesSyncDiagnostics, runSpacesSyncCycle } from './utils/spacesSyncService';
 
 const App: React.FC = () => {
   const { session, isLoading: isAuthLoading } = useAuth();
@@ -173,33 +173,6 @@ const App: React.FC = () => {
       toMs(chatSessionsRes.data?.[0]),
       toMs(rulesRes.data)
     );
-  }, []);
-
-  const getSpacesCloudLastModified = useCallback(async (userId: string): Promise<number> => {
-    const tableNames = ['space_workspaces', 'space_spaces', 'space_folders', 'space_lists', 'space_tasks', 'space_events'];
-    const responses = await Promise.all(
-      tableNames.map((tableName) =>
-        supabase
-          .from(tableName)
-          .select('updated_at, deleted_at')
-          .eq('user_id', userId)
-          .order('updated_at', { ascending: false })
-          .limit(1)
-      )
-    );
-
-    const firstError = responses.find((response) => response.error)?.error;
-    if (firstError) {
-      throw new Error(`[spaces sync] refresh check failed: ${firstError.message}`);
-    }
-
-    const toMs = (row: any) => {
-      const candidates = [row?.deleted_at, row?.updated_at].filter(Boolean);
-      if (!candidates.length) return 0;
-      return Math.max(...candidates.map((value: string) => new Date(value).getTime()));
-    };
-
-    return Math.max(...responses.map((response) => toMs(response.data?.[0])));
   }, []);
 
   const applyDownloadedSpacesState = useCallback((nextSpacesState: any) => {
@@ -577,24 +550,22 @@ const App: React.FC = () => {
     let spacesChannel: any;
     let spacesPollTimer: number | null = null;
     let spacesRealtimeTimer: number | null = null;
-    const tableNames = ['space_workspaces', 'space_spaces', 'space_folders', 'space_lists', 'space_tasks', 'space_events'];
 
     const scheduleSpacesRefresh = () => {
       if (spacesRealtimeTimer) window.clearTimeout(spacesRealtimeTimer);
       spacesRealtimeTimer = window.setTimeout(() => handleSpacesSync('remote-change'), 350);
     };
 
-    spacesChannel = supabase.channel(`spaces-db-changes-${session.user.id}`);
-    tableNames.forEach((tableName) => {
-      spacesChannel = spacesChannel.on(
+    spacesChannel = supabase
+      .channel(`spaces-sync-meta-${session.user.id}`)
+      .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: tableName, filter: `user_id=eq.${session.user.id}` },
+        { event: '*', schema: 'public', table: 'spaces_sync_meta', filter: `user_id=eq.${session.user.id}` },
         () => {
           scheduleSpacesRefresh();
         }
-      );
-    });
-    spacesChannel.subscribe();
+      )
+      .subscribe();
 
     spacesPollTimer = window.setInterval(async () => {
       if (document.visibilityState !== 'visible' || !navigator.onLine || !session?.user?.id) return;
@@ -614,7 +585,7 @@ const App: React.FC = () => {
       if (spacesPollTimer) window.clearInterval(spacesPollTimer);
       if (spacesChannel) spacesChannel.unsubscribe();
     };
-  }, [getSpacesCloudLastModified, handleSpacesSync, session, spacesSyncDiagnostics.lastRemote]);
+  }, [handleSpacesSync, session, spacesSyncDiagnostics.lastRemote]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

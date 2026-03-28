@@ -240,6 +240,7 @@ npx supabase db push
 # - supabase/migrations/20260321_gcal_tables.sql
 # - supabase/migrations/20260322_add_user_id_to_app_state_dump.sql
 # - supabase/migrations/20260327_normalize_spaces_sync.sql
+# - supabase/migrations/20260328_spaces_sync_atomic_fix.sql
   `;
     const workspaceMenuRef = useRef<HTMLDivElement>(null);
 
@@ -430,53 +431,32 @@ npx supabase db push
                         </div>
                     </div>
 
-                    {spacesSyncDiagnostics && (
-                        <div className="bg-[#1A1C23] rounded-md p-3 border border-[#2A2D35] space-y-2">
-                            <div className="flex items-center justify-between">
-                                <div className="flex items-center gap-2">
-                                    <div className={`w-2 h-2 rounded-full ${
-                                        spacesSyncStatus === 'syncing' ? 'bg-blue-400 animate-pulse' :
-                                        spacesSyncStatus === 'error' ? 'bg-red-400' :
-                                        spacesSyncStatus === 'safe' ? 'bg-amber-400' :
-                                        spacesSyncStatus === 'offline' ? 'bg-slate-500' :
-                                        'bg-emerald-400'
-                                    }`}></div>
-                                    <span className="text-[10px] font-bold text-slate-300 uppercase tracking-wider">Espacios Sync</span>
-                                </div>
-                                <span className={`text-[9px] font-black uppercase ${
-                                    spacesSyncDiagnostics.mode === 'live' ? 'text-emerald-400' :
-                                    spacesSyncDiagnostics.mode === 'migrating' ? 'text-blue-400' :
-                                    'text-amber-400'
-                                }`}>
-                                    {spacesModeLabel}
-                                </span>
-                            </div>
-                            <div className="grid grid-cols-2 gap-2 text-[9px]">
-                                <div className="bg-[#11131A] rounded-md px-2 py-1.5 border border-[#242833]">
-                                    <p className="text-slate-500 uppercase font-bold">Device</p>
-                                    <p className="text-slate-200 font-mono truncate">{spacesSyncDiagnostics.deviceId}</p>
-                                </div>
-                                <div className="bg-[#11131A] rounded-md px-2 py-1.5 border border-[#242833]">
-                                    <p className="text-slate-500 uppercase font-bold">Pendiente</p>
-                                    <p className="text-slate-200 font-mono">{spacesSyncDiagnostics.pending}</p>
-                                </div>
-                                <div className="bg-[#11131A] rounded-md px-2 py-1.5 border border-[#242833]">
-                                    <p className="text-slate-500 uppercase font-bold">Último pull</p>
-                                    <p className="text-slate-200 font-mono">{formatSyncStamp(spacesSyncDiagnostics.lastPull)}</p>
-                                </div>
-                                <div className="bg-[#11131A] rounded-md px-2 py-1.5 border border-[#242833]">
-                                    <p className="text-slate-500 uppercase font-bold">Último push</p>
-                                    <p className="text-slate-200 font-mono">{formatSyncStamp(spacesSyncDiagnostics.lastPush)}</p>
+                    {showSpacesSyncNotice && spacesSyncDiagnostics && (
+                        <div className={`rounded-md px-3 py-2 border ${
+                            spacesSyncDiagnostics.lastError
+                                ? 'bg-amber-500/10 border-amber-500/30'
+                                : 'bg-sky-500/10 border-sky-500/20'
+                        }`}>
+                            <div className="flex items-start gap-2">
+                                <i className={`fa-solid ${
+                                    spacesSyncDiagnostics.lastError ? 'fa-triangle-exclamation text-amber-300' : 'fa-arrows-rotate text-sky-300'
+                                } mt-0.5 text-[11px]`}></i>
+                                <div className="min-w-0">
+                                    <p className="text-[10px] font-black uppercase tracking-wider text-white">Sincronizaci?n de tareas</p>
+                                    <p className="text-[10px] leading-relaxed text-slate-300">
+                                        {spacesSyncDiagnostics.lastError
+                                            ? 'Estamos reparando la sincronizaci?n entre dispositivos.'
+                                            : spacesSyncDiagnostics.mode === 'migrating'
+                                                ? 'Reorganizando tareas en la nube para estabilizar el guardado.'
+                                                : 'La sincronizaci?n qued? en modo seguro temporalmente.'}
+                                    </p>
+                                    {spacesSyncDiagnostics.lastError && (
+                                        <p className="text-[9px] leading-relaxed text-amber-200/90 mt-1 break-words">
+                                            {spacesSyncDiagnostics.lastError}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
-                            <div className="flex items-center justify-between text-[9px] text-slate-400 font-mono">
-                                <span>Último remoto: {formatSyncStamp(spacesSyncDiagnostics.lastRemote)}</span>
-                            </div>
-                            {spacesSyncDiagnostics.lastError && (
-                                <p className="text-[9px] text-amber-300 leading-relaxed">
-                                    {spacesSyncDiagnostics.lastError}
-                                </p>
-                            )}
                         </div>
                     )}
 

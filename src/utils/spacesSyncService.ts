@@ -3,6 +3,8 @@ import { DEFAULT_RULES } from '../mockData';
 import { Space, SpaceEvent, SpaceFolder, SpaceList, SpacesState, SpaceTask, Workspace } from '../spacesTypes';
 
 type SpaceSyncMode = 'safe' | 'migrating' | 'live';
+type RepairStatus = 'needs_repair' | 'repairing' | 'ready' | 'error';
+type MigrationSource = 'normalized' | 'legacy_remote' | 'local_cache' | 'empty' | null;
 
 export interface SpacesSyncDiagnostics {
   mode: SpaceSyncMode;
@@ -12,7 +14,18 @@ export interface SpacesSyncDiagnostics {
   lastPush: string | null;
   lastRemote: string | null;
   lastError: string | null;
-  migrationSource: 'normalized' | 'legacy_remote' | 'local_cache' | 'empty' | null;
+  migrationSource: MigrationSource;
+  schemaVersion: number | null;
+  snapshotVersion: number | null;
+  repairStatus: RepairStatus | null;
+}
+
+interface SpacesSyncMeta {
+  schema_version: number;
+  snapshot_version: number;
+  status: RepairStatus;
+  updated_at: string | null;
+  last_error: string | null;
 }
 
 interface SyncRowBase {
@@ -96,8 +109,14 @@ interface SpacesSyncCycleResult {
   didUpload: boolean;
 }
 
+interface SpacesSnapshotResponse {
+  meta: SpacesSyncMeta;
+  dataset: SpacesSyncDataset;
+}
+
+const TARGET_SCHEMA_VERSION = 2;
 const DEVICE_ID_KEY = 'coo_spaces_sync_device_id';
-const CACHE_KEY = 'coo_spaces_sync_cache_v1';
+const CACHE_KEY = 'coo_spaces_sync_cache_v2';
 const LOCAL_BACKUP_KEY = 'coo_spaces_backup_local_pre_row_sync_v1';
 const LEGACY_BACKUP_KEY = 'coo_spaces_backup_legacy_remote_pre_row_sync_v1';
 
@@ -110,6 +129,9 @@ const EMPTY_DATASET: SpacesSyncDataset = {
   events: [],
 };
 
+const isRepairStatus = (value: unknown): value is RepairStatus =>
+  value === 'needs_repair' || value === 'repairing' || value === 'ready' || value === 'error';
+
 const createEmptyDiagnostics = (mode: SpaceSyncMode = 'safe'): SpacesSyncDiagnostics => ({
   mode,
   deviceId: '',
@@ -119,7 +141,34 @@ const createEmptyDiagnostics = (mode: SpaceSyncMode = 'safe'): SpacesSyncDiagnos
   lastRemote: null,
   lastError: null,
   migrationSource: null,
+  schemaVersion: null,
+  snapshotVersion: null,
+  repairStatus: null,
 });
+
+const normalizeDiagnostics = (value?: Partial<SpacesSyncDiagnostics> | null): SpacesSyncDiagnostics => ({
+  ...createEmptyDiagnostics(value?.mode === 'live' || value?.mode === 'migrating' ? value.mode : 'safe'),
+  ...(value || {}),
+  migrationSource: value?.migrationSource === 'normalized' || value?.migrationSource === 'legacy_remote' || value?.migrationSource === 'local_cache' || value?.migrationSource === 'empty'
+    ? value.migrationSource
+    : null,
+  schemaVersion: typeof value?.schemaVersion === 'number' && Number.isFinite(value.schemaVersion) ? value.schemaVersion : null,
+  snapshotVersion: typeof value?.snapshotVersion === 'number' && Number.isFinite(value.snapshotVersion) ? value.snapshotVersion : null,
+  repairStatus: isRepairStatus(value?.repairStatus) ? value.repairStatus : null,
+});
+
+const normalizeMeta = (value?: Partial<SpacesSyncMeta> | null): SpacesSyncMeta => {
+  const schemaVersion = Number(value?.schema_version);
+  const snapshotVersion = Number(value?.snapshot_version);
+
+  return {
+    schema_version: Number.isFinite(schemaVersion) ? schemaVersion : TARGET_SCHEMA_VERSION,
+    snapshot_version: Number.isFinite(snapshotVersion) ? snapshotVersion : 0,
+    status: isRepairStatus(value?.status) ? value.status : 'needs_repair',
+    updated_at: typeof value?.updated_at === 'string' ? value.updated_at : null,
+    last_error: typeof value?.last_error === 'string' ? value.last_error : null,
+  };
+};
 
 const cloneDataset = (dataset?: Partial<SpacesSyncDataset> | null): SpacesSyncDataset => ({
   workspaces: [...(dataset?.workspaces || [])],
@@ -153,13 +202,14 @@ export const getOrCreateSpacesSyncDeviceId = () => {
 };
 
 const readLocalCache = (): LocalSyncCache => {
-  const diagnostics = createEmptyDiagnostics();
-  diagnostics.deviceId = getOrCreateSpacesSyncDeviceId();
-
-  return readJson<LocalSyncCache>(CACHE_KEY, {
-    base: cloneDataset(EMPTY_DATASET),
-    diagnostics,
-  });
+  const rawCache = readJson<Partial<LocalSyncCache>>(CACHE_KEY, {});
+  return {
+    base: cloneDataset(rawCache.base),
+    diagnostics: normalizeDiagnostics({
+      ...rawCache.diagnostics,
+      deviceId: getOrCreateSpacesSyncDeviceId(),
+    }),
+  };
 };
 
 const writeLocalCache = (cache: LocalSyncCache) => {
@@ -174,7 +224,15 @@ export const getSpacesSyncDiagnostics = () => {
   };
 };
 
-const normalizePosition = (value: unknown, fallback: number) => typeof value === 'number' ? value : fallback;
+const normalizePosition = (value: unknown, fallback: number) => {
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (typeof value === 'string' && value.trim()) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+};
+
 const sortByPosition = <T extends { position: number; updated_at: string; id: string }>(rows: T[]) =>
   [...rows].sort((left, right) =>
     left.position - right.position ||
@@ -212,16 +270,6 @@ const chooseLatestRow = <T extends { updated_at: string; deleted_at: string | nu
   return leftVersion > rightVersion ? left : right;
 };
 
-const datasetHasRows = (dataset?: Partial<SpacesSyncDataset> | null) =>
-  !!(
-    dataset?.workspaces?.length ||
-    dataset?.spaces?.length ||
-    dataset?.folders?.length ||
-    dataset?.lists?.length ||
-    dataset?.tasks?.length ||
-    dataset?.events?.length
-  );
-
 const countDatasetRows = (dataset: SpacesSyncDataset) =>
   dataset.workspaces.length +
   dataset.spaces.length +
@@ -229,6 +277,42 @@ const countDatasetRows = (dataset: SpacesSyncDataset) =>
   dataset.lists.length +
   dataset.tasks.length +
   dataset.events.length;
+
+const activeRows = <T extends { deleted_at: string | null }>(rows: T[]) => rows.filter((row) => !row.deleted_at);
+
+const activeOnlyDataset = (dataset: SpacesSyncDataset): SpacesSyncDataset => ({
+  workspaces: activeRows(dataset.workspaces),
+  spaces: activeRows(dataset.spaces),
+  folders: activeRows(dataset.folders),
+  lists: activeRows(dataset.lists),
+  tasks: activeRows(dataset.tasks),
+  events: activeRows(dataset.events),
+});
+
+const toIsoFromMillis = (value: number | null | undefined, fallbackIso: string) => {
+  if (!value || value <= 0) return fallbackIso;
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? fallbackIso : date.toISOString();
+};
+
+const maxRowVersionMs = <T extends { updated_at: string; deleted_at: string | null }>(rows: T[]) =>
+  rows.reduce((max, row) => {
+    const values = [row.updated_at, row.deleted_at].filter(Boolean) as string[];
+    if (!values.length) return max;
+    const nextMax = Math.max(...values.map((value) => new Date(value).getTime()).filter((value) => Number.isFinite(value)));
+    return Math.max(max, nextMax || 0);
+  }, 0);
+
+const datasetVersionMs = (dataset: SpacesSyncDataset) => Math.max(
+  maxRowVersionMs(dataset.workspaces),
+  maxRowVersionMs(dataset.spaces),
+  maxRowVersionMs(dataset.folders),
+  maxRowVersionMs(dataset.lists),
+  maxRowVersionMs(dataset.tasks),
+  maxRowVersionMs(dataset.events)
+);
+
+const mapById = <T extends { id: string }>(rows: T[]) => new Map(rows.map((row) => [row.id, row]));
 
 const createWorkspaceRow = (
   userId: string,
@@ -361,40 +445,30 @@ const flattenEventRows = (
       list_id: refs.listId ?? null,
       kind,
       position: eventIndex,
-      payload: { ...event, id: undefined },
+      payload: stripEventPayload(event),
       updated_at: updatedAt,
       deleted_at: null,
     });
   });
 };
 
-const buildCurrentDataset = (userId: string, localSpaces: any): SpacesSyncDataset => {
+const buildCurrentDataset = (userId: string, localSpaces: any, fallbackUpdatedAt = new Date().toISOString()): SpacesSyncDataset => {
   const source = localSpaces && typeof localSpaces === 'object' ? localSpaces : {};
   const workspaces: Workspace[] = Array.isArray(source.workspaces) ? source.workspaces : [];
   const nextDataset = cloneDataset(EMPTY_DATASET);
-  const fallbackUpdatedAt = new Date().toISOString();
 
   workspaces.forEach((workspace, workspaceIndex) => {
-    nextDataset.workspaces.push(
-      createWorkspaceRow(userId, workspace, workspaceIndex, fallbackUpdatedAt)
-    );
-
+    nextDataset.workspaces.push(createWorkspaceRow(userId, workspace, workspaceIndex, fallbackUpdatedAt));
     flattenEventRows(nextDataset.events, userId, workspace.id, workspace.agendaEvents || [], fallbackUpdatedAt, 'workspace_agenda');
 
     (workspace.espacios || []).forEach((space, spaceIndex) => {
-      nextDataset.spaces.push(
-        createSpaceRow(userId, workspace.id, space, spaceIndex, fallbackUpdatedAt)
-      );
+      nextDataset.spaces.push(createSpaceRow(userId, workspace.id, space, spaceIndex, fallbackUpdatedAt));
 
       (space.carpetas || []).forEach((folder, folderIndex) => {
-        nextDataset.folders.push(
-          createFolderRow(userId, workspace.id, space.id, folder, folderIndex, fallbackUpdatedAt)
-        );
+        nextDataset.folders.push(createFolderRow(userId, workspace.id, space.id, folder, folderIndex, fallbackUpdatedAt));
 
         (folder.listas || []).forEach((list, listIndex) => {
-          nextDataset.lists.push(
-            createListRow(userId, workspace.id, space.id, list, listIndex, fallbackUpdatedAt, folder.id)
-          );
+          nextDataset.lists.push(createListRow(userId, workspace.id, space.id, list, listIndex, fallbackUpdatedAt, folder.id));
           flattenTaskRows(nextDataset.tasks, userId, workspace.id, space.id, folder.id, list.id, list.tareas || [], fallbackUpdatedAt);
           flattenEventRows(nextDataset.events, userId, workspace.id, list.eventos || [], fallbackUpdatedAt, 'list_event', {
             spaceId: space.id,
@@ -405,9 +479,7 @@ const buildCurrentDataset = (userId: string, localSpaces: any): SpacesSyncDatase
       });
 
       (space.listas || []).forEach((list, listIndex) => {
-        nextDataset.lists.push(
-          createListRow(userId, workspace.id, space.id, list, listIndex, fallbackUpdatedAt)
-        );
+        nextDataset.lists.push(createListRow(userId, workspace.id, space.id, list, listIndex, fallbackUpdatedAt));
         flattenTaskRows(nextDataset.tasks, userId, workspace.id, space.id, null, list.id, list.tareas || [], fallbackUpdatedAt);
         flattenEventRows(nextDataset.events, userId, workspace.id, list.eventos || [], fallbackUpdatedAt, 'list_event', {
           spaceId: space.id,
@@ -432,13 +504,7 @@ const buildCurrentDataset = (userId: string, localSpaces: any): SpacesSyncDatase
   };
 };
 
-const mapById = <T extends { id: string }>(rows: T[]) => new Map(rows.map((row) => [row.id, row]));
-
-const prepareRowsFromBase = <T extends SyncRowBase>(
-  currentRows: T[],
-  baseRows: T[],
-  nowIso: string
-) => {
+const prepareRowsFromBase = <T extends SyncRowBase>(currentRows: T[], baseRows: T[], nowIso: string) => {
   const baseById = mapById(baseRows);
   const currentById = mapById(currentRows);
   const nextRows = new Map<string, T>();
@@ -450,26 +516,16 @@ const prepareRowsFromBase = <T extends SyncRowBase>(
       return;
     }
 
-    nextRows.set(row.id, {
-      ...row,
-      updated_at: nowIso,
-      deleted_at: null,
-    });
+    nextRows.set(row.id, { ...row, updated_at: nowIso, deleted_at: null });
   });
 
   baseRows.forEach((baseRow) => {
     if (currentById.has(baseRow.id)) return;
-
     if (baseRow.deleted_at) {
       nextRows.set(baseRow.id, baseRow);
       return;
     }
-
-    nextRows.set(baseRow.id, {
-      ...baseRow,
-      updated_at: nowIso,
-      deleted_at: nowIso,
-    });
+    nextRows.set(baseRow.id, { ...baseRow, updated_at: nowIso, deleted_at: nowIso });
   });
 
   return sortByPosition([...nextRows.values()]);
@@ -489,11 +545,7 @@ const prepareLocalDataset = (userId: string, localSpaces: any, baseDataset: Spac
   };
 };
 
-const mergeRowSet = <T extends SyncRowBase>(
-  baseRows: T[],
-  localRows: T[],
-  remoteRows: T[]
-) => {
+const mergeRowSet = <T extends SyncRowBase>(baseRows: T[], localRows: T[], remoteRows: T[]) => {
   const baseById = mapById(baseRows);
   const localById = mapById(localRows);
   const remoteById = mapById(remoteRows);
@@ -576,8 +628,6 @@ const buildPendingDataset = (base: SpacesSyncDataset, next: SpacesSyncDataset): 
   tasks: buildPendingRows(base.tasks, next.tasks),
   events: buildPendingRows(base.events, next.events),
 });
-
-const activeRows = <T extends { deleted_at: string | null }>(rows: T[]) => rows.filter((row) => !row.deleted_at);
 
 const buildSpacesStateFromDataset = (dataset: SpacesSyncDataset, currentLocal: any): SpacesState => {
   const workspaceRows = activeRows(dataset.workspaces);
@@ -713,83 +763,120 @@ const buildSpacesStateFromDataset = (dataset: SpacesSyncDataset, currentLocal: a
   };
 };
 
-const normalizeRemoteDataset = (dataset?: Partial<SpacesSyncDataset> | null): SpacesSyncDataset => ({
+const normalizeRemoteDataset = (dataset?: Partial<Record<keyof SpacesSyncDataset, any[]>> | null): SpacesSyncDataset => ({
   workspaces: sortByPosition((dataset?.workspaces || []).map((row, index) => ({
-    ...row,
+    id: row.id,
+    user_id: row.user_id,
+    name: row.name,
     position: normalizePosition(row.position, index),
+    updated_at: row.updated_at || '',
     deleted_at: row.deleted_at || null,
   }))),
   spaces: sortByPosition((dataset?.spaces || []).map((row, index) => ({
-    ...row,
+    id: row.id,
+    user_id: row.user_id,
+    workspace_id: row.workspace_id,
+    name: row.name,
+    color: row.color,
     position: normalizePosition(row.position, index),
+    updated_at: row.updated_at || '',
     deleted_at: row.deleted_at || null,
   }))),
   folders: sortByPosition((dataset?.folders || []).map((row, index) => ({
-    ...row,
+    id: row.id,
+    user_id: row.user_id,
+    workspace_id: row.workspace_id,
+    space_id: row.space_id,
+    name: row.name,
     position: normalizePosition(row.position, index),
+    updated_at: row.updated_at || '',
     deleted_at: row.deleted_at || null,
   }))),
   lists: sortByPosition((dataset?.lists || []).map((row, index) => ({
-    ...row,
+    id: row.id,
+    user_id: row.user_id,
+    workspace_id: row.workspace_id,
+    space_id: row.space_id,
+    folder_id: row.folder_id || null,
+    name: row.name,
     position: normalizePosition(row.position, index),
+    updated_at: row.updated_at || '',
     deleted_at: row.deleted_at || null,
   }))),
   tasks: sortByPosition((dataset?.tasks || []).map((row, index) => ({
-    ...row,
+    id: row.id,
+    user_id: row.user_id,
+    workspace_id: row.workspace_id,
+    space_id: row.space_id,
+    folder_id: row.folder_id || null,
+    list_id: row.list_id,
+    parent_task_id: row.parent_task_id || null,
     position: normalizePosition(row.position, index),
-    deleted_at: row.deleted_at || null,
     payload: row.payload || {},
+    updated_at: row.updated_at || '',
+    deleted_at: row.deleted_at || null,
   }))),
   events: sortByPosition((dataset?.events || []).map((row, index) => ({
-    ...row,
+    id: row.id,
+    user_id: row.user_id,
+    workspace_id: row.workspace_id,
+    space_id: row.space_id || null,
+    folder_id: row.folder_id || null,
+    list_id: row.list_id || null,
+    kind: row.kind,
     position: normalizePosition(row.position, index),
-    deleted_at: row.deleted_at || null,
     payload: row.payload || {},
+    updated_at: row.updated_at || '',
+    deleted_at: row.deleted_at || null,
   }))),
 });
 
-const queryRows = async <T>(table: string, userId: string) => {
-  const response = await supabase.from(table).select('*').eq('user_id', userId);
-  if (response.error) {
-    throw response.error;
-  }
-  return (response.data || []) as T[];
+const serializeDataset = (dataset: SpacesSyncDataset) => ({
+  workspaces: dataset.workspaces.map((row) => ({ id: row.id, name: row.name, position: Math.trunc(normalizePosition(row.position, 0)), deleted_at: row.deleted_at })),
+  spaces: dataset.spaces.map((row) => ({ id: row.id, workspace_id: row.workspace_id, name: row.name, color: row.color, position: Math.trunc(normalizePosition(row.position, 0)), deleted_at: row.deleted_at })),
+  folders: dataset.folders.map((row) => ({ id: row.id, workspace_id: row.workspace_id, space_id: row.space_id, name: row.name, position: Math.trunc(normalizePosition(row.position, 0)), deleted_at: row.deleted_at })),
+  lists: dataset.lists.map((row) => ({ id: row.id, workspace_id: row.workspace_id, space_id: row.space_id, folder_id: row.folder_id, name: row.name, position: Math.trunc(normalizePosition(row.position, 0)), deleted_at: row.deleted_at })),
+  tasks: dataset.tasks.map((row) => ({ id: row.id, workspace_id: row.workspace_id, space_id: row.space_id, folder_id: row.folder_id, list_id: row.list_id, parent_task_id: row.parent_task_id, position: Math.trunc(normalizePosition(row.position, 0)), payload: row.payload || {}, deleted_at: row.deleted_at })),
+  events: dataset.events.map((row) => ({ id: row.id, workspace_id: row.workspace_id, space_id: row.space_id, folder_id: row.folder_id, list_id: row.list_id, kind: row.kind, position: Math.trunc(normalizePosition(row.position, 0)), payload: row.payload || {}, deleted_at: row.deleted_at })),
+});
+
+const parseRpcJson = <T>(payload: any): T => typeof payload === 'string' ? JSON.parse(payload) as T : (payload || {}) as T;
+
+const downloadSpacesSnapshot = async (): Promise<SpacesSnapshotResponse> => {
+  const response = await supabase.rpc('spaces_sync_get_snapshot');
+  if (response.error) throw response.error;
+
+  const payload = parseRpcJson<any>(response.data);
+  return {
+    meta: normalizeMeta(payload?.meta),
+    dataset: normalizeRemoteDataset(payload),
+  };
 };
 
-const upsertRows = async <T extends { id: string }>(table: string, rows: T[]) => {
-  if (!rows.length) return;
-
-  const response = await supabase.from(table).upsert(rows);
-  if (response.error) {
-    throw response.error;
-  }
-};
-
-const downloadNormalizedSpacesDataset = async (userId: string) => {
-  const [
-    workspaces,
-    spaces,
-    folders,
-    lists,
-    tasks,
-    events,
-  ] = await Promise.all([
-    queryRows<SpaceWorkspaceRow>('space_workspaces', userId),
-    queryRows<SpaceSpaceRow>('space_spaces', userId),
-    queryRows<SpaceFolderRow>('space_folders', userId),
-    queryRows<SpaceListRow>('space_lists', userId),
-    queryRows<SpaceTaskRow>('space_tasks', userId),
-    queryRows<SpaceEventRow>('space_events', userId),
-  ]);
-
-  return normalizeRemoteDataset({
-    workspaces,
-    spaces,
-    folders,
-    lists,
-    tasks,
-    events,
+const applyBatchDataset = async (dataset: SpacesSyncDataset, options: { replaceAll?: boolean; status?: RepairStatus } = {}): Promise<SpacesSyncMeta> => {
+  const response = await supabase.rpc('spaces_sync_apply_batch', {
+    p_payload: serializeDataset(dataset),
+    p_replace_all: !!options.replaceAll,
+    p_status: options.status || 'ready',
   });
+
+  if (response.error) throw response.error;
+  return normalizeMeta(parseRpcJson<any>(response.data));
+};
+
+export const getSpacesCloudLastModified = async (userId: string): Promise<number> => {
+  const response = await supabase
+    .from('spaces_sync_meta')
+    .select('updated_at')
+    .eq('user_id', userId)
+    .maybeSingle();
+
+  if (response.error) {
+    throw new Error(`[spaces sync] refresh check failed: ${response.error.message}`);
+  }
+
+  const updatedAt = response.data?.updated_at;
+  return updatedAt ? new Date(updatedAt).getTime() : 0;
 };
 
 export const downloadLegacySpacesStore = async (userId: string): Promise<LegacySpacesBackup> => {
@@ -799,9 +886,7 @@ export const downloadLegacySpacesStore = async (userId: string): Promise<LegacyS
     .eq('user_id', userId)
     .maybeSingle();
 
-  if (response.error) {
-    throw response.error;
-  }
+  if (response.error) throw response.error;
 
   return {
     spaces: response.data?.spaces_data || null,
@@ -809,168 +894,149 @@ export const downloadLegacySpacesStore = async (userId: string): Promise<LegacyS
   };
 };
 
-const uploadPendingDataset = async (pending: SpacesSyncDataset) => {
-  await Promise.all([
-    upsertRows('space_workspaces', pending.workspaces),
-    upsertRows('space_spaces', pending.spaces),
-    upsertRows('space_folders', pending.folders),
-    upsertRows('space_lists', pending.lists),
-    upsertRows('space_tasks', pending.tasks),
-    upsertRows('space_events', pending.events),
-  ]);
-};
-
 const savePreMigrationBackups = (localSpaces: any, legacySpaces: any) => {
-  if (!localStorage.getItem(LOCAL_BACKUP_KEY)) {
-    writeJson(LOCAL_BACKUP_KEY, localSpaces || {});
-  }
-
-  if (!localStorage.getItem(LEGACY_BACKUP_KEY)) {
-    writeJson(LEGACY_BACKUP_KEY, legacySpaces || {});
-  }
+  if (!localStorage.getItem(LOCAL_BACKUP_KEY)) writeJson(LOCAL_BACKUP_KEY, localSpaces || {});
+  if (!localStorage.getItem(LEGACY_BACKUP_KEY)) writeJson(LEGACY_BACKUP_KEY, legacySpaces || {});
 };
 
-const chooseMigrationSource = (
-  currentLocalSpaces: any,
-  legacyBackup: LegacySpacesBackup
-): { source: any; migrationSource: SpacesSyncDiagnostics['migrationSource'] } => {
-  const localDataset = buildCurrentDataset('local-preview', currentLocalSpaces);
-  const legacyDataset = buildCurrentDataset('legacy-preview', legacyBackup.spaces);
-  const localCount = countDatasetRows(localDataset);
-  const legacyCount = countDatasetRows(legacyDataset);
+const mergeRepairRowSet = <T extends SyncRowBase>(rowGroups: T[][]) => {
+  const allIds = new Set<string>();
+  rowGroups.forEach((rows) => rows.forEach((row) => allIds.add(row.id)));
+  const sourceMaps = rowGroups.map((rows) => mapById(rows));
 
-  if (localCount === 0 && legacyCount === 0) {
-    return { source: { workspaces: [], gcalEvents: [] }, migrationSource: 'empty' };
-  }
+  const mergedRows: T[] = [];
+  allIds.forEach((id) => {
+    let winner: T | null = null;
+    sourceMaps.forEach((sourceMap) => {
+      winner = chooseLatestRow(winner, sourceMap.get(id) || null);
+    });
+    if (winner) mergedRows.push(winner);
+  });
 
-  if (localCount === 0) {
-    return { source: legacyBackup.spaces, migrationSource: 'legacy_remote' };
-  }
-
-  if (legacyCount === 0) {
-    return { source: currentLocalSpaces, migrationSource: 'local_cache' };
-  }
-
-  if (localCount !== legacyCount) {
-    return localCount >= legacyCount
-      ? { source: currentLocalSpaces, migrationSource: 'local_cache' }
-      : { source: legacyBackup.spaces, migrationSource: 'legacy_remote' };
-  }
-
-  const localLastModified = parseInt(localStorage.getItem('coo_last_local_mod') || '0', 10);
-  const legacyLastModified = legacyBackup.updatedAt ? new Date(legacyBackup.updatedAt).getTime() : 0;
-
-  return localLastModified >= legacyLastModified
-    ? { source: currentLocalSpaces, migrationSource: 'local_cache' }
-    : { source: legacyBackup.spaces, migrationSource: 'legacy_remote' };
+  return sortByPosition(mergedRows);
 };
 
-const ensureNormalizedDataset = async (
-  userId: string,
-  currentLocalSpaces: any,
-  diagnostics: SpacesSyncDiagnostics
-) => {
-  let remoteDataset = await downloadNormalizedSpacesDataset(userId);
-  if (datasetHasRows(remoteDataset)) {
-    return {
-      remoteDataset,
-      diagnostics: {
-        ...diagnostics,
-        mode: 'live' as const,
-        migrationSource: 'normalized' as const,
-      },
-    };
+const mergeRepairDatasets = (datasets: SpacesSyncDataset[]): SpacesSyncDataset => ({
+  workspaces: mergeRepairRowSet(datasets.map((dataset) => dataset.workspaces)),
+  spaces: mergeRepairRowSet(datasets.map((dataset) => dataset.spaces)),
+  folders: mergeRepairRowSet(datasets.map((dataset) => dataset.folders)),
+  lists: mergeRepairRowSet(datasets.map((dataset) => dataset.lists)),
+  tasks: mergeRepairRowSet(datasets.map((dataset) => dataset.tasks)),
+  events: mergeRepairRowSet(datasets.map((dataset) => dataset.events)),
+});
+
+const chooseRepairSource = (normalizedDataset: SpacesSyncDataset, localDataset: SpacesSyncDataset, legacyDataset: SpacesSyncDataset) => {
+  const normalizedActive = activeOnlyDataset(normalizedDataset);
+  const ranked = [
+    { dataset: normalizedActive, migrationSource: 'normalized' as MigrationSource, count: countDatasetRows(normalizedActive), version: datasetVersionMs(normalizedDataset) },
+    { dataset: localDataset, migrationSource: 'local_cache' as MigrationSource, count: countDatasetRows(localDataset), version: datasetVersionMs(localDataset) },
+    { dataset: legacyDataset, migrationSource: 'legacy_remote' as MigrationSource, count: countDatasetRows(legacyDataset), version: datasetVersionMs(legacyDataset) },
+  ].sort((left, right) => right.count - left.count || right.version - left.version);
+
+  const best = ranked[0];
+  if (!best || best.count === 0) {
+    return { dataset: cloneDataset(EMPTY_DATASET), migrationSource: 'empty' as MigrationSource };
   }
 
+  return { dataset: best.dataset, migrationSource: best.migrationSource };
+};
+
+const needsRepair = (meta: SpacesSyncMeta) =>
+  meta.schema_version < TARGET_SCHEMA_VERSION || meta.status !== 'ready';
+
+const repairNormalizedSnapshot = async (userId: string, currentLocalSpaces: any, remoteSnapshot: SpacesSnapshotResponse) => {
   const legacyBackup = await downloadLegacySpacesStore(userId);
   savePreMigrationBackups(currentLocalSpaces, legacyBackup.spaces);
-  const { source, migrationSource } = chooseMigrationSource(currentLocalSpaces, legacyBackup);
 
-  if (!source || !datasetHasRows(buildCurrentDataset(userId, source))) {
-    return {
-      remoteDataset,
-      diagnostics: {
-        ...diagnostics,
-        mode: 'live' as const,
-        migrationSource,
-      },
-    };
-  }
+  const nowIso = new Date().toISOString();
+  const localLastModified = parseInt(localStorage.getItem('coo_last_local_mod') || '0', 10);
+  const localDataset = buildCurrentDataset(userId, currentLocalSpaces, toIsoFromMillis(localLastModified, nowIso));
+  const legacyDataset = buildCurrentDataset(userId, legacyBackup.spaces, legacyBackup.updatedAt || nowIso);
 
-  const migrationDataset = prepareLocalDataset(userId, source, cloneDataset(EMPTY_DATASET));
-  await uploadPendingDataset(migrationDataset);
-  remoteDataset = await downloadNormalizedSpacesDataset(userId);
+  const preferred = chooseRepairSource(remoteSnapshot.dataset, localDataset, legacyDataset);
+  const additionalSources = [remoteSnapshot.dataset, legacyDataset, localDataset].filter((dataset) => dataset !== preferred.dataset);
+  const repairedDataset = activeOnlyDataset(mergeRepairDatasets([...additionalSources, preferred.dataset]));
+
+  const appliedMeta = await applyBatchDataset(repairedDataset, {
+    replaceAll: true,
+    status: 'ready',
+  });
+  const freshSnapshot = await downloadSpacesSnapshot();
 
   return {
-    remoteDataset,
-    diagnostics: {
-      ...diagnostics,
-      mode: 'migrating' as const,
-      migrationSource,
-      lastPush: new Date().toISOString(),
-      lastRemote: new Date().toISOString(),
-    },
+    dataset: freshSnapshot.dataset,
+    meta: freshSnapshot.meta,
+    migrationSource: preferred.migrationSource,
+    appliedMeta,
   };
 };
 
 export const getLocalPendingSpacesCount = (userId: string, currentLocalSpaces: any) => {
   const cache = readLocalCache();
-  const pending = buildPendingDataset(
-    cache.base,
-    prepareLocalDataset(userId, currentLocalSpaces, cache.base)
-  );
+  const pending = buildPendingDataset(cache.base, prepareLocalDataset(userId, currentLocalSpaces, cache.base));
   return countDatasetRows(pending);
 };
 
-export const runSpacesSyncCycle = async ({
-  userId,
-  currentLocalSpaces,
-}: SpacesSyncCycleOptions): Promise<SpacesSyncCycleResult> => {
+export const runSpacesSyncCycle = async ({ userId, currentLocalSpaces }: SpacesSyncCycleOptions): Promise<SpacesSyncCycleResult> => {
   const cache = readLocalCache();
-  const diagnostics: SpacesSyncDiagnostics = {
+  const diagnostics: SpacesSyncDiagnostics = normalizeDiagnostics({
     ...cache.diagnostics,
     deviceId: getOrCreateSpacesSyncDeviceId(),
     mode: 'live',
     lastError: null,
-  };
+  });
 
   try {
-    let remoteDataset = await downloadNormalizedSpacesDataset(userId);
+    let snapshot = await downloadSpacesSnapshot();
     diagnostics.lastPull = new Date().toISOString();
+    diagnostics.lastRemote = snapshot.meta.updated_at || diagnostics.lastPull;
+    diagnostics.schemaVersion = snapshot.meta.schema_version;
+    diagnostics.snapshotVersion = snapshot.meta.snapshot_version;
+    diagnostics.repairStatus = snapshot.meta.status;
 
-    if (!datasetHasRows(remoteDataset)) {
-      const migrationResult = await ensureNormalizedDataset(userId, currentLocalSpaces, diagnostics);
-      remoteDataset = migrationResult.remoteDataset;
-      Object.assign(diagnostics, migrationResult.diagnostics);
+    if (needsRepair(snapshot.meta)) {
+      diagnostics.mode = 'migrating';
+      const repaired = await repairNormalizedSnapshot(userId, currentLocalSpaces, snapshot);
+      snapshot = { dataset: repaired.dataset, meta: repaired.meta };
+      diagnostics.lastPush = repaired.appliedMeta.updated_at || new Date().toISOString();
+      diagnostics.lastPull = new Date().toISOString();
+      diagnostics.lastRemote = snapshot.meta.updated_at || diagnostics.lastPull;
+      diagnostics.schemaVersion = snapshot.meta.schema_version;
+      diagnostics.snapshotVersion = snapshot.meta.snapshot_version;
+      diagnostics.repairStatus = snapshot.meta.status;
+      diagnostics.migrationSource = repaired.migrationSource;
     } else {
-      diagnostics.migrationSource = diagnostics.migrationSource || 'normalized';
+      diagnostics.migrationSource = 'normalized';
     }
 
     const baseDataset = cloneDataset(cache.base);
     const localPrepared = prepareLocalDataset(userId, currentLocalSpaces, baseDataset);
-    const mergedDataset = mergeDatasets(baseDataset, localPrepared, remoteDataset);
-    let pendingDataset = buildPendingDataset(remoteDataset, mergedDataset);
-    let didUpload = countDatasetRows(pendingDataset) > 0;
-    let finalRemoteDataset = remoteDataset;
+    const mergedDataset = mergeDatasets(baseDataset, localPrepared, snapshot.dataset);
+    const pendingDataset = buildPendingDataset(snapshot.dataset, mergedDataset);
+    const didUpload = countDatasetRows(pendingDataset) > 0;
 
     if (didUpload) {
-      await uploadPendingDataset(pendingDataset);
-      diagnostics.lastPush = new Date().toISOString();
-      finalRemoteDataset = await downloadNormalizedSpacesDataset(userId);
+      const appliedMeta = await applyBatchDataset(pendingDataset, { replaceAll: false, status: 'ready' });
+      diagnostics.lastPush = appliedMeta.updated_at || new Date().toISOString();
+      snapshot = await downloadSpacesSnapshot();
       diagnostics.lastPull = new Date().toISOString();
+      diagnostics.lastRemote = snapshot.meta.updated_at || diagnostics.lastPull;
+      diagnostics.schemaVersion = snapshot.meta.schema_version;
+      diagnostics.snapshotVersion = snapshot.meta.snapshot_version;
+      diagnostics.repairStatus = snapshot.meta.status;
     }
 
-    const nextSpacesState = buildSpacesStateFromDataset(finalRemoteDataset, currentLocalSpaces);
-    const nextPendingCount = 0;
-    const nextDiagnostics: SpacesSyncDiagnostics = {
+    const nextSpacesState = buildSpacesStateFromDataset(snapshot.dataset, currentLocalSpaces);
+    const nextDiagnostics: SpacesSyncDiagnostics = normalizeDiagnostics({
       ...diagnostics,
-      mode: 'live',
-      pending: nextPendingCount,
-      lastRemote: diagnostics.lastPull,
-    };
+      mode: snapshot.meta.status === 'ready' ? 'live' : 'migrating',
+      pending: 0,
+      lastRemote: snapshot.meta.updated_at || diagnostics.lastPull,
+      lastError: snapshot.meta.last_error || null,
+    });
 
     writeLocalCache({
-      base: finalRemoteDataset,
+      base: snapshot.dataset,
       diagnostics: nextDiagnostics,
     });
 
@@ -980,12 +1046,12 @@ export const runSpacesSyncCycle = async ({
       didUpload,
     };
   } catch (error: any) {
-    const nextDiagnostics: SpacesSyncDiagnostics = {
+    const nextDiagnostics: SpacesSyncDiagnostics = normalizeDiagnostics({
       ...diagnostics,
       mode: 'safe',
       lastError: error?.message || 'No se pudo sincronizar Espacios.',
       pending: getLocalPendingSpacesCount(userId, currentLocalSpaces),
-    };
+    });
 
     writeLocalCache({
       base: cache.base,
