@@ -12,8 +12,9 @@ import NotebookView from './components/NotebookView';
 import SpacesSidebar from './components/SpacesSidebar';
 import SpacesView from './components/SpacesView';
 import AgendaView from './components/AgendaView';
+import ActiveTaskStrip, { ActiveTaskStripItem } from './components/ActiveTaskStrip';
 import PwaUpdateBanner from './components/PwaUpdateBanner';
-import { SpacesProvider } from './contexts/SpacesContext';
+import { SpacesProvider, getAllTasks } from './contexts/SpacesContext';
 import { runAutoScheduling } from './utils/schedulingLogic';
 import ActiveWorkspaceName from './components/ActiveWorkspaceName';
 import { supabase } from './contexts/AuthContext';
@@ -22,6 +23,7 @@ import { mergeCloudSyncState, normalizeCloudSyncState } from './utils/cloudSyncM
 import { useAuth } from './contexts/AuthContext';
 import LoginView from './components/LoginView';
 import { useAgencyStore } from './stores/useAgencyStore';
+import { SpacesState } from './spacesTypes';
 import {
   SpacesSyncDiagnostics,
   getLocalPendingSpacesCount,
@@ -33,6 +35,66 @@ import {
   runSpacesPushCycle,
 } from './utils/spacesSyncService';
 import { resolveSpacesSyncExecutionMode, shouldLockSpacesWrites } from './utils/spacesSyncMode';
+
+const ACTIVE_TASK_STRIP_VISIBLE_KEY = 'coo_active_task_strip_visible_v1';
+const ACTIVE_TASK_FOCUS_KEY = 'coo_active_task_focus_v1';
+
+interface ActiveTaskStripCandidate extends ActiveTaskStripItem {
+  dueAt: number | null;
+  startedAtValue: number | null;
+  workspaceId: string;
+}
+
+const parseTaskDate = (value?: string | null, endOfDay = false) => {
+  if (!value) return null;
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const parsed = new Date(`${value}T${endOfDay ? '23:59:59' : '00:00:00'}`);
+    return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+  }
+
+  const parsed = new Date(value);
+  return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+};
+
+const resolveTaskDeadline = (task: { dueDate?: string; endDate?: string; startDate?: string }) =>
+  parseTaskDate(task.dueDate, true) ?? parseTaskDate(task.endDate, true) ?? parseTaskDate(task.startDate);
+
+const buildActiveTaskStripItems = (rawState: any): ActiveTaskStripCandidate[] => {
+  if (!rawState || !Array.isArray(rawState.workspaces)) return [];
+
+  const state = rawState as SpacesState;
+  const workspaceNames = new Map(state.workspaces.map((workspace) => [workspace.id, workspace.nombre]));
+
+  return getAllTasks(state)
+    .filter(({ task }) => task.estado === 'ACTIVE')
+    .map(({ task, workspaceId }) => ({
+      id: task.id,
+      nombre: task.nombre,
+      clientName: task.clientName,
+      workspaceName: workspaceNames.get(workspaceId) || 'Workspace',
+      progress: task.progress,
+      dueDate: task.dueDate || task.endDate || task.startDate || null,
+      dueAt: resolveTaskDeadline(task),
+      startedAtValue: parseTaskDate(task.startedAt),
+      workspaceId,
+    }))
+    .sort((left, right) => {
+      const rightActiveWorkspace = Number(right.workspaceId === state.activeWorkspaceId);
+      const leftActiveWorkspace = Number(left.workspaceId === state.activeWorkspaceId);
+      if (rightActiveWorkspace !== leftActiveWorkspace) return rightActiveWorkspace - leftActiveWorkspace;
+
+      const leftDue = left.dueAt ?? Number.MAX_SAFE_INTEGER;
+      const rightDue = right.dueAt ?? Number.MAX_SAFE_INTEGER;
+      if (leftDue !== rightDue) return leftDue - rightDue;
+
+      const rightStarted = right.startedAtValue ?? 0;
+      const leftStarted = left.startedAtValue ?? 0;
+      if (rightStarted !== leftStarted) return rightStarted - leftStarted;
+
+      return left.nombre.localeCompare(right.nombre);
+    });
+};
 
 const App: React.FC = () => {
   const { session, isLoading: isAuthLoading } = useAuth();
@@ -116,6 +178,10 @@ const App: React.FC = () => {
     }
   };
 
+  const [showActiveTaskStrip, setShowActiveTaskStrip] = useState(() => localStorage.getItem(ACTIVE_TASK_STRIP_VISIBLE_KEY) !== '0');
+  const [focusedActiveTaskId, setFocusedActiveTaskId] = useState<string | null>(() => localStorage.getItem(ACTIVE_TASK_FOCUS_KEY));
+  const [activeTaskStripItems, setActiveTaskStripItems] = useState<ActiveTaskStripCandidate[]>(() => buildActiveTaskStripItems(readLocalSpacesState()));
+
   const spacesBuildChangedSinceLastSnapshot = !!cachedBuildId && cachedBuildId !== currentBuildId;
 
   const getSpacesWriteLockReason = useCallback(() => {
@@ -134,12 +200,72 @@ const App: React.FC = () => {
     localStorage.setItem('coo_has_unsynced_local_v3', value);
   };
 
+  const refreshActiveTaskStrip = useCallback(() => {
+    setActiveTaskStripItems(buildActiveTaskStripItems(readLocalSpacesState()));
+  }, []);
+
+  const cycleFocusedActiveTask = useCallback(() => {
+    if (activeTaskStripItems.length <= 1) return;
+
+    const currentIndex = activeTaskStripItems.findIndex((item) => item.id === focusedActiveTaskId);
+    const nextIndex = currentIndex >= 0
+      ? (currentIndex + 1) % activeTaskStripItems.length
+      : 0;
+
+    setFocusedActiveTaskId(activeTaskStripItems[nextIndex].id);
+    setShowActiveTaskStrip(true);
+  }, [activeTaskStripItems, focusedActiveTaskId]);
+
   useEffect(() => {
     setSpacesWritesLocked(shouldLockSpacesWrites({
       hasHydratedSpacesThisSession,
       hasPendingPwaRefresh,
     }));
   }, [hasHydratedSpacesThisSession, hasPendingPwaRefresh]);
+
+  useEffect(() => {
+    refreshActiveTaskStrip();
+
+    const handleStorageSync = (event: StorageEvent) => {
+      if (!event.key || event.key === 'coo_spaces') {
+        refreshActiveTaskStrip();
+      }
+    };
+
+    window.addEventListener('coo_spaces_updated', refreshActiveTaskStrip);
+    window.addEventListener('coo_cloud_data_received', refreshActiveTaskStrip);
+    window.addEventListener('storage', handleStorageSync);
+
+    return () => {
+      window.removeEventListener('coo_spaces_updated', refreshActiveTaskStrip);
+      window.removeEventListener('coo_cloud_data_received', refreshActiveTaskStrip);
+      window.removeEventListener('storage', handleStorageSync);
+    };
+  }, [refreshActiveTaskStrip]);
+
+  useEffect(() => {
+    if (activeTaskStripItems.length === 0) {
+      setFocusedActiveTaskId(null);
+      return;
+    }
+
+    if (!focusedActiveTaskId || !activeTaskStripItems.some((item) => item.id === focusedActiveTaskId)) {
+      setFocusedActiveTaskId(activeTaskStripItems[0].id);
+    }
+  }, [activeTaskStripItems, focusedActiveTaskId]);
+
+  useEffect(() => {
+    localStorage.setItem(ACTIVE_TASK_STRIP_VISIBLE_KEY, showActiveTaskStrip ? '1' : '0');
+  }, [showActiveTaskStrip]);
+
+  useEffect(() => {
+    if (focusedActiveTaskId) {
+      localStorage.setItem(ACTIVE_TASK_FOCUS_KEY, focusedActiveTaskId);
+      return;
+    }
+
+    localStorage.removeItem(ACTIVE_TASK_FOCUS_KEY);
+  }, [focusedActiveTaskId]);
 
   useEffect(() => {
     window.__COO_SPACES_WRITES_LOCKED__ = spacesWritesLocked;
@@ -916,6 +1042,19 @@ const App: React.FC = () => {
               </button>
             </div>
           </header>
+
+          <ActiveTaskStrip
+            items={activeTaskStripItems}
+            currentTaskId={focusedActiveTaskId}
+            isVisible={showActiveTaskStrip}
+            onShow={() => setShowActiveTaskStrip(true)}
+            onHide={() => setShowActiveTaskStrip(false)}
+            onNext={cycleFocusedActiveTask}
+            onOpenSpaces={() => {
+              setActiveTab('spaces');
+              setIsMobileMenuOpen(false);
+            }}
+          />
 
           {/* ÃƒÆ’Ã‚Ârea de Contenido Principal */}
           {activeTab === 'spaces' ? (
