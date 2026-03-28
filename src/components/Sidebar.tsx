@@ -202,6 +202,10 @@ const Sidebar: React.FC<SidebarProps> = ({
         if (Number.isNaN(date.getTime())) return '—';
         return date.toLocaleTimeString('es-CO', { hour: 'numeric', minute: '2-digit' }).toLowerCase();
     };
+    const showSpacesSyncNotice = !!spacesSyncDiagnostics && (
+        !!spacesSyncDiagnostics.lastError ||
+        spacesSyncDiagnostics.mode !== 'live'
+    );
     const spacesModeLabel = spacesSyncDiagnostics?.mode === 'live'
         ? 'Row Sync'
         : spacesSyncDiagnostics?.mode === 'migrating'

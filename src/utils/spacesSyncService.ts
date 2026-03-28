@@ -717,7 +717,7 @@ const buildSpacesStateFromDataset = (dataset: SpacesSyncDataset, currentLocal: a
       id: taskRow.id,
       orden: taskRow.payload?.orden ?? taskRow.position,
       subtasks: buildTaskTree(listId, taskRow.id),
-    }));
+    } as SpaceTask));
   };
 
   listById.forEach((list) => {
@@ -725,10 +725,10 @@ const buildSpacesStateFromDataset = (dataset: SpacesSyncDataset, currentLocal: a
   });
 
   eventRows.forEach((eventRow) => {
-    const event: SpaceEvent = {
+    const event = {
       ...(eventRow.payload || {}),
       id: eventRow.id,
-    };
+    } as SpaceEvent;
 
     if (eventRow.kind === 'global_gcal') return;
     if (eventRow.kind === 'workspace_agenda') {
@@ -746,7 +746,7 @@ const buildSpacesStateFromDataset = (dataset: SpacesSyncDataset, currentLocal: a
     .map((eventRow) => ({
       ...(eventRow.payload || {}),
       id: eventRow.id,
-    }));
+    } as SpaceEvent));
 
   const currentState = currentLocal && typeof currentLocal === 'object' ? currentLocal : {};
   return {
