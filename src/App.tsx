@@ -322,6 +322,7 @@ const App: React.FC = () => {
       const result = await runSpacesSyncCycle({
         userId: session.user.id,
         currentLocalSpaces,
+        reason,
       });
 
       applyDownloadedSpacesState(result.nextSpacesState);

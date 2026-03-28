@@ -1,6 +1,29 @@
 import { supabase } from '../contexts/AuthContext';
 import { DEFAULT_RULES } from '../mockData';
 import { Space, SpaceEvent, SpaceFolder, SpaceList, SpacesState, SpaceTask, Workspace } from '../spacesTypes';
+import {
+  activeOnlyDataset,
+  activeRows,
+  buildPendingDataset,
+  chooseLatestRow,
+  cloneDataset,
+  countDatasetRows,
+  datasetVersionMs,
+  deriveLocalMutations,
+  mapById,
+  normalizePosition,
+  sortByPosition,
+  type SpaceEventKind,
+  type SpaceEventRow,
+  type SpaceFolderRow,
+  type SpaceListRow,
+  type SpacesSyncCycleReason,
+  type SpacesSyncDataset,
+  type SpaceSpaceRow,
+  type SpaceTaskRow,
+  type SpaceWorkspaceRow,
+  type SyncRowBase,
+} from './spacesSyncReconciliation';
 
 type SpaceSyncMode = 'safe' | 'migrating' | 'live';
 type RepairStatus = 'needs_repair' | 'repairing' | 'ready' | 'error';
@@ -28,66 +51,6 @@ interface SpacesSyncMeta {
   last_error: string | null;
 }
 
-interface SyncRowBase {
-  id: string;
-  user_id: string;
-  position: number;
-  updated_at: string;
-  deleted_at: string | null;
-}
-
-interface SpaceWorkspaceRow extends SyncRowBase {
-  name: string;
-}
-
-interface SpaceSpaceRow extends SyncRowBase {
-  workspace_id: string;
-  name: string;
-  color: string;
-}
-
-interface SpaceFolderRow extends SyncRowBase {
-  workspace_id: string;
-  space_id: string;
-  name: string;
-}
-
-interface SpaceListRow extends SyncRowBase {
-  workspace_id: string;
-  space_id: string;
-  folder_id: string | null;
-  name: string;
-}
-
-interface SpaceTaskRow extends SyncRowBase {
-  workspace_id: string;
-  space_id: string;
-  folder_id: string | null;
-  list_id: string;
-  parent_task_id: string | null;
-  payload: Record<string, any>;
-}
-
-type SpaceEventKind = 'workspace_agenda' | 'list_event' | 'global_gcal';
-
-interface SpaceEventRow extends SyncRowBase {
-  workspace_id: string;
-  space_id: string | null;
-  folder_id: string | null;
-  list_id: string | null;
-  kind: SpaceEventKind;
-  payload: Record<string, any>;
-}
-
-interface SpacesSyncDataset {
-  workspaces: SpaceWorkspaceRow[];
-  spaces: SpaceSpaceRow[];
-  folders: SpaceFolderRow[];
-  lists: SpaceListRow[];
-  tasks: SpaceTaskRow[];
-  events: SpaceEventRow[];
-}
-
 interface LegacySpacesBackup {
   spaces: any | null;
   updatedAt: string | null;
@@ -101,6 +64,7 @@ interface LocalSyncCache {
 interface SpacesSyncCycleOptions {
   userId: string;
   currentLocalSpaces: any;
+  reason: SpacesSyncCycleReason;
 }
 
 interface SpacesSyncCycleResult {
@@ -170,15 +134,6 @@ const normalizeMeta = (value?: Partial<SpacesSyncMeta> | null): SpacesSyncMeta =
   };
 };
 
-const cloneDataset = (dataset?: Partial<SpacesSyncDataset> | null): SpacesSyncDataset => ({
-  workspaces: [...(dataset?.workspaces || [])],
-  spaces: [...(dataset?.spaces || [])],
-  folders: [...(dataset?.folders || [])],
-  lists: [...(dataset?.lists || [])],
-  tasks: [...(dataset?.tasks || [])],
-  events: [...(dataset?.events || [])],
-});
-
 const readJson = <T>(key: string, fallback: T): T => {
   try {
     const raw = localStorage.getItem(key);
@@ -224,95 +179,11 @@ export const getSpacesSyncDiagnostics = () => {
   };
 };
 
-const normalizePosition = (value: unknown, fallback: number) => {
-  if (typeof value === 'number' && Number.isFinite(value)) return value;
-  if (typeof value === 'string' && value.trim()) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return fallback;
-};
-
-const sortByPosition = <T extends { position: number; updated_at: string; id: string }>(rows: T[]) =>
-  [...rows].sort((left, right) =>
-    left.position - right.position ||
-    left.updated_at.localeCompare(right.updated_at) ||
-    left.id.localeCompare(right.id)
-  );
-
-const stripMeta = <T extends Record<string, any>>(row: T | undefined | null) => {
-  if (!row) return null;
-  const { updated_at, deleted_at, user_id, ...rest } = row;
-  return rest;
-};
-
-const canonicalRowEquals = <T extends Record<string, any>>(left: T | undefined | null, right: T | undefined | null) =>
-  JSON.stringify(stripMeta(left)) === JSON.stringify(stripMeta(right));
-
-const rowVersion = (row?: { updated_at: string; deleted_at: string | null } | null) =>
-  row?.deleted_at || row?.updated_at || '';
-
-const chooseLatestRow = <T extends { updated_at: string; deleted_at: string | null }>(
-  left?: T | null,
-  right?: T | null
-): T | null => {
-  if (!left) return right || null;
-  if (!right) return left;
-
-  const leftVersion = rowVersion(left);
-  const rightVersion = rowVersion(right);
-  if (leftVersion === rightVersion) {
-    if (left.deleted_at && !right.deleted_at) return left;
-    if (right.deleted_at && !left.deleted_at) return right;
-    return right;
-  }
-
-  return leftVersion > rightVersion ? left : right;
-};
-
-const countDatasetRows = (dataset: SpacesSyncDataset) =>
-  dataset.workspaces.length +
-  dataset.spaces.length +
-  dataset.folders.length +
-  dataset.lists.length +
-  dataset.tasks.length +
-  dataset.events.length;
-
-const activeRows = <T extends { deleted_at: string | null }>(rows: T[]) => rows.filter((row) => !row.deleted_at);
-
-const activeOnlyDataset = (dataset: SpacesSyncDataset): SpacesSyncDataset => ({
-  workspaces: activeRows(dataset.workspaces),
-  spaces: activeRows(dataset.spaces),
-  folders: activeRows(dataset.folders),
-  lists: activeRows(dataset.lists),
-  tasks: activeRows(dataset.tasks),
-  events: activeRows(dataset.events),
-});
-
 const toIsoFromMillis = (value: number | null | undefined, fallbackIso: string) => {
   if (!value || value <= 0) return fallbackIso;
   const date = new Date(value);
   return Number.isNaN(date.getTime()) ? fallbackIso : date.toISOString();
 };
-
-const maxRowVersionMs = <T extends { updated_at: string; deleted_at: string | null }>(rows: T[]) =>
-  rows.reduce((max, row) => {
-    const values = [row.updated_at, row.deleted_at].filter(Boolean) as string[];
-    if (!values.length) return max;
-    const nextMax = Math.max(...values.map((value) => new Date(value).getTime()).filter((value) => Number.isFinite(value)));
-    return Math.max(max, nextMax || 0);
-  }, 0);
-
-const datasetVersionMs = (dataset: SpacesSyncDataset) => Math.max(
-  maxRowVersionMs(dataset.workspaces),
-  maxRowVersionMs(dataset.spaces),
-  maxRowVersionMs(dataset.folders),
-  maxRowVersionMs(dataset.lists),
-  maxRowVersionMs(dataset.tasks),
-  maxRowVersionMs(dataset.events)
-);
-
-const mapById = <T extends { id: string }>(rows: T[]) => new Map(rows.map((row) => [row.id, row]));
 
 const createWorkspaceRow = (
   userId: string,
@@ -503,131 +374,6 @@ const buildCurrentDataset = (userId: string, localSpaces: any, fallbackUpdatedAt
     events: sortByPosition(nextDataset.events),
   };
 };
-
-const prepareRowsFromBase = <T extends SyncRowBase>(currentRows: T[], baseRows: T[], nowIso: string) => {
-  const baseById = mapById(baseRows);
-  const currentById = mapById(currentRows);
-  const nextRows = new Map<string, T>();
-
-  currentRows.forEach((row) => {
-    const baseRow = baseById.get(row.id);
-    if (baseRow && !baseRow.deleted_at && canonicalRowEquals(baseRow, row)) {
-      nextRows.set(row.id, { ...baseRow, deleted_at: null } as T);
-      return;
-    }
-
-    nextRows.set(row.id, { ...row, updated_at: nowIso, deleted_at: null });
-  });
-
-  baseRows.forEach((baseRow) => {
-    if (currentById.has(baseRow.id)) return;
-    if (baseRow.deleted_at) {
-      nextRows.set(baseRow.id, baseRow);
-      return;
-    }
-    nextRows.set(baseRow.id, { ...baseRow, updated_at: nowIso, deleted_at: nowIso });
-  });
-
-  return sortByPosition([...nextRows.values()]);
-};
-
-const prepareLocalDataset = (userId: string, localSpaces: any, baseDataset: SpacesSyncDataset) => {
-  const currentDataset = buildCurrentDataset(userId, localSpaces);
-  const nowIso = new Date().toISOString();
-
-  return {
-    workspaces: prepareRowsFromBase(currentDataset.workspaces, baseDataset.workspaces, nowIso),
-    spaces: prepareRowsFromBase(currentDataset.spaces, baseDataset.spaces, nowIso),
-    folders: prepareRowsFromBase(currentDataset.folders, baseDataset.folders, nowIso),
-    lists: prepareRowsFromBase(currentDataset.lists, baseDataset.lists, nowIso),
-    tasks: prepareRowsFromBase(currentDataset.tasks, baseDataset.tasks, nowIso),
-    events: prepareRowsFromBase(currentDataset.events, baseDataset.events, nowIso),
-  };
-};
-
-const mergeRowSet = <T extends SyncRowBase>(baseRows: T[], localRows: T[], remoteRows: T[]) => {
-  const baseById = mapById(baseRows);
-  const localById = mapById(localRows);
-  const remoteById = mapById(remoteRows);
-  const allIds = new Set<string>([
-    ...baseRows.map((row) => row.id),
-    ...localRows.map((row) => row.id),
-    ...remoteRows.map((row) => row.id),
-  ]);
-
-  const mergedRows: T[] = [];
-  allIds.forEach((id) => {
-    const baseRow = baseById.get(id);
-    const localRow = localById.get(id);
-    const remoteRow = remoteById.get(id);
-
-    if (!baseRow) {
-      const winner = chooseLatestRow(localRow, remoteRow);
-      if (winner) mergedRows.push(winner);
-      return;
-    }
-
-    const localChanged = !canonicalRowEquals(baseRow, localRow) || !!localRow?.deleted_at !== !!baseRow.deleted_at;
-    const remoteChanged = !canonicalRowEquals(baseRow, remoteRow) || !!remoteRow?.deleted_at !== !!baseRow.deleted_at;
-
-    if (localChanged && remoteChanged) {
-      const winner = chooseLatestRow(localRow, remoteRow);
-      if (winner) mergedRows.push(winner);
-      return;
-    }
-
-    if (localChanged && localRow) {
-      mergedRows.push(localRow);
-      return;
-    }
-
-    if (remoteChanged && remoteRow) {
-      mergedRows.push(remoteRow);
-      return;
-    }
-
-    if (remoteRow) {
-      mergedRows.push(remoteRow);
-      return;
-    }
-
-    if (localRow) {
-      mergedRows.push(localRow);
-      return;
-    }
-
-    mergedRows.push(baseRow);
-  });
-
-  return sortByPosition(mergedRows);
-};
-
-const mergeDatasets = (base: SpacesSyncDataset, local: SpacesSyncDataset, remote: SpacesSyncDataset): SpacesSyncDataset => ({
-  workspaces: mergeRowSet(base.workspaces, local.workspaces, remote.workspaces),
-  spaces: mergeRowSet(base.spaces, local.spaces, remote.spaces),
-  folders: mergeRowSet(base.folders, local.folders, remote.folders),
-  lists: mergeRowSet(base.lists, local.lists, remote.lists),
-  tasks: mergeRowSet(base.tasks, local.tasks, remote.tasks),
-  events: mergeRowSet(base.events, local.events, remote.events),
-});
-
-const buildPendingRows = <T extends SyncRowBase>(baseRows: T[], nextRows: T[]) => {
-  const baseById = mapById(baseRows);
-  return nextRows.filter((row) => {
-    const baseRow = baseById.get(row.id);
-    if (!baseRow) return true;
-    return !canonicalRowEquals(baseRow, row) || baseRow.deleted_at !== row.deleted_at || baseRow.updated_at !== row.updated_at;
-  });
-};
-
-const buildPendingDataset = (base: SpacesSyncDataset, next: SpacesSyncDataset): SpacesSyncDataset => ({
-  workspaces: buildPendingRows(base.workspaces, next.workspaces),
-  spaces: buildPendingRows(base.spaces, next.spaces),
-  folders: buildPendingRows(base.folders, next.folders),
-  lists: buildPendingRows(base.lists, next.lists),
-  tasks: buildPendingRows(base.tasks, next.tasks),
-  events: buildPendingRows(base.events, next.events),
-});
 
 const buildSpacesStateFromDataset = (dataset: SpacesSyncDataset, currentLocal: any): SpacesState => {
   const workspaceRows = activeRows(dataset.workspaces);
@@ -973,11 +719,20 @@ const repairNormalizedSnapshot = async (userId: string, currentLocalSpaces: any,
 
 export const getLocalPendingSpacesCount = (userId: string, currentLocalSpaces: any) => {
   const cache = readLocalCache();
-  const pending = buildPendingDataset(cache.base, prepareLocalDataset(userId, currentLocalSpaces, cache.base));
+  const currentDataset = buildCurrentDataset(userId, currentLocalSpaces);
+  const nowIso = new Date().toISOString();
+  const mergedDataset = deriveLocalMutations({
+    cacheBase: cache.base,
+    currentDataset,
+    remoteDataset: cache.base,
+    reason: 'local-change',
+    nowIso,
+  });
+  const pending = buildPendingDataset(cache.base, mergedDataset);
   return countDatasetRows(pending);
 };
 
-export const runSpacesSyncCycle = async ({ userId, currentLocalSpaces }: SpacesSyncCycleOptions): Promise<SpacesSyncCycleResult> => {
+export const runSpacesSyncCycle = async ({ userId, currentLocalSpaces, reason }: SpacesSyncCycleOptions): Promise<SpacesSyncCycleResult> => {
   const cache = readLocalCache();
   const diagnostics: SpacesSyncDiagnostics = normalizeDiagnostics({
     ...cache.diagnostics,
@@ -1009,9 +764,15 @@ export const runSpacesSyncCycle = async ({ userId, currentLocalSpaces }: SpacesS
       diagnostics.migrationSource = 'normalized';
     }
 
-    const baseDataset = cloneDataset(cache.base);
-    const localPrepared = prepareLocalDataset(userId, currentLocalSpaces, baseDataset);
-    const mergedDataset = mergeDatasets(baseDataset, localPrepared, snapshot.dataset);
+    const currentDataset = buildCurrentDataset(userId, currentLocalSpaces);
+    const nowIso = new Date().toISOString();
+    const mergedDataset = deriveLocalMutations({
+      cacheBase: cache.base,
+      currentDataset,
+      remoteDataset: snapshot.dataset,
+      reason,
+      nowIso,
+    });
     const pendingDataset = buildPendingDataset(snapshot.dataset, mergedDataset);
     const didUpload = countDatasetRows(pendingDataset) > 0;
 
