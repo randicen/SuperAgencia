@@ -5,6 +5,7 @@ import { parseLocalDate } from './dateUtils';
 export const getSortedSchedulingQueue = (projects: Project[]): Project[] => {
   const workInProgress = projects.filter(p => p.status === 'todo' || p.status === 'active' || p.status === 'proposal');
   const now = new Date();
+  const nowTime = now.getTime();
 
   return [...workInProgress].sort((a, b) => {
     // 1. REGLA SUPREMA: ASAP (Emergencias reales)
