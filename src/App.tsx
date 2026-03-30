@@ -22,6 +22,7 @@ import { mergeCloudSyncState, normalizeCloudSyncState } from './utils/cloudSyncM
 import { useAuth } from './contexts/AuthContext';
 import LoginView from './components/LoginView';
 import { useAgencyStore } from './stores/useAgencyStore';
+import { formatLocalDate } from './utils/dateUtils';
 import {
   SpacesSyncDiagnostics,
   getLocalPendingSpacesCount,
@@ -762,7 +763,7 @@ const App: React.FC = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `CFO_Backup_${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `CFO_Backup_${formatLocalDate()}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);

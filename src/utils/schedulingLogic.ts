@@ -1,5 +1,6 @@
 
 import { Project, Priority, BusinessRules, ScheduledSlot } from '../types';
+import { parseLocalDate } from './dateUtils';
 
 export const getSortedSchedulingQueue = (projects: Project[]): Project[] => {
   const workInProgress = projects.filter(p => p.status === 'todo' || p.status === 'active' || p.status === 'proposal');
@@ -11,9 +12,8 @@ export const getSortedSchedulingQueue = (projects: Project[]): Project[] => {
     if (b.priority === Priority.ASAP && a.priority !== Priority.ASAP) return 1;
 
     const calculateSlackMs = (p: Project) => {
-      const dueDateStr = p.dueDate.includes('T') ? p.dueDate : `${p.dueDate}T23:59:59`;
-      const deadline = new Date(dueDateStr).getTime();
-      const nowTime = now.getTime();
+      const dueDateStr = p.dueDate && p.dueDate.includes('T') ? p.dueDate : p.dueDate ? `${p.dueDate}T23:59:59` : '';
+      const deadline = parseLocalDate(dueDateStr, true) ?? Number.MAX_SAFE_INTEGER;
       const workRemainingMinutes = (p.duration || 0) * ((100 - p.progress) / 100);
       const workRemainingMs = workRemainingMinutes * 60 * 1000;
       return (deadline - nowTime) - workRemainingMs;
@@ -47,7 +47,9 @@ export const getSortedSchedulingQueue = (projects: Project[]): Project[] => {
     }
 
     // 6. ÚLTIMO RECURSO: Fecha de entrega cronológica
-    return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+    const aDue = parseLocalDate(a.dueDate) || Number.MAX_SAFE_INTEGER;
+    const bDue = parseLocalDate(b.dueDate) || Number.MAX_SAFE_INTEGER;
+    return aDue - bDue;
   });
 };
 
@@ -144,17 +146,17 @@ export const getFormattedSlack = (p: Project, rules: BusinessRules): { text: str
   const workRemainingMinutes = (p.duration || 0) * ((100 - p.progress) / 100);
 
   // Parse deadline correctly
-  const dueDateStr = p.dueDate.includes('T') ? p.dueDate : `${p.dueDate}T23:59:59`;
-  const deadline = new Date(dueDateStr);
-  if (isNaN(deadline.getTime())) return { text: 'Error fecha', isOverdue: true };
+  const deadlineMs = parseLocalDate(p.dueDate, true);
+  if (!deadlineMs) return { text: 'Error fecha', isOverdue: true };
+  const deadline = new Date(deadlineMs);
 
   const now = new Date();
   let expectedFinish: Date;
 
   if (p.endDate && p.autoSchedule) {
-    const parsedEnd = new Date(p.endDate);
-    if (!isNaN(parsedEnd.getTime())) {
-      expectedFinish = parsedEnd;
+    const parsedEndMs = parseLocalDate(p.endDate);
+    if (parsedEndMs) {
+      expectedFinish = new Date(parsedEndMs);
     } else {
       expectedFinish = addWorkingMinutes(now, workRemainingMinutes, rules);
     }
@@ -204,48 +206,8 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
   const updatedProjects = [...projects];
   const anchors: { id: string, start: number, end: number, label: string }[] = [];
 
-  // Helper local para parsear fechas respetando la zona horaria del usuario
   const parseLocal = (dateStr: string, endOfDay: boolean = false): number => {
-    if (!dateStr) return 0;
-
-    // 1. Handle DD/MM/YYYY format if present
-    if (dateStr.includes('/') && !dateStr.includes('T') && !dateStr.includes(':')) {
-      const parts = dateStr.split('/');
-      if (parts.length === 3) {
-        const [day, month, year] = parts.map(Number);
-        const date = new Date(year, month - 1, day);
-        if (endOfDay) date.setHours(23, 59, 59, 999);
-        else date.setHours(0, 0, 0, 0);
-        return date.getTime();
-      }
-    }
-
-    // 2. Normalizar: Cambiar espacio por 'T' para que sea interpretable como ISO local si tiene hora
-    const normalized = dateStr.replace(' ', 'T');
-
-    if (normalized.includes('T')) {
-      const d = new Date(normalized);
-      if (!isNaN(d.getTime())) return d.getTime();
-    }
-
-    // 3. Fallback: YYYY-MM-DD
-    const parts = normalized.split('T')[0].split('-');
-    if (parts.length === 3) {
-      const [y, m, d] = parts.map(Number);
-      if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
-        const date = new Date(y, m - 1, d);
-        if (endOfDay) {
-          date.setHours(23, 59, 59, 999);
-        } else {
-          date.setHours(0, 0, 0, 0);
-        }
-        return date.getTime();
-      }
-    }
-
-    // Last resort
-    const fallback = new Date(dateStr);
-    return isNaN(fallback.getTime()) ? 0 : fallback.getTime();
+    return parseLocalDate(dateStr, endOfDay) ?? 0;
   };
 
   // 1. ANCLAS PRIMORDIALES: Eventos (Piedras inmovibles)

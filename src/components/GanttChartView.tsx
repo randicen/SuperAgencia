@@ -1,6 +1,7 @@
 
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { SpaceTask } from '../spacesTypes';
+import { formatLocalDate } from '../utils/dateUtils';
 
 export type GroupBy = 'estado' | 'prioridad' | 'fecha';
 type TimeRange = 'Día' | 'Semana' | 'Mes' | 'Trimestre' | 'Año';
@@ -376,7 +377,7 @@ const GanttChartView: React.FC<{
                         {/* Show "Now" Line if visible */}
                         {/* We can calculate the 'now' position same as tasks */}
                         {(() => {
-                            const nowPos = getPosition(new Date().toISOString().split('T')[0], null); // Pass date string roughly?
+                            const nowPos = getPosition(formatLocalDate(), null); // Pass date string roughly?
                             // Better to manually calc pixel for "Now" exact time
                             const nowMs = new Date().getTime();
                             const startMs = config.start.getTime();

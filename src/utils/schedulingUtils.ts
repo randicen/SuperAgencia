@@ -1,6 +1,7 @@
 
 import { Project, Priority } from '../types';
 import { SpaceTask } from '../spacesTypes';
+import { parseLocalDate } from './dateUtils';
 
 // Helper to calculate business days between two dates
 export const getBusinessDays = (startDate: Date, endDate: Date): number => {
@@ -24,12 +25,9 @@ export const getFormattedSlack = (task: { dueDate: string; duration: number; }):
 
     if (!task.dueDate) return { text: 'Sin Fecha', isOverdue: false, days: 999 };
 
-    const due = new Date(task.dueDate);
-    if (isNaN(due.getTime())) return { text: 'Error Fecha', isOverdue: false, days: 0 };
-
-    if (!task.dueDate.includes('T')) {
-        due.setHours(23, 59, 59);
-    }
+    const dueMs = parseLocalDate(task.dueDate, true);
+    if (!dueMs) return { text: 'Error Fecha', isOverdue: false, days: 0 };
+    const due = new Date(dueMs);
 
     const timeDiffMs = due.getTime() - now.getTime();
     

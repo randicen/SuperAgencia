@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { Client, Installment } from '../types';
 import { useSpaces, getAllTasks, TaskWithLocation } from '../contexts/SpacesContext';
 import { SpaceTask } from '../spacesTypes';
+import { formatLocalDate } from '../utils/dateUtils';
 
 interface FinanceViewProps {
   clients: Client[];
@@ -91,7 +92,7 @@ const FinanceView: React.FC<FinanceViewProps> = ({ clients, onUpdateClients, onA
   const toggleInstallment = (taskLoc: TaskWithLocation, instId: string) => {
     const task = taskLoc.task;
     const updatedInstallments = (task.installments || []).map(i =>
-      i.id === instId ? { ...i, status: (i.status === 'PAGADO' ? 'PENDIENTE' : 'PAGADO') as 'PENDIENTE' | 'PAGADO', paidDate: i.status === 'PENDIENTE' ? new Date().toISOString().split('T')[0] : undefined } : i
+      i.id === instId ? { ...i, status: (i.status === 'PAGADO' ? 'PENDIENTE' : 'PAGADO') as 'PENDIENTE' | 'PAGADO', paidDate: i.status === 'PENDIENTE' ? formatLocalDate() : undefined } : i
     );
     dispatchTaskUpdate(taskLoc, { installments: updatedInstallments });
   };
@@ -195,7 +196,7 @@ const FinanceView: React.FC<FinanceViewProps> = ({ clients, onUpdateClients, onA
         return {
             id: Math.random().toString(36).substr(2, 9),
             amount: i === numInstallmentsToGen - 1 ? amountPerInstallment + remainder : amountPerInstallment,
-            dueDate: d.toISOString().split('T')[0], status: 'PENDIENTE' as const
+            dueDate: formatLocalDate(d), status: 'PENDIENTE' as const
         };
     });
     setEditingInstallments(newInstallments);
@@ -449,7 +450,7 @@ const FinanceView: React.FC<FinanceViewProps> = ({ clients, onUpdateClients, onA
                         <button type="button" onClick={() => setEditingInstallments(editingInstallments.filter((_, i) => i !== idx))} className="p-2 text-red-500 hover:bg-red-50 rounded-lg cursor-pointer"><i className="fa-solid fa-trash-can"></i></button>
                     </div>
                 ))}
-                <button type="button" onClick={() => setEditingInstallments([...editingInstallments, {id: Math.random().toString(36).substr(2,9), amount: 0, dueDate: new Date().toISOString().split('T')[0], status: 'PENDIENTE'}])} className="w-full py-3 border-2 border-dashed border-slate-200 rounded-2xl text-[9px] font-black text-slate-400 uppercase hover:border-blue-400 hover:text-blue-500 transition-all cursor-pointer">+ Manual</button>
+                <button type="button" onClick={() => setEditingInstallments([...editingInstallments, {id: Math.random().toString(36).substr(2,9), amount: 0, dueDate: formatLocalDate(), status: 'PENDIENTE'}])} className="w-full py-3 border-2 border-dashed border-slate-200 rounded-2xl text-[9px] font-black text-slate-400 uppercase hover:border-blue-400 hover:text-blue-500 transition-all cursor-pointer">+ Manual</button>
             </div>
             <div className="pt-6 border-t border-slate-100 flex gap-4">
                 <button type="button" onClick={() => setEditingTaskId(null)} className="flex-1 font-black text-slate-400 text-[10px] uppercase cursor-pointer">Cancelar</button>
