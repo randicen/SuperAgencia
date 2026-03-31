@@ -6,6 +6,13 @@ import { Client } from '../types';
 import { getPriorityBadgeStyle, getFormattedSlack } from '../utils/schedulingUtils';
 import { getFormattedSlack as getFormattedSlackProject, runAutoScheduling } from '../utils/schedulingLogic';
 import { formatLocalDateOnly, parseLocalDate } from '../utils/dateTime';
+import {
+    DEFAULT_LISTA_COLUMN_ORDER,
+    DEFAULT_LISTA_VISIBLE_COLUMNS,
+    ListaColumnId,
+    normalizeStoredColumnOrder,
+    normalizeStoredVisibleColumns,
+} from '../utils/spacesViewPreferences';
 import GanttChartView from './GanttChartView';
 import SettingsView from './SettingsView';
 
@@ -280,7 +287,7 @@ const formatSuggestedSlotRange = (startValue: string, endValue: string) => {
 
 // ==================== LISTA VIEW (TABLE-BASED) ====================
 // Column definitions
-type ColumnId = 'nombre' | 'startDate' | 'dueDate' | 'priority' | 'estado' | 'duration' | 'progress' | 'slack' | 'clientName' | 'totalValue' | 'financialProgress';
+type ColumnId = ListaColumnId;
 const ALL_COLUMNS: { id: ColumnId; label: string; width: string }[] = [
     { id: 'nombre', label: 'Nombre', width: 'w-[300px] shrink-0' },
     { id: 'clientName', label: 'Cliente', width: 'w-32 shrink-0' },
@@ -309,26 +316,20 @@ const ListaView: React.FC<{
     const [columnOrder, setColumnOrder] = useState<ColumnId[]>(() => {
         try {
             const saved = localStorage.getItem('lista_column_order');
-            const defaultOrder: ColumnId[] = ['nombre', 'clientName', 'totalValue', 'financialProgress', 'startDate', 'dueDate', 'priority', 'slack', 'estado', 'duration', 'progress'];
             if (saved) {
-                const parsed = JSON.parse(saved);
-                const missing = defaultOrder.filter(id => !parsed.includes(id));
-                return [...parsed, ...missing];
+                return normalizeStoredColumnOrder(JSON.parse(saved));
             }
-            return defaultOrder;
-        } catch { return ['nombre', 'clientName', 'totalValue', 'financialProgress', 'startDate', 'dueDate', 'priority', 'slack', 'estado', 'duration', 'progress']; }
+            return [...DEFAULT_LISTA_COLUMN_ORDER];
+        } catch { return [...DEFAULT_LISTA_COLUMN_ORDER]; }
     });
     const [visibleColumns, setVisibleColumns] = useState<ColumnId[]>(() => {
         try {
             const saved = localStorage.getItem('lista_columns');
             if (saved) {
-                const parsed = JSON.parse(saved);
-                // If we find that the newly added mandatory columns were missed from a previous save, we add them at the front?
-                // Or just trust the current toggle. 
-                return parsed;
+                return normalizeStoredVisibleColumns(JSON.parse(saved));
             }
-            return ['nombre', 'clientName', 'totalValue', 'financialProgress', 'startDate', 'dueDate', 'priority', 'slack', 'estado'];
-        } catch { return ['nombre', 'clientName', 'totalValue', 'financialProgress', 'startDate', 'dueDate', 'priority', 'slack', 'estado']; }
+            return [...DEFAULT_LISTA_VISIBLE_COLUMNS];
+        } catch { return [...DEFAULT_LISTA_VISIBLE_COLUMNS]; }
     });
     const [showColumnSelector, setShowColumnSelector] = useState(false);
     const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
@@ -402,7 +403,10 @@ const ListaView: React.FC<{
     };
 
     const groups = getGroups();
-    const orderedColumns = columnOrder.filter(id => visibleColumns.includes(id)).map(id => ALL_COLUMNS.find(c => c.id === id)!);
+    const orderedColumns = columnOrder
+        .filter(id => visibleColumns.includes(id))
+        .map(id => ALL_COLUMNS.find(c => c.id === id))
+        .filter((column): column is typeof ALL_COLUMNS[number] => !!column);
 
     const renderCell = (task: SpaceTask, colId: ColumnId, level: number = 0) => {
         const hasSubtasks = task.subtasks && task.subtasks.length > 0;
