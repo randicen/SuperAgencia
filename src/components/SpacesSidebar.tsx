@@ -526,7 +526,7 @@ const SpacesSidebar: React.FC<SpacesSidebarProps> = ({ onNavigate }) => {
                                                             {folder.listas.map((list) => (
                                                                 <div
                                                                     key={list.id}
-                                                                    onClick={() => handleListClick(space.id, list.id, folder.id)}
+                                                                    onClick={(e) => { e.stopPropagation(); handleListClick(space.id, list.id, folder.id); }}
                                                                     className={`group flex items-center gap-2 px-2 py-1 mx-2 rounded cursor-pointer transition-colors ${state.activeListId === list.id ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-[#1A1C23] text-slate-400'
                                                                         }`}
                                                                 >
@@ -594,7 +594,7 @@ const SpacesSidebar: React.FC<SpacesSidebarProps> = ({ onNavigate }) => {
                                         {space.listas.map((list) => (
                                             <div
                                                 key={list.id}
-                                                onClick={() => handleListClick(space.id, list.id)}
+                                                onClick={(e) => { e.stopPropagation(); handleListClick(space.id, list.id); }}
                                                 className={`group flex items-center gap-2 px-2 py-1 mx-2 rounded cursor-pointer transition-colors ${state.activeListId === list.id ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-[#1A1C23] text-slate-400'
                                                     }`}
                                             >
