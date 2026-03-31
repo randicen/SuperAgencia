@@ -248,6 +248,34 @@ const formatSuggestedSlotDateTime = (dateValue: string) => {
     return `${day} ${month}, ${h12}:${minutes} ${ampm}`;
 };
 
+const formatSuggestedSlotTime = (dateValue: string) => {
+    const d = new Date(dateValue);
+    if (isNaN(d.getTime())) return '-';
+
+    const h = d.getHours();
+    const h12 = h % 12 || 12;
+    const ampm = h >= 12 ? 'pm' : 'am';
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+
+    return `${h12}:${minutes} ${ampm}`;
+};
+
+const formatSuggestedSlotRange = (startValue: string, endValue: string) => {
+    const start = new Date(startValue);
+    const end = new Date(endValue);
+
+    if (isNaN(start.getTime()) || isNaN(end.getTime())) return '-';
+
+    const sameDay =
+        start.getFullYear() === end.getFullYear() &&
+        start.getMonth() === end.getMonth() &&
+        start.getDate() === end.getDate();
+
+    return sameDay
+        ? `${formatSuggestedSlotDateTime(startValue)} - ${formatSuggestedSlotTime(endValue)}`
+        : `${formatSuggestedSlotDateTime(startValue)} - ${formatSuggestedSlotDateTime(endValue)}`;
+};
+
 // ==================== LISTA VIEW (TABLE-BASED) ====================
 // Column definitions
 type ColumnId = 'nombre' | 'startDate' | 'dueDate' | 'priority' | 'estado' | 'duration' | 'progress' | 'slack' | 'clientName' | 'totalValue' | 'financialProgress';
@@ -431,7 +459,7 @@ const ListaView: React.FC<{
                         {task.autoSchedule && task.startDate && task.endDate && (
                             <span className="text-[9px] text-slate-400 whitespace-nowrap mt-0.5" title="Horario programado por IA">
                                 <i className="fa-solid fa-robot text-blue-400 mr-1"></i>
-                                {new Date(task.startDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()} - {new Date(task.endDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()}
+                                {formatSuggestedSlotRange(task.startDate, task.endDate)}
                                 {new Date(task.endDate) > new Date(task.dueDate!) && (
                                     <span className="text-red-500 font-bold ml-1" title="La IA estima que terminarás después del deadline">¡Riesgo!</span>
                                 )}
