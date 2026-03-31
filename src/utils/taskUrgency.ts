@@ -53,7 +53,9 @@ export const compareTaskUrgency = (a: TaskWithDue, b: TaskWithDue, now = new Dat
   if (metaA.bucket !== metaB.bucket) return metaA.bucket - metaB.bucket;
   if (metaA.priorityScore !== metaB.priorityScore) return metaB.priorityScore - metaA.priorityScore;
   if (metaA.dueAt !== metaB.dueAt) return metaA.dueAt - metaB.dueAt;
-  return a.nombre.localeCompare(b.nombre, 'es');
+  const nameA = typeof a.nombre === 'string' ? a.nombre : '';
+  const nameB = typeof b.nombre === 'string' ? b.nombre : '';
+  return nameA.localeCompare(nameB, 'es');
 };
 
 export const formatTaskDueDateTime = (value?: string | null) => {

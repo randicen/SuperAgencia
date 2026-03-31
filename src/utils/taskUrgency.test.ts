@@ -18,6 +18,15 @@ test('compareTaskUrgency prioritizes overdue ASAP tasks first', () => {
   assert.ok(compareTaskUrgency(futureHigh, overdueAsap, now) > 0);
 });
 
+test('compareTaskUrgency tolerates missing task names', () => {
+  const now = new Date('2026-03-31T09:00:00-05:00');
+  const unnamed = task({ nombre: undefined as any, dueDate: '2026-04-01T12:00:00-05:00' });
+  const named = task({ nombre: 'Con nombre', dueDate: '2026-04-01T12:00:00-05:00' });
+
+  assert.doesNotThrow(() => compareTaskUrgency(unnamed, named, now));
+  assert.ok(compareTaskUrgency(unnamed, named, now) < 0);
+});
+
 test('formatTaskDueDateTime preserves local date and hour', () => {
   const formatted = formatTaskDueDateTime('2026-03-31T13:13:00-05:00');
   assert.match(formatted, /31/);

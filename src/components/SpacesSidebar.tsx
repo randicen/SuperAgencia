@@ -98,11 +98,11 @@ const SpacesSidebar: React.FC<SpacesSidebarProps> = ({ onNavigate }) => {
     const filteredUpcomingTasks = useMemo(() => {
         return upcomingTasks
             .filter(t => {
-                if (urgencyLevel === 'CRITICAL') return t._bucket === 0;
-                if (urgencyLevel === 'SOON') return t._bucket === 0 || t._bucket === 1;
-                if (urgencyLevel === 'WEEK') return t._bucket <= 3 && t._hoursLeft <= 168; // Max 7 days
+                if (urgencyLevel === 'CRITICAL') return t.bucket === 0;
+                if (urgencyLevel === 'SOON') return t.bucket === 0 || t.bucket === 1;
+                if (urgencyLevel === 'WEEK') return t.bucket <= 3 && t.hoursLeft <= 168; // Max 7 days
                 // ALL: Also limit to max 10 days to avoid "infinity"
-                return t._hoursLeft <= 240 || t._bucket === 0;
+                return t.hoursLeft <= 240 || t.bucket === 0;
             })
             .slice(0, 8); // Showing up to 8 now
     }, [upcomingTasks, urgencyLevel]);

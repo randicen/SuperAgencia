@@ -596,7 +596,9 @@ export const calculateQuote = async (
         if (dueDiff !== 0) return dueDiff;
         const startDiff = parseDateValue(left.task.startDate) - parseDateValue(right.task.startDate);
         if (startDiff !== 0) return startDiff;
-        return left.task.nombre.localeCompare(right.task.nombre, 'es');
+        const leftName = typeof left.task.nombre === 'string' ? left.task.nombre : '';
+        const rightName = typeof right.task.nombre === 'string' ? right.task.nombre : '';
+        return leftName.localeCompare(rightName, 'es');
       });
     const limitedTasks = filteredTasks.slice(0, limit);
 
