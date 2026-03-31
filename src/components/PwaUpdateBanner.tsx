@@ -9,7 +9,6 @@ interface PwaUpdateBannerProps {
 const PwaUpdateBanner: React.FC<PwaUpdateBannerProps> = ({ onNeedRefreshChange, writeLockReason }) => {
   const {
     needRefresh: [needRefresh],
-    offlineReady: [offlineReady, setOfflineReady],
     updateServiceWorker,
   } = useRegisterSW();
 
@@ -25,7 +24,7 @@ const PwaUpdateBanner: React.FC<PwaUpdateBannerProps> = ({ onNeedRefreshChange, 
         const registration = await navigator.serviceWorker.getRegistration();
         await registration?.update();
       } catch (error) {
-        console.warn('No se pudo verificar actualización PWA:', error);
+        console.warn('No se pudo verificar actualizacion PWA:', error);
       }
     };
 
@@ -49,36 +48,23 @@ const PwaUpdateBanner: React.FC<PwaUpdateBannerProps> = ({ onNeedRefreshChange, 
     };
   }, []);
 
-  if (!needRefresh && !offlineReady) return null;
+  if (!needRefresh) return null;
 
   return (
     <div className="fixed bottom-4 left-1/2 z-[300] w-[92%] max-w-md -translate-x-1/2 rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl">
       <p className="text-sm font-semibold text-slate-800">
-        {needRefresh
-          ? 'Hay una actualización de la app disponible.'
-          : 'App lista para abrir sin internet. La sincronización con Supabase sigue activa cuando hay conexión.'}
+        Hay una actualizacion de la app disponible.
       </p>
-      {needRefresh && (
-        <p className="mt-2 text-xs text-slate-500">
-          {writeLockReason || 'Actualiza la app para volver a editar tareas con seguridad.'}
-        </p>
-      )}
+      <p className="mt-2 text-xs text-slate-500">
+        {writeLockReason || 'Actualiza la app para volver a editar tareas con seguridad.'}
+      </p>
       <div className="mt-3 flex items-center gap-2">
-        {needRefresh ? (
-          <button
-            onClick={() => updateServiceWorker(true)}
-            className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-blue-700"
-          >
-            Actualizar ahora
-          </button>
-        ) : (
-          <button
-            onClick={() => setOfflineReady(false)}
-            className="rounded-xl border border-slate-200 px-4 py-2 text-xs font-bold uppercase tracking-wide text-slate-600 hover:bg-slate-50"
-          >
-            Entendido
-          </button>
-        )}
+        <button
+          onClick={() => updateServiceWorker(true)}
+          className="rounded-xl bg-blue-600 px-4 py-2 text-xs font-bold uppercase tracking-wide text-white hover:bg-blue-700"
+        >
+          Actualizar ahora
+        </button>
       </div>
     </div>
   );
