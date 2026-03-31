@@ -234,6 +234,20 @@ const formatFriendlyDate = (dateStr: string) => {
     return `${day} ${month}`;
 };
 
+const formatSuggestedSlotDateTime = (dateValue: string) => {
+    const d = new Date(dateValue);
+    if (isNaN(d.getTime())) return '-';
+
+    const day = d.getDate();
+    const month = d.toLocaleDateString('es-ES', { month: 'short' });
+    const h = d.getHours();
+    const h12 = h % 12 || 12;
+    const ampm = h >= 12 ? 'pm' : 'am';
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+
+    return `${day} ${month}, ${h12}:${minutes} ${ampm}`;
+};
+
 // ==================== LISTA VIEW (TABLE-BASED) ====================
 // Column definitions
 type ColumnId = 'nombre' | 'startDate' | 'dueDate' | 'priority' | 'estado' | 'duration' | 'progress' | 'slack' | 'clientName' | 'totalValue' | 'financialProgress';
@@ -2440,21 +2454,9 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                     {editingTask.scheduledSlots.map((s, idx) => (
                                                         <div key={idx} className="text-[10px] font-bold text-slate-700 bg-slate-50 p-2 rounded-lg border flex justify-between items-center">
-                                                            <span>{(() => {
-                                                                const d = new Date(s.start);
-                                                                const h = d.getHours();
-                                                                const h12 = h % 12 || 12;
-                                                                const ampm = h >= 12 ? 'pm' : 'am';
-                                                                return `${d.getDate()}/${d.getMonth() + 1} ${h12}:${d.getMinutes().toString().padStart(2, '0')} ${ampm}`;
-                                                            })()}</span>
+                                                            <span>{formatSuggestedSlotDateTime(s.start)}</span>
                                                             <i className="fa-solid fa-arrow-right text-[8px] text-slate-300 mx-2"></i>
-                                                            <span>{(() => {
-                                                                const d = new Date(s.end);
-                                                                const h = d.getHours();
-                                                                const h12 = h % 12 || 12;
-                                                                const ampm = h >= 12 ? 'pm' : 'am';
-                                                                return `${h12}:${d.getMinutes().toString().padStart(2, '0')} ${ampm}`;
-                                                            })()}</span>
+                                                            <span>{formatSuggestedSlotDateTime(s.end)}</span>
                                                         </div>
                                                     ))}
                                                 </div>
