@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { compareTaskUrgency, formatTaskCountdown, formatTaskDueDateTime } from './taskUrgency.ts';
+import { compareTaskUrgency, formatTaskCountdown, formatTaskDueDateTime, getTaskUrgencyMeta } from './taskUrgency.ts';
 
 const task = (overrides: Record<string, any>) => ({
   nombre: 'Tarea',
@@ -25,6 +25,17 @@ test('compareTaskUrgency tolerates missing task names', () => {
 
   assert.doesNotThrow(() => compareTaskUrgency(unnamed, named, now));
   assert.ok(compareTaskUrgency(unnamed, named, now) < 0);
+});
+
+test('getTaskUrgencyMeta does not overwrite string dueDate when spreading task data', () => {
+  const now = new Date('2026-03-31T09:00:00-05:00');
+  const source = task({ dueDate: '2026-03-31' });
+  const enriched = { ...source, ...getTaskUrgencyMeta(source, now) };
+
+  assert.equal(typeof enriched.dueDate, 'string');
+  assert.equal(enriched.dueDate, '2026-03-31');
+  assert.equal(enriched.resolvedDueDate?.getTime(), new Date(2026, 2, 31, 23, 59, 59, 999).getTime());
+  assert.doesNotThrow(() => formatTaskCountdown(enriched.dueDate, now));
 });
 
 test('formatTaskDueDateTime preserves local date and hour', () => {

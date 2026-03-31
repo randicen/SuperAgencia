@@ -3,8 +3,12 @@ const SLASH_DATE_PATTERN = /^\d{1,2}\/\d{1,2}\/\d{4}$/;
 
 const hasExplicitTime = (value: string) => value.includes('T') || value.includes(':');
 
-export const parseLocalDate = (value?: string | null, endOfDay = false): Date | null => {
+export const parseLocalDate = (value?: string | Date | null, endOfDay = false): Date | null => {
   if (!value) return null;
+
+  if (value instanceof Date) {
+    return Number.isNaN(value.getTime()) ? null : new Date(value.getTime());
+  }
 
   if (DATE_ONLY_PATTERN.test(value)) {
     const [year, month, day] = value.split('-').map(Number);

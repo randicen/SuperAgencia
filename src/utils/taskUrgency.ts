@@ -22,10 +22,10 @@ const getTaskDueDate = (task: TaskWithDue) =>
   parseLocalDate(task.startDate, true);
 
 export const getTaskUrgencyMeta = (task: TaskWithDue, now = new Date()) => {
-  const dueDate = getTaskDueDate(task);
-  if (!dueDate) {
+  const resolvedDueDate = getTaskDueDate(task);
+  if (!resolvedDueDate) {
     return {
-      dueDate: null,
+      resolvedDueDate: null,
       dueAt: Number.MAX_SAFE_INTEGER,
       bucket: 3 as const,
       hoursLeft: Number.POSITIVE_INFINITY,
@@ -33,12 +33,12 @@ export const getTaskUrgencyMeta = (task: TaskWithDue, now = new Date()) => {
     };
   }
 
-  const dueAt = dueDate.getTime();
+  const dueAt = resolvedDueDate.getTime();
   const hoursLeft = (dueAt - now.getTime()) / (1000 * 60 * 60);
   const bucket = dueAt < now.getTime() ? 0 : hoursLeft <= 24 ? 1 : hoursLeft <= 72 ? 2 : 3;
 
   return {
-    dueDate,
+    resolvedDueDate,
     dueAt,
     bucket,
     hoursLeft,
@@ -58,8 +58,10 @@ export const compareTaskUrgency = (a: TaskWithDue, b: TaskWithDue, now = new Dat
   return nameA.localeCompare(nameB, 'es');
 };
 
-export const formatTaskDueDateTime = (value?: string | null) => {
-  const isDateOnly = !!value && (/^\d{4}-\d{2}-\d{2}$/.test(value) || /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(value));
+export const formatTaskDueDateTime = (value?: string | Date | null) => {
+  const isDateOnly =
+    typeof value === 'string' &&
+    (/^\d{4}-\d{2}-\d{2}$/.test(value) || /^\d{1,2}\/\d{1,2}\/\d{4}$/.test(value));
   const date = parseLocalDate(value || null, isDateOnly);
   if (!date) return 'Sin fecha';
   return date.toLocaleString('es-CO', {
@@ -71,7 +73,7 @@ export const formatTaskDueDateTime = (value?: string | null) => {
   }).toLowerCase();
 };
 
-export const formatTaskCountdown = (dueDate: string | null | undefined, now = new Date()) => {
+export const formatTaskCountdown = (dueDate: string | Date | null | undefined, now = new Date()) => {
   const parsed = parseLocalDate(dueDate || null, true);
   if (!parsed) return 'Sin plazo';
 
@@ -90,6 +92,6 @@ export const formatTaskCountdown = (dueDate: string | null | undefined, now = ne
   return isOverdue ? `-${label}` : label;
 };
 
-export const formatTaskDeadline = (dueDate?: string | null) => {
+export const formatTaskDeadline = (dueDate?: string | Date | null) => {
   return formatTaskDueDateTime(dueDate);
 };
