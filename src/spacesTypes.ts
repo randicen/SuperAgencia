@@ -1,4 +1,4 @@
-import { BusinessRules, Installment } from './types';
+import { BusinessRules, Installment } from './types.ts';
 
 export type TaskPriority = 'ASAP' | 'High' | 'Medium' | 'Low';
 export type TaskStatus = 'TODO' | 'ACTIVE' | 'DONE';

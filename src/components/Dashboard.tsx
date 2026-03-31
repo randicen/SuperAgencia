@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { CartesianGrid, ComposedChart, Area, Line, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { getAllTasks, useSpaces } from '../contexts/SpacesContext';
 import { Client, Project, SeasonalityData, Transaction } from '../types';
@@ -29,7 +29,19 @@ const formatDateTime = (value: string | null) => {
 const Dashboard: React.FC<DashboardProps> = ({ transactions, clients, setActiveTab }) => {
   const { state } = useSpaces();
   const allTaskLocations = useMemo(() => getAllTasks(state), [state]);
-  const operationalSummary = useMemo(() => buildPanoramaOperationalSummary(state), [state]);
+  const [nowTick, setNowTick] = useState(() => Date.now());
+
+  useEffect(() => {
+    const interval = window.setInterval(() => setNowTick(Date.now()), 60000);
+    return () => window.clearInterval(interval);
+  }, []);
+
+  const operationalSummary = useMemo(() => buildPanoramaOperationalSummary(state, new Date(nowTick)), [state, nowTick]);
+  const activeWorkspaceId = state.activeWorkspaceId || state.workspaces[0]?.id || null;
+  const activeTaskLocations = useMemo(
+    () => allTaskLocations.filter(({ workspaceId }) => workspaceId === activeWorkspaceId),
+    [allTaskLocations, activeWorkspaceId]
+  );
 
   const currentBalance = useMemo(
     () => transactions.reduce((accumulator, transaction) => accumulator + (transaction.type === 'income' ? transaction.amount : -transaction.amount), 0),
@@ -49,7 +61,7 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, clients, setActiveT
         data.push({ date: transaction.date, balance: realizedBalance, type: 'actual' });
       });
 
-    allTaskLocations
+    activeTaskLocations
       .flatMap(({ task }) =>
         (task.installments || [])
           .filter((installment) => installment.status === 'PENDIENTE')
@@ -62,7 +74,7 @@ const Dashboard: React.FC<DashboardProps> = ({ transactions, clients, setActiveT
       });
 
     return data.length > 0 ? data : [{ date: new Date().toISOString(), balance: currentBalance, type: 'actual' as const }];
-  }, [allTaskLocations, currentBalance, transactions]);
+  }, [activeTaskLocations, currentBalance, transactions]);
 
   return (
     <div className="space-y-6 animate-in fade-in duration-500 max-w-7xl mx-auto">

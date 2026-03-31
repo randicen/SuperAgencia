@@ -1,5 +1,4 @@
-import { getAllTasks } from '../contexts/SpacesContext';
-import { SpacesState, SpaceEvent, TaskPriority } from '../spacesTypes';
+import type { SpacesState, SpaceEvent, TaskPriority } from '../spacesTypes.ts';
 
 export interface PanoramaTaskItem {
   id: string;
@@ -60,6 +59,30 @@ const parseDate = (value?: string | null, endOfDay = false): number | null => {
 const resolveTaskDueAt = (task: { dueDate?: string; endDate?: string; startDate?: string }) =>
   parseDate(task.dueDate, true) ?? parseDate(task.endDate, true) ?? parseDate(task.startDate);
 
+const flattenWorkspaceTasks = (state: SpacesState) => {
+  const result: Array<{ task: any; workspaceId: string }> = [];
+
+  const extractTasks = (tasks: any[], workspaceId: string) => {
+    tasks.forEach((task) => {
+      result.push({ task, workspaceId });
+      if (Array.isArray(task.subtasks) && task.subtasks.length > 0) {
+        extractTasks(task.subtasks, workspaceId);
+      }
+    });
+  };
+
+  state.workspaces.forEach((workspace) => {
+    workspace.espacios.forEach((space) => {
+      space.listas.forEach((list) => extractTasks(list.tareas, workspace.id));
+      space.carpetas.forEach((folder) => {
+        folder.listas.forEach((list) => extractTasks(list.tareas, workspace.id));
+      });
+    });
+  });
+
+  return result;
+};
+
 const collectWorkspaceEvents = (state: SpacesState, workspaceId: string | null) => {
   const activeWorkspace = state.workspaces.find((workspace) => workspace.id === workspaceId) || state.workspaces[0];
   if (!activeWorkspace) return [];
@@ -98,10 +121,15 @@ export const buildPanoramaOperationalSummary = (
 ): PanoramaOperationalSummary => {
   const nowMs = now.getTime();
   const next48h = nowMs + 48 * 60 * 60 * 1000;
-  const allTasks = getAllTasks(state);
+  const activeWorkspace =
+    state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId) ||
+    state.workspaces[0] ||
+    null;
+  const workspaceTasks = flattenWorkspaceTasks(state).filter(({ workspaceId }) => !activeWorkspace || workspaceId === activeWorkspace.id);
+  const workspaceName = activeWorkspace?.nombre || state.workspaces[0]?.nombre || null;
   const workspaceNames = new Map(state.workspaces.map((workspace) => [workspace.id, workspace.nombre]));
 
-  const taskItems: PanoramaTaskItem[] = allTasks.map(({ task, workspaceId }) => ({
+  const taskItems: PanoramaTaskItem[] = workspaceTasks.map(({ task, workspaceId }) => ({
     id: task.id,
     nombre: task.nombre,
     clientName: task.clientName,
@@ -114,13 +142,13 @@ export const buildPanoramaOperationalSummary = (
   }));
 
   let pendingIncome = 0;
-  allTasks.forEach(({ task }) => {
+  workspaceTasks.forEach(({ task }) => {
     (task.installments || []).forEach((installment) => {
       if (installment.status === 'PENDIENTE') pendingIncome += installment.amount;
     });
   });
 
-  const actionableTasks = taskItems.filter((task, index) => allTasks[index]?.task.estado !== 'DONE');
+  const actionableTasks = taskItems.filter((task, index) => workspaceTasks[index]?.task.estado !== 'DONE');
   const overdueTasks = actionableTasks
     .filter((task) => !!task.dueAt && task.dueAt < nowMs)
     .sort((left, right) => (left.dueAt || 0) - (right.dueAt || 0));
@@ -151,9 +179,9 @@ export const buildPanoramaOperationalSummary = (
     overdueCount: overdueTasks.length,
     upcomingCount: upcomingTasks.length,
     commitmentCount: upcomingCommitments.length,
-    activeCount: allTasks.filter(({ task }) => task.estado === 'ACTIVE').length,
-    todoCount: allTasks.filter(({ task }) => task.estado === 'TODO').length,
-    doneCount: allTasks.filter(({ task }) => task.estado === 'DONE').length,
-    activeWorkspaceName: state.workspaces.find((workspace) => workspace.id === state.activeWorkspaceId)?.nombre || state.workspaces[0]?.nombre || null,
+    activeCount: workspaceTasks.filter(({ task }) => task.estado === 'ACTIVE').length,
+    todoCount: workspaceTasks.filter(({ task }) => task.estado === 'TODO').length,
+    doneCount: workspaceTasks.filter(({ task }) => task.estado === 'DONE').length,
+    activeWorkspaceName: workspaceName,
   };
 };
