@@ -3,6 +3,7 @@ import { CartesianGrid, ComposedChart, Area, Line, ResponsiveContainer, Tooltip,
 import { getAllTasks, useSpaces } from '../contexts/SpacesContext';
 import { Client, Project, SeasonalityData, Transaction } from '../types';
 import { buildPanoramaOperationalSummary, PanoramaCommitmentItem, PanoramaTaskItem } from '../utils/panoramaSummary';
+import { parseLocalDate } from '../utils/dateTime';
 
 interface DashboardProps {
   projects: Project[];
@@ -16,8 +17,8 @@ const formatCurrency = (value: number) => `$${value.toLocaleString('es-CO')}`;
 
 const formatDateTime = (value: string | null) => {
   if (!value) return 'Sin fecha';
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return value;
+  const parsed = parseLocalDate(value);
+  if (!parsed) return value;
   return parsed.toLocaleString('es-CO', {
     day: 'numeric',
     month: 'short',

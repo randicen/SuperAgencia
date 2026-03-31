@@ -100,3 +100,50 @@ test('panorama summary only counts the active workspace', () => {
   assert.equal(summary.commitmentCount, 1);
   assert.equal(summary.activeWorkspaceName, 'Activa');
 });
+
+test('panorama focus tasks follow urgency ordering', () => {
+  const state = {
+    workspaces: [
+      {
+        id: 'ws-active',
+        nombre: 'Activa',
+        espacios: [
+          {
+            id: 'space-active',
+            nombre: 'Espacio activo',
+            color: '#111',
+            carpetas: [],
+            listas: [
+              {
+                id: 'list-active',
+                nombre: 'Lista activa',
+                tareas: [
+                  baseTask({ id: 'task-future', nombre: 'Futura', priority: 'Low', dueDate: '2026-04-02T10:00:00-05:00' }),
+                  baseTask({ id: 'task-asap', nombre: 'Urgente', priority: 'ASAP', dueDate: '2026-03-31T08:00:00-05:00' }),
+                  baseTask({ id: 'task-overdue', nombre: 'Vencida', priority: 'High', dueDate: '2026-03-30T12:00:00-05:00' }),
+                ],
+                eventos: [],
+              },
+            ],
+          },
+        ],
+        agendaEvents: [],
+      },
+    ],
+    activeWorkspaceId: 'ws-active',
+    activeSpaceId: 'space-active',
+    activeFolderId: null,
+    activeListId: 'list-active',
+    lastSelectionByWorkspace: {},
+    expandedIds: [],
+    rules: {} as any,
+    gcalEvents: [],
+    rulesOverride: null,
+  };
+
+  const summary = buildPanoramaOperationalSummary(state as any, new Date('2026-03-31T09:00:00-05:00'));
+
+  assert.equal(summary.focusTasks[0].id, 'task-asap');
+  assert.equal(summary.focusTasks[1].id, 'task-overdue');
+  assert.equal(summary.focusTasks[2].id, 'task-future');
+});

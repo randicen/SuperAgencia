@@ -1,4 +1,6 @@
 import type { SpacesState, SpaceEvent, TaskPriority } from '../spacesTypes.ts';
+import { compareTaskUrgency } from './taskUrgency.ts';
+import { parseLocalDate } from './dateTime.ts';
 
 export interface PanoramaTaskItem {
   id: string;
@@ -37,23 +39,9 @@ export interface PanoramaOperationalSummary {
   activeWorkspaceName: string | null;
 }
 
-const PRIORITY_ORDER: Record<TaskPriority, number> = {
-  ASAP: 0,
-  High: 1,
-  Medium: 2,
-  Low: 3,
-};
-
 const parseDate = (value?: string | null, endOfDay = false): number | null => {
   if (!value) return null;
-
-  if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
-    const parsed = new Date(`${value}T${endOfDay ? '23:59:59' : '00:00:00'}`);
-    return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
-  }
-
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+  return parseLocalDate(value, endOfDay)?.getTime() ?? null;
 };
 
 const resolveTaskDueAt = (task: { dueDate?: string; endDate?: string; startDate?: string }) =>
@@ -151,19 +139,15 @@ export const buildPanoramaOperationalSummary = (
   const actionableTasks = taskItems.filter((task, index) => workspaceTasks[index]?.task.estado !== 'DONE');
   const overdueTasks = actionableTasks
     .filter((task) => !!task.dueAt && task.dueAt < nowMs)
-    .sort((left, right) => (left.dueAt || 0) - (right.dueAt || 0));
+    .sort((left, right) => compareTaskUrgency(left, right, now));
 
   const upcomingTasks = actionableTasks
     .filter((task) => !!task.dueAt && task.dueAt >= nowMs && task.dueAt <= next48h)
-    .sort((left, right) => (left.dueAt || Number.MAX_SAFE_INTEGER) - (right.dueAt || Number.MAX_SAFE_INTEGER));
+    .sort((left, right) => compareTaskUrgency(left, right, now));
 
   const focusTasks = actionableTasks
     .slice()
-    .sort((left, right) =>
-      PRIORITY_ORDER[left.priority] - PRIORITY_ORDER[right.priority]
-      || (left.dueAt || Number.MAX_SAFE_INTEGER) - (right.dueAt || Number.MAX_SAFE_INTEGER)
-      || left.nombre.localeCompare(right.nombre)
-    )
+    .sort((left, right) => compareTaskUrgency(left, right, now))
     .slice(0, 6);
 
   const upcomingCommitments = collectWorkspaceEvents(state, state.activeWorkspaceId)
