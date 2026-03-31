@@ -4,6 +4,7 @@ import { useSpaces } from '../contexts/SpacesContext';
 import { SpaceTask } from '../spacesTypes';
 
 const COLORS = ['#7C3AED', '#2563EB', '#059669', '#DC2626', '#F59E0B', '#EC4899'];
+const getPendingTaskCount = (tasks: SpaceTask[] = []) => tasks.filter(task => task.estado !== 'DONE').length;
 
 interface SpacesSidebarProps {
     onNavigate?: () => void;
@@ -565,7 +566,7 @@ const SpacesSidebar: React.FC<SpacesSidebarProps> = ({ onNavigate }) => {
                                                                             <i className="fa-solid fa-trash text-[10px]"></i>
                                                                         </button>
                                                                     </div>
-                                                                    <span className="text-[9px] text-slate-500 group-hover:hidden">{list.tareas.length}</span>
+                                                                    <span className="text-[9px] text-slate-500 group-hover:hidden">{getPendingTaskCount(list.tareas)}</span>
                                                                 </div>
                                                             ))}
                                                         </div>
@@ -633,7 +634,7 @@ const SpacesSidebar: React.FC<SpacesSidebarProps> = ({ onNavigate }) => {
                                                          <i className="fa-solid fa-trash text-[10px]"></i>
                                                      </button>
                                                  </div>
-                                                <span className="text-[9px] text-slate-500 group-hover:hidden">{list.tareas.length}</span>
+                                                <span className="text-[9px] text-slate-500 group-hover:hidden">{getPendingTaskCount(list.tareas)}</span>
                                             </div>
                                         ))}
                                     </div>
