@@ -490,6 +490,9 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
 
     const currentWorkspace = state.workspaces[activeWorkspaceIndex];
     let updatedEspacios = [...currentWorkspace.espacios];
+    let nextActiveSpaceId = state.activeSpaceId;
+    let nextActiveFolderId = state.activeFolderId;
+    let nextActiveListId = state.activeListId;
 
     // Perform updates on `updatedEspacios` based on type
     switch (action.type) {
@@ -534,6 +537,11 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
                 }
                 return { ...s, listas: [...s.listas, newList] };
             });
+            if (action.payload.select) {
+                nextActiveSpaceId = action.payload.spaceId;
+                nextActiveFolderId = action.payload.folderId || null;
+                nextActiveListId = newList.id;
+            }
             break;
         }
         case 'DELETE_LIST':
@@ -747,6 +755,9 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
     newState = {
         ...newState,
         activeWorkspaceId: activeId, // Sync in case we auto-selected
+        activeSpaceId: nextActiveSpaceId,
+        activeFolderId: nextActiveFolderId,
+        activeListId: nextActiveListId,
         workspaces: state.workspaces.map((w, i) => i === activeWorkspaceIndex ? { ...w, espacios: updatedEspacios } : w)
     };
 

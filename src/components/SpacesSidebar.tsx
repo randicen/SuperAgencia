@@ -180,8 +180,7 @@ const SpacesSidebar: React.FC<SpacesSidebarProps> = ({ onNavigate }) => {
     const handleAddList = (spaceId: string, folderId?: string) => {
         if (!inputValue.trim()) return;
         const newId = Math.random().toString(36).substr(2, 9);
-        dispatch({ type: 'ADD_LIST', payload: { id: newId, spaceId, folderId, nombre: inputValue.trim() } });
-        dispatch({ type: 'SET_ACTIVE', payload: { spaceId, folderId: folderId || null, listId: newId } });
+        dispatch({ type: 'ADD_LIST', payload: { id: newId, spaceId, folderId, nombre: inputValue.trim(), select: true } });
         setInputValue('');
         setAddingListTo(null);
         const parentId = folderId || spaceId;

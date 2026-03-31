@@ -121,7 +121,7 @@ export type SpacesAction =
     | { type: 'ADD_FOLDER'; payload: { spaceId: string; nombre: string } }
     | { type: 'DELETE_FOLDER'; payload: { spaceId: string; folderId: string } }
     | { type: 'RENAME_FOLDER'; payload: { spaceId: string; folderId: string; nombre: string } }
-    | { type: 'ADD_LIST'; payload: { id?: string; spaceId: string; folderId?: string; nombre: string } }
+    | { type: 'ADD_LIST'; payload: { id?: string; spaceId: string; folderId?: string; nombre: string; select?: boolean } }
     | { type: 'DELETE_LIST'; payload: { spaceId: string; folderId?: string; listId: string } }
     | { type: 'RENAME_LIST'; payload: { spaceId: string; folderId?: string; listId: string; nombre: string } }
     | { type: 'MOVE_LIST'; payload: { spaceId: string; listId: string; sourceFolderId?: string; targetFolderId: string } }
