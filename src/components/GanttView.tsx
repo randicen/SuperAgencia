@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { Project, Priority, Client } from '../types';
 import { getSortedSchedulingQueue } from '../utils/schedulingLogic';
 import { getFormattedSlack } from '../utils/schedulingUtils';
+import { parseLocalDate, parseLocalTimestamp } from '../utils/dateTime';
 
 interface GanttViewProps {
     projects: Project[];
@@ -150,7 +151,7 @@ const SchedulingQueue = ({ projects, onEditTask }: { projects: Project[], onEdit
                                         <span className="text-[8px] font-black text-slate-600 uppercase mb-0.5">Fin Estimado:</span>
                                         <span className="text-[10px] font-bold text-slate-400">
                                             {p.autoSchedule && p.endDate 
-                                                ? new Date(p.endDate).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
+                                                ? (parseLocalDate(p.endDate)?.toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase() ?? '-')
                                                 : p.dueDate.substring(0, 10)}
                                             {p.autoSchedule && <i className="fa-solid fa-robot text-blue-500 text-[8px] ml-1 opacity-70"></i>}
                                         </span>
@@ -193,14 +194,16 @@ const CalendarMode = ({ projects, onEditTask }: { projects: Project[], onEditTas
 
         if (p.scheduledSlots && p.scheduledSlots.length > 0) {
             return p.scheduledSlots.some(s => {
-                const slotStartTimestamp = new Date(s.start).getTime();
-                const slotEndTimestamp = new Date(s.end).getTime();
+                const slotStartTimestamp = parseLocalTimestamp(s.start);
+                const slotEndTimestamp = parseLocalTimestamp(s.end, true);
+                if (slotStartTimestamp === null || slotEndTimestamp === null) return false;
                 return slotStartTimestamp <= dayEndTimestamp && slotEndTimestamp >= dayStartTimestamp;
             });
         }
 
-        const startDate = new Date(p.startDate);
-        const endDate = new Date(p.endDate);
+        const startDate = parseLocalDate(p.startDate);
+        const endDate = parseLocalDate(p.endDate, true);
+        if (!startDate || !endDate) return false;
 
         // Normalize for day comparison
         startDate.setHours(0, 0, 0, 0);
@@ -505,9 +508,9 @@ const GanttView: React.FC<GanttViewProps> = ({
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                         {editingProject.scheduledSlots.map((s, idx) => (
                                             <div key={idx} className="text-[10px] font-bold text-slate-700 bg-white p-2 rounded-lg border flex justify-between items-center">
-                                                <span>{new Date(s.start).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()}</span>
+                                                <span>{(parseLocalDate(s.start)?.toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase() ?? '-')}</span>
                                                 <i className="fa-solid fa-arrow-right text-[8px] text-slate-300"></i>
-                                                <span>{new Date(s.end).toLocaleString('es-ES', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()}</span>
+                                                <span>{(parseLocalDate(s.end)?.toLocaleString('es-ES', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase() ?? '-')}</span>
                                             </div>
                                         ))}
                                     </div>

@@ -1,5 +1,6 @@
 
 import { Project, Priority, BusinessRules, ScheduledSlot } from '../types';
+import { parseLocalDate } from './dateTime';
 
 export const getSortedSchedulingQueue = (projects: Project[]): Project[] => {
   const workInProgress = projects.filter(p => p.status === 'todo' || p.status === 'active' || p.status === 'proposal');
@@ -47,7 +48,9 @@ export const getSortedSchedulingQueue = (projects: Project[]): Project[] => {
     }
 
     // 6. ÚLTIMO RECURSO: Fecha de entrega cronológica
-    return new Date(a.dueDate).getTime() - new Date(b.dueDate).getTime();
+    const dueA = parseLocalDate(a.dueDate, true)?.getTime() ?? 0;
+    const dueB = parseLocalDate(b.dueDate, true)?.getTime() ?? 0;
+    return dueA - dueB;
   });
 };
 
@@ -144,16 +147,15 @@ export const getFormattedSlack = (p: Project, rules: BusinessRules): { text: str
   const workRemainingMinutes = (p.duration || 0) * ((100 - p.progress) / 100);
 
   // Parse deadline correctly
-  const dueDateStr = p.dueDate.includes('T') ? p.dueDate : `${p.dueDate}T23:59:59`;
-  const deadline = new Date(dueDateStr);
-  if (isNaN(deadline.getTime())) return { text: 'Error fecha', isOverdue: true };
+  const deadline = parseLocalDate(p.dueDate, true);
+  if (!deadline) return { text: 'Error fecha', isOverdue: true };
 
   const now = new Date();
   let expectedFinish: Date;
 
   if (p.endDate && p.autoSchedule) {
-    const parsedEnd = new Date(p.endDate);
-    if (!isNaN(parsedEnd.getTime())) {
+    const parsedEnd = parseLocalDate(p.endDate);
+    if (parsedEnd) {
       expectedFinish = parsedEnd;
     } else {
       expectedFinish = addWorkingMinutes(now, workRemainingMinutes, rules);
@@ -491,7 +493,7 @@ export const runAutoScheduling = (projects: Project[], rules: BusinessRules, eve
         } else {
           // Pure math: effort doesn't fit in the window
           if (parseLocal(calculatedStart) > projectDueDate) {
-            conflictDescription = `⏳ Límite Vencido: Esta tarea no se completó a tiempo. La IA propone empezarla ahora mismo (${fmtDate(calculatedStart)}), pero supera la Fecha Límite original (${fmtDate(project.dueDate)}).\n\nTerminaría a las ${fmtDate(lastSlotEnd.toISOString())}, retrasada por ${fmtMins(overflowMins)}.\n\n💡 Soluciones:\n1. Extiende la Fecha Límite.\n2. Marca progreso si ya la empezaste.`;
+            conflictDescription = `⏳ Límite Vencido: Esta tarea no se completó a tiempo. La IA propone empezarla en (${fmtDate(calculatedStart)}), pero supera la Fecha Límite original (${fmtDate(project.dueDate)}).\n\nTerminaría a las ${fmtDate(lastSlotEnd.toISOString())}, retrasada por ${fmtMins(overflowMins)}.\n\n💡 Soluciones:\n1. Extiende la Fecha Límite.\n2. Marca progreso si ya la empezaste.`;
           } else {
             conflictDescription = `⏱️ Margen laboral insuficiente: La tarea requiere ${fmtMins(effortMinutes)} de esfuerzo, pero entre su fecha inicial (${fmtDate(displayStart)}) y su límite (${fmtDate(project.dueDate)}) solo cuentas con ${fmtMins(windowMinutes)} laborales.\n\nTerminaría a las ${fmtDate(lastSlotEnd.toISOString())}, excediendo por ${fmtMins(overflowMins)}.\n\n💡 Soluciones:\n1. Extiende la Fecha Límite.\n2. Reduce el esfuerzo estimado.`;
           }

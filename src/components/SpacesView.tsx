@@ -5,6 +5,7 @@ import { Space, SpaceFolder, SpaceList, SpaceTask, SpaceEvent, TaskPriority, Tas
 import { Client } from '../types';
 import { getPriorityBadgeStyle, getFormattedSlack } from '../utils/schedulingUtils';
 import { getFormattedSlack as getFormattedSlackProject, runAutoScheduling } from '../utils/schedulingLogic';
+import { parseLocalDate } from '../utils/dateTime';
 import GanttChartView from './GanttChartView';
 import SettingsView from './SettingsView';
 
@@ -40,7 +41,8 @@ const getDueDateGroup = (dueDate: string): string => {
     if (!dueDate) return 'Sin fecha límite';
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const due = new Date(dueDate);
+    const due = parseLocalDate(dueDate);
+    if (!due) return 'Sin fecha lÃ­mite';
     due.setHours(0, 0, 0, 0);
     const diffDays = Math.floor((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -214,8 +216,8 @@ const ProgressInput = ({ progress, onChange, className = "" }: { progress: numbe
 const formatFriendlyDate = (dateStr: string) => {
     if (!dateStr) return '-';
     // Handle both YYYY-MM-DD and ISO string
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return '-';
+    const date = parseLocalDate(dateStr);
+    if (!date) return '-';
 
     // If it has time component (T) and not T00:00:00ish, show time
     // Basic check: if original string length > 10, assume time matters
@@ -235,8 +237,8 @@ const formatFriendlyDate = (dateStr: string) => {
 };
 
 const formatSuggestedSlotDateTime = (dateValue: string) => {
-    const d = new Date(dateValue);
-    if (isNaN(d.getTime())) return '-';
+    const d = parseLocalDate(dateValue);
+    if (!d) return '-';
 
     const day = d.getDate();
     const month = d.toLocaleDateString('es-ES', { month: 'short' });
@@ -249,8 +251,8 @@ const formatSuggestedSlotDateTime = (dateValue: string) => {
 };
 
 const formatSuggestedSlotTime = (dateValue: string) => {
-    const d = new Date(dateValue);
-    if (isNaN(d.getTime())) return '-';
+    const d = parseLocalDate(dateValue);
+    if (!d) return '-';
 
     const h = d.getHours();
     const h12 = h % 12 || 12;
@@ -261,10 +263,10 @@ const formatSuggestedSlotTime = (dateValue: string) => {
 };
 
 const formatSuggestedSlotRange = (startValue: string, endValue: string) => {
-    const start = new Date(startValue);
-    const end = new Date(endValue);
+    const start = parseLocalDate(startValue);
+    const end = parseLocalDate(endValue);
 
-    if (isNaN(start.getTime()) || isNaN(end.getTime())) return '-';
+    if (!start || !end) return '-';
 
     const sameDay =
         start.getFullYear() === end.getFullYear() &&
@@ -460,7 +462,11 @@ const ListaView: React.FC<{
                             <span className="text-[9px] text-slate-400 whitespace-nowrap mt-0.5" title="Horario programado por IA">
                                 <i className="fa-solid fa-robot text-blue-400 mr-1"></i>
                                 {formatSuggestedSlotRange(task.startDate, task.endDate)}
-                                {new Date(task.endDate) > new Date(task.dueDate!) && (
+                                {(() => {
+                                    const endDate = parseLocalDate(task.endDate);
+                                    const dueDate = parseLocalDate(task.dueDate, true);
+                                    return !!endDate && !!dueDate && endDate > dueDate;
+                                })() && (
                                     <span className="text-red-500 font-bold ml-1" title="La IA estima que terminarás después del deadline">¡Riesgo!</span>
                                 )}
                             </span>
@@ -895,27 +901,17 @@ const CalendarViewComponent: React.FC<{
         const dayStartTs = dayStart.getTime();
         const dayEndTs = dayEnd.getTime();
 
-        const parseLocal = (dateStr: string) => {
-            if (!dateStr) return 0;
-            // Robust parsing for ISO strings (YYYY-MM-DDTHH:mm) or simple dates (YYYY-MM-DD)
-            return new Date(dateStr).getTime();
-        };
-
         if (task.startDate && task.endDate) {
-            const start = parseLocal(task.startDate);
-            let end = parseLocal(task.endDate);
+            const start = parseLocalDate(task.startDate);
+            const end = parseLocalDate(task.endDate, true);
+            if (!start || !end) return false;
 
-            // If endDate is date-only, assume inclusive end-of-day
-            if (task.endDate.length <= 10) {
-                end += (24 * 60 * 60 * 1000) - 1;
-            }
-            // If it has time, 'end' is the exact moment.
-
-            return start <= dayEndTs && end >= dayStartTs;
+            return start.getTime() <= dayEndTs && end.getTime() >= dayStartTs;
         }
 
-        const due = parseLocal(task.dueDate);
-        return due >= dayStartTs && due <= dayEndTs;
+        const due = parseLocalDate(task.dueDate, true);
+        if (!due) return false;
+        return due.getTime() >= dayStartTs && due.getTime() <= dayEndTs;
     };
 
     const isEventActiveOnDay = (event: SpaceEvent, date: Date) => {
@@ -923,11 +919,11 @@ const CalendarViewComponent: React.FC<{
         const dayEnd = new Date(date); dayEnd.setHours(23, 59, 59, 999);
         const dayStartTs = dayStart.getTime();
         const dayEndTs = dayEnd.getTime();
-        const parseLocal = (dateStr: string) => dateStr ? new Date(dateStr).getTime() : 0;
 
-        const start = parseLocal(event.startDate);
-        const end = parseLocal(event.endDate);
-        return start <= dayEndTs && end >= dayStartTs;
+        const start = parseLocalDate(event.startDate);
+        const end = parseLocalDate(event.endDate || event.startDate, true);
+        if (!start || !end) return false;
+        return start.getTime() <= dayEndTs && end.getTime() >= dayStartTs;
     };
 
     // Grid rendering logic
