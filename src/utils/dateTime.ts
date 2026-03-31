@@ -34,3 +34,10 @@ export const parseLocalTimestamp = (value?: string | null, endOfDay = false): nu
   const parsed = parseLocalDate(value, endOfDay);
   return parsed ? parsed.getTime() : null;
 };
+
+export const formatLocalDateOnly = (date = new Date()): string => {
+  const year = date.getFullYear();
+  const month = `${date.getMonth() + 1}`.padStart(2, '0');
+  const day = `${date.getDate()}`.padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};

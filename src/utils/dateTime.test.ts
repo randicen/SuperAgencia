@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseLocalDate } from './dateTime.ts';
+import { formatLocalDateOnly, parseLocalDate } from './dateTime.ts';
 
 test('parseLocalDate keeps YYYY-MM-DD on the local day', () => {
   const parsed = parseLocalDate('2026-03-31');
@@ -22,4 +22,8 @@ test('parseLocalDate supports local end-of-day for YYYY-MM-DD', () => {
   assert.equal(parsed?.getDate(), 31);
   assert.equal(parsed?.getHours(), 23);
   assert.equal(parsed?.getMinutes(), 59);
+});
+
+test('formatLocalDateOnly keeps the local calendar day', () => {
+  assert.equal(formatLocalDateOnly(new Date(2026, 2, 31)), '2026-03-31');
 });

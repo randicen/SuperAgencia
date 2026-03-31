@@ -3,7 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { Project, Priority, Client } from '../types';
 import { getSortedSchedulingQueue } from '../utils/schedulingLogic';
 import { getFormattedSlack } from '../utils/schedulingUtils';
-import { parseLocalDate, parseLocalTimestamp } from '../utils/dateTime';
+import { formatLocalDateOnly, parseLocalDate, parseLocalTimestamp } from '../utils/dateTime';
 
 interface GanttViewProps {
     projects: Project[];
@@ -319,10 +319,10 @@ const GanttView: React.FC<GanttViewProps> = ({
     const [newTask, setNewTask] = useState({
         clientName: '', projectName: '',
         startDate: '', // Ahora inicia vacío en auto-schedule (significa "HOY")
-        endDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        endDate: formatLocalDateOnly(new Date(Date.now() + 1 * 24 * 60 * 60 * 1000)),
         priority: Priority.MEDIUM, totalValue: 0,
         duration: 60, deadlineType: 'Soft Deadline' as any,
-        dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        dueDate: formatLocalDateOnly(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)),
         autoSchedule: true,
         elasticity: 1 // 1 Flexible, 0 Rigido
     });
@@ -559,7 +559,7 @@ const GanttView: React.FC<GanttViewProps> = ({
 
                         // Si es AutoSchedule y no hay startDate, usar HOY como constraint implícito.
                         // Si es Fixed, startDate es obligatorio.
-                        const finalStartDate = newTask.startDate || new Date().toISOString().split('T')[0];
+                        const finalStartDate = newTask.startDate || formatLocalDateOnly();
                         const finalEndDate = newTask.endDate || newTask.dueDate; // Fallback para Fixed mode
 
                         const projectObj: Project = {
@@ -573,7 +573,7 @@ const GanttView: React.FC<GanttViewProps> = ({
 
                         if (existingClient) { /* client already exists, no action needed */ } else { onAddClient({ id: clientId, name: finalClientName, email: '', phone: '' }); }
                         onAddProject(projectObj); setShowModal(false);
-                        setNewTask({ clientName: '', projectName: '', startDate: '', endDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], priority: Priority.MEDIUM, totalValue: 0, duration: 60, deadlineType: 'Soft Deadline' as any, dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], autoSchedule: true, elasticity: 1 });
+                        setNewTask({ clientName: '', projectName: '', startDate: '', endDate: formatLocalDateOnly(new Date(Date.now() + 1 * 24 * 60 * 60 * 1000)), priority: Priority.MEDIUM, totalValue: 0, duration: 60, deadlineType: 'Soft Deadline' as any, dueDate: formatLocalDateOnly(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)), autoSchedule: true, elasticity: 1 });
                     }} className="bg-white w-full max-w-2xl rounded-[2.5rem] p-10 space-y-6 shadow-2xl animate-in zoom-in-95 overflow-y-auto max-h-[90vh] custom-scrollbar">
 
                         <div className="flex justify-between items-center">

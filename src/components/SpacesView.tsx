@@ -5,7 +5,7 @@ import { Space, SpaceFolder, SpaceList, SpaceTask, SpaceEvent, TaskPriority, Tas
 import { Client } from '../types';
 import { getPriorityBadgeStyle, getFormattedSlack } from '../utils/schedulingUtils';
 import { getFormattedSlack as getFormattedSlackProject, runAutoScheduling } from '../utils/schedulingLogic';
-import { parseLocalDate } from '../utils/dateTime';
+import { formatLocalDateOnly, parseLocalDate } from '../utils/dateTime';
 import GanttChartView from './GanttChartView';
 import SettingsView from './SettingsView';
 
@@ -1487,7 +1487,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({
             // No longer auto-calculating duration from dates to respect user input
         }
 
-        const finalStartDate = finalTask.startDate || new Date().toISOString().split('T')[0];
+        const finalStartDate = finalTask.startDate || formatLocalDateOnly();
 
         // Ensure manual tasks have a scheduled slot for overlap detection
         if (!finalTask.autoSchedule && finalTask.startDate && finalTask.endDate) {
@@ -2321,9 +2321,9 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                                                 </p>
                                                 <div className="flex flex-wrap gap-2">
                                                     <button type="button" onClick={() => {
-                                                        const currentDue = new Date(editingTask.dueDate);
+                                                        const currentDue = parseLocalDate(editingTask.dueDate) || new Date();
                                                         currentDue.setDate(currentDue.getDate() + 1);
-                                                        setEditingTask({ ...editingTask, dueDate: currentDue.toISOString().split('T')[0] });
+                                                        setEditingTask({ ...editingTask, dueDate: formatLocalDateOnly(currentDue) });
                                                     }} className="px-3 py-1.5 bg-white/60 rounded-lg text-[9px] font-black uppercase text-red-700 border border-red-200 hover:bg-white hover:border-red-400 transition-all shadow-sm">
                                                         <i className="fa-regular fa-calendar-plus mr-1"></i> +1 Día Límite
                                                     </button>
