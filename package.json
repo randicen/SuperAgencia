@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:spaces-sync": "node --experimental-strip-types --test src/utils/spacesSyncReconciliation.test.ts src/utils/spacesSyncMode.test.ts src/utils/spacesSyncSqlGuards.test.ts src/utils/syncErrors.test.ts src/utils/panoramaSummary.test.ts"
+    "test:spaces-sync": "node --experimental-strip-types --test src/utils/spacesSyncReconciliation.test.ts src/utils/spacesSyncMode.test.ts src/utils/spacesSyncSqlGuards.test.ts src/utils/syncErrors.test.ts src/utils/panoramaSummary.test.ts src/utils/syncLeader.test.ts"
   },
   "dependencies": {
     "@headlessui/react": "^2.2.9",
