@@ -1,14 +1,27 @@
-import { BusinessRules, Installment } from './types.ts';
+import type { BusinessRules, Installment } from './types.ts';
 
 export type TaskPriority = 'ASAP' | 'High' | 'Medium' | 'Low';
 export type TaskStatus = 'TODO' | 'ACTIVE' | 'DONE';
 export type DeadlineType = 'Hard Deadline' | 'Soft Deadline';
+export type WorkBlockSource = 'manual' | 'ai' | 'legacy';
+export type WorkBlockStatus = 'planned' | 'done' | 'cancelled';
+export type TaskWorkStyle = 'deep-work' | 'flexible';
 
 export interface ScheduledSlot {
     id: string;
     start: string;
     end: string;
     isFragment: boolean;
+}
+
+export interface WorkBlock {
+    id: string;
+    taskId: string;
+    startAt: string;
+    endAt: string;
+    source: WorkBlockSource;
+    status: WorkBlockStatus;
+    locked: boolean;
 }
 
 export interface SpaceTask {
@@ -19,14 +32,20 @@ export interface SpaceTask {
     orden: number;
     progress: number;
     startedAt?: string;
-    // SCHEDULING
+    // PLANNING INTENT
+    earliestStartAt?: string | null;
+    dueDate: string;
+    deadlineType: DeadlineType;
+    // EFFORT MODEL
+    estimatedEffortMinutes?: number | null;
+    preferredBlockMinutes?: number | null;
+    workStyle?: TaskWorkStyle;
+    // LEGACY SCHEDULING COMPATIBILITY
     autoSchedule: boolean;
     startDate: string;
     endDate: string;
-    dueDate: string;
-    deadlineType: DeadlineType;
-    duration: number;        // minutos de esfuerzo
-    elasticity: number;      // 0=Rígido, 1=Flexible
+    duration: number;        // minutos de esfuerzo legacy
+    elasticity: number;      // 0=Rigido, 1=Flexible legacy
     // PRIORITY & VALUE
     priority: TaskPriority;
     totalValue: number;
@@ -34,6 +53,7 @@ export interface SpaceTask {
     clientName?: string;
     clientId?: string;
     installments?: Installment[];
+    workBlocks?: WorkBlock[];
     scheduledSlots?: ScheduledSlot[];
     hasConflict?: boolean;
     conflictDescription?: string;

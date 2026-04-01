@@ -5,6 +5,7 @@ import { runAutoScheduling } from '../utils/schedulingLogic';
 import { DEFAULT_RULES } from '../mockData';
 import { Project, Priority } from '../types';
 import { normalizeLastSelectionByWorkspace, resolveSpacesLocalSelection } from '../utils/cloudSyncMerge';
+import { normalizeSpacesStateWorkModel, normalizeTaskWorkModel } from '../utils/taskWorkBlocks';
 
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const EMPTY_SELECTION: WorkspaceSelection = { spaceId: null, folderId: null, listId: null };
@@ -97,10 +98,10 @@ const initialState: SpacesState = {
 
 // Helper: Run scheduling on the active workspace
 const recalculateScheduling = (state: SpacesState): SpacesState => {
-    if (!state.activeWorkspaceId) return state;
+    if (!state.activeWorkspaceId) return normalizeSpacesStateWorkModel(state);
 
     const workspace = state.workspaces.find(w => w.id === state.activeWorkspaceId);
-    if (!workspace) return state;
+    if (!workspace) return normalizeSpacesStateWorkModel(state);
 
     // 1. Flatten ALL tasks AND events from active workspace
     const allTasks: Project[] = [];
@@ -182,7 +183,7 @@ const recalculateScheduling = (state: SpacesState): SpacesState => {
         });
     });
 
-    if (allTasks.length === 0) return state;
+    if (allTasks.length === 0) return normalizeSpacesStateWorkModel(state);
 
     // DEBUG: Log events being passed to scheduler
     console.log('[Scheduler] Events passed:', allEvents.length, allEvents);
@@ -267,7 +268,7 @@ const recalculateScheduling = (state: SpacesState): SpacesState => {
             // }
         }
 
-        return newTask;
+        return normalizeTaskWorkModel(newTask);
     };
 
     const updatedWorkspace = {
@@ -282,10 +283,10 @@ const recalculateScheduling = (state: SpacesState): SpacesState => {
         }))
     };
 
-    return {
+    return normalizeSpacesStateWorkModel({
         ...state,
         workspaces: state.workspaces.map(w => w.id === state.activeWorkspaceId ? updatedWorkspace : w)
-    };
+    });
 };
 
 function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
@@ -354,6 +355,7 @@ function spacesReducer(state: SpacesState, action: SpacesAction): SpacesState {
             }
         }
 
+        loadedState = normalizeSpacesStateWorkModel(loadedState);
         loadedState = applyResolvedSelectionState(loadedState);
 
         return recalculateScheduling(loadedState);
