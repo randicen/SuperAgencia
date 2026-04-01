@@ -5,6 +5,14 @@ import { Space, SpaceFolder, SpaceList, SpaceTask, SpaceEvent, TaskPriority, Tas
 import { Client } from '../types';
 import { getPriorityBadgeStyle, getFormattedSlack } from '../utils/schedulingUtils';
 import { getFormattedSlack as getFormattedSlackProject, runAutoScheduling } from '../utils/schedulingLogic';
+import { formatLocalDateOnly, parseLocalDate } from '../utils/dateTime';
+import {
+    DEFAULT_LISTA_COLUMN_ORDER,
+    DEFAULT_LISTA_VISIBLE_COLUMNS,
+    ListaColumnId,
+    normalizeStoredColumnOrder,
+    normalizeStoredVisibleColumns,
+} from '../utils/spacesViewPreferences';
 import GanttChartView from './GanttChartView';
 import SettingsView from './SettingsView';
 
@@ -40,7 +48,8 @@ const getDueDateGroup = (dueDate: string): string => {
     if (!dueDate) return 'Sin fecha límite';
     const today = new Date();
     today.setHours(0, 0, 0, 0);
-    const due = new Date(dueDate);
+    const due = parseLocalDate(dueDate);
+    if (!due) return 'Sin fecha lÃ­mite';
     due.setHours(0, 0, 0, 0);
     const diffDays = Math.floor((due.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -214,8 +223,8 @@ const ProgressInput = ({ progress, onChange, className = "" }: { progress: numbe
 const formatFriendlyDate = (dateStr: string) => {
     if (!dateStr) return '-';
     // Handle both YYYY-MM-DD and ISO string
-    const date = new Date(dateStr);
-    if (isNaN(date.getTime())) return '-';
+    const date = parseLocalDate(dateStr);
+    if (!date) return '-';
 
     // If it has time component (T) and not T00:00:00ish, show time
     // Basic check: if original string length > 10, assume time matters
@@ -234,9 +243,51 @@ const formatFriendlyDate = (dateStr: string) => {
     return `${day} ${month}`;
 };
 
+const formatSuggestedSlotDateTime = (dateValue: string) => {
+    const d = parseLocalDate(dateValue);
+    if (!d) return '-';
+
+    const day = d.getDate();
+    const month = d.toLocaleDateString('es-ES', { month: 'short' });
+    const h = d.getHours();
+    const h12 = h % 12 || 12;
+    const ampm = h >= 12 ? 'pm' : 'am';
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+
+    return `${day} ${month}, ${h12}:${minutes} ${ampm}`;
+};
+
+const formatSuggestedSlotTime = (dateValue: string) => {
+    const d = parseLocalDate(dateValue);
+    if (!d) return '-';
+
+    const h = d.getHours();
+    const h12 = h % 12 || 12;
+    const ampm = h >= 12 ? 'pm' : 'am';
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+
+    return `${h12}:${minutes} ${ampm}`;
+};
+
+const formatSuggestedSlotRange = (startValue: string, endValue: string) => {
+    const start = parseLocalDate(startValue);
+    const end = parseLocalDate(endValue);
+
+    if (!start || !end) return '-';
+
+    const sameDay =
+        start.getFullYear() === end.getFullYear() &&
+        start.getMonth() === end.getMonth() &&
+        start.getDate() === end.getDate();
+
+    return sameDay
+        ? `${formatSuggestedSlotDateTime(startValue)} - ${formatSuggestedSlotTime(endValue)}`
+        : `${formatSuggestedSlotDateTime(startValue)} - ${formatSuggestedSlotDateTime(endValue)}`;
+};
+
 // ==================== LISTA VIEW (TABLE-BASED) ====================
 // Column definitions
-type ColumnId = 'nombre' | 'startDate' | 'dueDate' | 'priority' | 'estado' | 'duration' | 'progress' | 'slack' | 'clientName' | 'totalValue' | 'financialProgress';
+type ColumnId = ListaColumnId;
 const ALL_COLUMNS: { id: ColumnId; label: string; width: string }[] = [
     { id: 'nombre', label: 'Nombre', width: 'w-[300px] shrink-0' },
     { id: 'clientName', label: 'Cliente', width: 'w-32 shrink-0' },
@@ -265,26 +316,20 @@ const ListaView: React.FC<{
     const [columnOrder, setColumnOrder] = useState<ColumnId[]>(() => {
         try {
             const saved = localStorage.getItem('lista_column_order');
-            const defaultOrder: ColumnId[] = ['nombre', 'clientName', 'totalValue', 'financialProgress', 'startDate', 'dueDate', 'priority', 'slack', 'estado', 'duration', 'progress'];
             if (saved) {
-                const parsed = JSON.parse(saved);
-                const missing = defaultOrder.filter(id => !parsed.includes(id));
-                return [...parsed, ...missing];
+                return normalizeStoredColumnOrder(JSON.parse(saved));
             }
-            return defaultOrder;
-        } catch { return ['nombre', 'clientName', 'totalValue', 'financialProgress', 'startDate', 'dueDate', 'priority', 'slack', 'estado', 'duration', 'progress']; }
+            return [...DEFAULT_LISTA_COLUMN_ORDER];
+        } catch { return [...DEFAULT_LISTA_COLUMN_ORDER]; }
     });
     const [visibleColumns, setVisibleColumns] = useState<ColumnId[]>(() => {
         try {
             const saved = localStorage.getItem('lista_columns');
             if (saved) {
-                const parsed = JSON.parse(saved);
-                // If we find that the newly added mandatory columns were missed from a previous save, we add them at the front?
-                // Or just trust the current toggle. 
-                return parsed;
+                return normalizeStoredVisibleColumns(JSON.parse(saved));
             }
-            return ['nombre', 'clientName', 'totalValue', 'financialProgress', 'startDate', 'dueDate', 'priority', 'slack', 'estado'];
-        } catch { return ['nombre', 'clientName', 'totalValue', 'financialProgress', 'startDate', 'dueDate', 'priority', 'slack', 'estado']; }
+            return [...DEFAULT_LISTA_VISIBLE_COLUMNS];
+        } catch { return [...DEFAULT_LISTA_VISIBLE_COLUMNS]; }
     });
     const [showColumnSelector, setShowColumnSelector] = useState(false);
     const [collapsedGroups, setCollapsedGroups] = useState<Record<string, boolean>>({});
@@ -358,7 +403,10 @@ const ListaView: React.FC<{
     };
 
     const groups = getGroups();
-    const orderedColumns = columnOrder.filter(id => visibleColumns.includes(id)).map(id => ALL_COLUMNS.find(c => c.id === id)!);
+    const orderedColumns = columnOrder
+        .filter(id => visibleColumns.includes(id))
+        .map(id => ALL_COLUMNS.find(c => c.id === id))
+        .filter((column): column is typeof ALL_COLUMNS[number] => !!column);
 
     const renderCell = (task: SpaceTask, colId: ColumnId, level: number = 0) => {
         const hasSubtasks = task.subtasks && task.subtasks.length > 0;
@@ -417,8 +465,12 @@ const ListaView: React.FC<{
                         {task.autoSchedule && task.startDate && task.endDate && (
                             <span className="text-[9px] text-slate-400 whitespace-nowrap mt-0.5" title="Horario programado por IA">
                                 <i className="fa-solid fa-robot text-blue-400 mr-1"></i>
-                                {new Date(task.startDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()} - {new Date(task.endDate).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()}
-                                {new Date(task.endDate) > new Date(task.dueDate!) && (
+                                {formatSuggestedSlotRange(task.startDate, task.endDate)}
+                                {(() => {
+                                    const endDate = parseLocalDate(task.endDate);
+                                    const dueDate = parseLocalDate(task.dueDate, true);
+                                    return !!endDate && !!dueDate && endDate > dueDate;
+                                })() && (
                                     <span className="text-red-500 font-bold ml-1" title="La IA estima que terminarás después del deadline">¡Riesgo!</span>
                                 )}
                             </span>
@@ -853,27 +905,17 @@ const CalendarViewComponent: React.FC<{
         const dayStartTs = dayStart.getTime();
         const dayEndTs = dayEnd.getTime();
 
-        const parseLocal = (dateStr: string) => {
-            if (!dateStr) return 0;
-            // Robust parsing for ISO strings (YYYY-MM-DDTHH:mm) or simple dates (YYYY-MM-DD)
-            return new Date(dateStr).getTime();
-        };
-
         if (task.startDate && task.endDate) {
-            const start = parseLocal(task.startDate);
-            let end = parseLocal(task.endDate);
+            const start = parseLocalDate(task.startDate);
+            const end = parseLocalDate(task.endDate, true);
+            if (!start || !end) return false;
 
-            // If endDate is date-only, assume inclusive end-of-day
-            if (task.endDate.length <= 10) {
-                end += (24 * 60 * 60 * 1000) - 1;
-            }
-            // If it has time, 'end' is the exact moment.
-
-            return start <= dayEndTs && end >= dayStartTs;
+            return start.getTime() <= dayEndTs && end.getTime() >= dayStartTs;
         }
 
-        const due = parseLocal(task.dueDate);
-        return due >= dayStartTs && due <= dayEndTs;
+        const due = parseLocalDate(task.dueDate, true);
+        if (!due) return false;
+        return due.getTime() >= dayStartTs && due.getTime() <= dayEndTs;
     };
 
     const isEventActiveOnDay = (event: SpaceEvent, date: Date) => {
@@ -881,11 +923,11 @@ const CalendarViewComponent: React.FC<{
         const dayEnd = new Date(date); dayEnd.setHours(23, 59, 59, 999);
         const dayStartTs = dayStart.getTime();
         const dayEndTs = dayEnd.getTime();
-        const parseLocal = (dateStr: string) => dateStr ? new Date(dateStr).getTime() : 0;
 
-        const start = parseLocal(event.startDate);
-        const end = parseLocal(event.endDate);
-        return start <= dayEndTs && end >= dayStartTs;
+        const start = parseLocalDate(event.startDate);
+        const end = parseLocalDate(event.endDate || event.startDate, true);
+        if (!start || !end) return false;
+        return start.getTime() <= dayEndTs && end.getTime() >= dayStartTs;
     };
 
     // Grid rendering logic
@@ -1449,7 +1491,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({
             // No longer auto-calculating duration from dates to respect user input
         }
 
-        const finalStartDate = finalTask.startDate || new Date().toISOString().split('T')[0];
+        const finalStartDate = finalTask.startDate || formatLocalDateOnly();
 
         // Ensure manual tasks have a scheduled slot for overlap detection
         if (!finalTask.autoSchedule && finalTask.startDate && finalTask.endDate) {
@@ -2283,9 +2325,9 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                                                 </p>
                                                 <div className="flex flex-wrap gap-2">
                                                     <button type="button" onClick={() => {
-                                                        const currentDue = new Date(editingTask.dueDate);
+                                                        const currentDue = parseLocalDate(editingTask.dueDate) || new Date();
                                                         currentDue.setDate(currentDue.getDate() + 1);
-                                                        setEditingTask({ ...editingTask, dueDate: currentDue.toISOString().split('T')[0] });
+                                                        setEditingTask({ ...editingTask, dueDate: formatLocalDateOnly(currentDue) });
                                                     }} className="px-3 py-1.5 bg-white/60 rounded-lg text-[9px] font-black uppercase text-red-700 border border-red-200 hover:bg-white hover:border-red-400 transition-all shadow-sm">
                                                         <i className="fa-regular fa-calendar-plus mr-1"></i> +1 Día Límite
                                                     </button>
@@ -2440,21 +2482,9 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                                     {editingTask.scheduledSlots.map((s, idx) => (
                                                         <div key={idx} className="text-[10px] font-bold text-slate-700 bg-slate-50 p-2 rounded-lg border flex justify-between items-center">
-                                                            <span>{(() => {
-                                                                const d = new Date(s.start);
-                                                                const h = d.getHours();
-                                                                const h12 = h % 12 || 12;
-                                                                const ampm = h >= 12 ? 'pm' : 'am';
-                                                                return `${d.getDate()}/${d.getMonth() + 1} ${h12}:${d.getMinutes().toString().padStart(2, '0')} ${ampm}`;
-                                                            })()}</span>
+                                                            <span>{formatSuggestedSlotDateTime(s.start)}</span>
                                                             <i className="fa-solid fa-arrow-right text-[8px] text-slate-300 mx-2"></i>
-                                                            <span>{(() => {
-                                                                const d = new Date(s.end);
-                                                                const h = d.getHours();
-                                                                const h12 = h % 12 || 12;
-                                                                const ampm = h >= 12 ? 'pm' : 'am';
-                                                                return `${h12}:${d.getMinutes().toString().padStart(2, '0')} ${ampm}`;
-                                                            })()}</span>
+                                                            <span>{formatSuggestedSlotDateTime(s.end)}</span>
                                                         </div>
                                                     ))}
                                                 </div>

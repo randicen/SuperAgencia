@@ -3,6 +3,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Project, BusinessRules, Message, Transaction, Priority, Client, Attachment, ChatSession, Note } from '../types';
 import { calculateQuote } from '../aiService';
 import { useSpaces, getAllTasks } from '../contexts/SpacesContext';
+import { formatLocalDateOnly } from '../utils/dateTime';
 
 interface AIChatProps {
   projects: Project[];
@@ -50,12 +51,12 @@ const AIChat: React.FC<AIChatProps> = ({
     clientName: '',
     projectName: '',
     totalValue: 0,
-    startDate: new Date().toISOString().split('T')[0],
-    endDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    startDate: formatLocalDateOnly(),
+    endDate: formatLocalDateOnly(new Date(Date.now() + 1 * 24 * 60 * 60 * 1000)),
     priority: Priority.MEDIUM,
     duration: 60,
     deadlineType: 'Soft Deadline' as 'Hard Deadline' | 'Soft Deadline',
-    dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+    dueDate: formatLocalDateOnly(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
     autoSchedule: true,
     elasticity: 1 // 1 = Flexible, 0 = Rigid
   });
@@ -422,7 +423,7 @@ const AIChat: React.FC<AIChatProps> = ({
     // --- TRANSACCIONES ---
     if (action.name === 'registrar_transaccion') {
         const { description, amount, type, category, date } = args;
-        onAddTransaction({ id: Math.random().toString(36).substr(2, 9), date: date || new Date().toISOString().split('T')[0], description, amount, type, category, isPredictive: false });
+        onAddTransaction({ id: Math.random().toString(36).substr(2, 9), date: date || formatLocalDateOnly(), description, amount, type, category, isPredictive: false });
     }
     if (action.name === 'eliminar_transaccion') {
         const { id, description } = args;
@@ -614,7 +615,7 @@ const AIChat: React.FC<AIChatProps> = ({
                                 progress: 0,
                                 priority: args.priority || 'Medium',
                                 duration: args.duration || 60,
-                                dueDate: args.dueDate || new Date().toISOString().split('T')[0],
+                                dueDate: args.dueDate || formatLocalDateOnly(),
                                 autoSchedule: args.autoSchedule !== undefined ? args.autoSchedule : true,
                                 elasticity: args.elasticity !== undefined ? args.elasticity : 1,
                                 deadlineType: 'Soft Deadline'

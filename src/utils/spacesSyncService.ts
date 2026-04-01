@@ -82,6 +82,7 @@ interface SpacesSnapshotResponse {
 const TARGET_SCHEMA_VERSION = 2;
 const DEVICE_ID_KEY = 'coo_spaces_sync_device_id';
 const CACHE_KEY = 'coo_spaces_sync_cache_v2';
+export const SPACES_SYNC_CACHE_KEY = CACHE_KEY;
 const LOCAL_BACKUP_KEY = 'coo_spaces_backup_local_pre_row_sync_v1';
 const LEGACY_BACKUP_KEY = 'coo_spaces_backup_legacy_remote_pre_row_sync_v1';
 

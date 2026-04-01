@@ -3,6 +3,7 @@ import React, { useState, useMemo } from 'react';
 import { Project, Priority, Client } from '../types';
 import { getSortedSchedulingQueue } from '../utils/schedulingLogic';
 import { getFormattedSlack } from '../utils/schedulingUtils';
+import { formatLocalDateOnly, parseLocalDate, parseLocalTimestamp } from '../utils/dateTime';
 
 interface GanttViewProps {
     projects: Project[];
@@ -150,7 +151,7 @@ const SchedulingQueue = ({ projects, onEditTask }: { projects: Project[], onEdit
                                         <span className="text-[8px] font-black text-slate-600 uppercase mb-0.5">Fin Estimado:</span>
                                         <span className="text-[10px] font-bold text-slate-400">
                                             {p.autoSchedule && p.endDate 
-                                                ? new Date(p.endDate).toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()
+                                                ? (parseLocalDate(p.endDate)?.toLocaleString('es-ES', { day: '2-digit', month: 'short', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase() ?? '-')
                                                 : p.dueDate.substring(0, 10)}
                                             {p.autoSchedule && <i className="fa-solid fa-robot text-blue-500 text-[8px] ml-1 opacity-70"></i>}
                                         </span>
@@ -193,14 +194,16 @@ const CalendarMode = ({ projects, onEditTask }: { projects: Project[], onEditTas
 
         if (p.scheduledSlots && p.scheduledSlots.length > 0) {
             return p.scheduledSlots.some(s => {
-                const slotStartTimestamp = new Date(s.start).getTime();
-                const slotEndTimestamp = new Date(s.end).getTime();
+                const slotStartTimestamp = parseLocalTimestamp(s.start);
+                const slotEndTimestamp = parseLocalTimestamp(s.end, true);
+                if (slotStartTimestamp === null || slotEndTimestamp === null) return false;
                 return slotStartTimestamp <= dayEndTimestamp && slotEndTimestamp >= dayStartTimestamp;
             });
         }
 
-        const startDate = new Date(p.startDate);
-        const endDate = new Date(p.endDate);
+        const startDate = parseLocalDate(p.startDate);
+        const endDate = parseLocalDate(p.endDate, true);
+        if (!startDate || !endDate) return false;
 
         // Normalize for day comparison
         startDate.setHours(0, 0, 0, 0);
@@ -316,10 +319,10 @@ const GanttView: React.FC<GanttViewProps> = ({
     const [newTask, setNewTask] = useState({
         clientName: '', projectName: '',
         startDate: '', // Ahora inicia vacío en auto-schedule (significa "HOY")
-        endDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        endDate: formatLocalDateOnly(new Date(Date.now() + 1 * 24 * 60 * 60 * 1000)),
         priority: Priority.MEDIUM, totalValue: 0,
         duration: 60, deadlineType: 'Soft Deadline' as any,
-        dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+        dueDate: formatLocalDateOnly(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)),
         autoSchedule: true,
         elasticity: 1 // 1 Flexible, 0 Rigido
     });
@@ -505,9 +508,9 @@ const GanttView: React.FC<GanttViewProps> = ({
                                     <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
                                         {editingProject.scheduledSlots.map((s, idx) => (
                                             <div key={idx} className="text-[10px] font-bold text-slate-700 bg-white p-2 rounded-lg border flex justify-between items-center">
-                                                <span>{new Date(s.start).toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()}</span>
+                                                <span>{(parseLocalDate(s.start)?.toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase() ?? '-')}</span>
                                                 <i className="fa-solid fa-arrow-right text-[8px] text-slate-300"></i>
-                                                <span>{new Date(s.end).toLocaleString('es-ES', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase()}</span>
+                                                <span>{(parseLocalDate(s.end)?.toLocaleString('es-ES', { hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase() ?? '-')}</span>
                                             </div>
                                         ))}
                                     </div>
@@ -556,7 +559,7 @@ const GanttView: React.FC<GanttViewProps> = ({
 
                         // Si es AutoSchedule y no hay startDate, usar HOY como constraint implícito.
                         // Si es Fixed, startDate es obligatorio.
-                        const finalStartDate = newTask.startDate || new Date().toISOString().split('T')[0];
+                        const finalStartDate = newTask.startDate || formatLocalDateOnly();
                         const finalEndDate = newTask.endDate || newTask.dueDate; // Fallback para Fixed mode
 
                         const projectObj: Project = {
@@ -570,7 +573,7 @@ const GanttView: React.FC<GanttViewProps> = ({
 
                         if (existingClient) { /* client already exists, no action needed */ } else { onAddClient({ id: clientId, name: finalClientName, email: '', phone: '' }); }
                         onAddProject(projectObj); setShowModal(false);
-                        setNewTask({ clientName: '', projectName: '', startDate: '', endDate: new Date(Date.now() + 1 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], priority: Priority.MEDIUM, totalValue: 0, duration: 60, deadlineType: 'Soft Deadline' as any, dueDate: new Date(Date.now() + 14 * 24 * 60 * 60 * 1000).toISOString().split('T')[0], autoSchedule: true, elasticity: 1 });
+                        setNewTask({ clientName: '', projectName: '', startDate: '', endDate: formatLocalDateOnly(new Date(Date.now() + 1 * 24 * 60 * 60 * 1000)), priority: Priority.MEDIUM, totalValue: 0, duration: 60, deadlineType: 'Soft Deadline' as any, dueDate: formatLocalDateOnly(new Date(Date.now() + 14 * 24 * 60 * 60 * 1000)), autoSchedule: true, elasticity: 1 });
                     }} className="bg-white w-full max-w-2xl rounded-[2.5rem] p-10 space-y-6 shadow-2xl animate-in zoom-in-95 overflow-y-auto max-h-[90vh] custom-scrollbar">
 
                         <div className="flex justify-between items-center">

@@ -2,8 +2,10 @@
 import React, { useState, useMemo } from 'react';
 import { useSpaces } from '../contexts/SpacesContext';
 import { SpaceTask } from '../spacesTypes';
+import { compareTaskUrgency, formatTaskCountdown, formatTaskDueDateTime, getTaskUrgencyMeta } from '../utils/taskUrgency';
 
 const COLORS = ['#7C3AED', '#2563EB', '#059669', '#DC2626', '#F59E0B', '#EC4899'];
+const getPendingTaskCount = (tasks: SpaceTask[] = []) => tasks.filter(task => task.estado !== 'DONE').length;
 
 interface SpacesSidebarProps {
     onNavigate?: () => void;
@@ -85,53 +87,22 @@ const SpacesSidebar: React.FC<SpacesSidebarProps> = ({ onNavigate }) => {
             activeSpace.carpetas.forEach(f => { f.listas.forEach(l => { collected.push(...flattenTasks(l.tareas)); }); });
         }
 
-        // Smart Sorting Algorithm
+        const now = new Date();
         return collected
-            .filter(t => t.estado !== 'DONE' && t.dueDate)
-            .map(t => {
-                const now = new Date().getTime();
-                const dueTime = new Date(t.dueDate!).getTime();
-                const hoursLeft = (dueTime - now) / (1000 * 3600);
-                
-                let bucket = 3; // L3: Future (Next 7 days)
-                if (dueTime < now) bucket = 0; // L0: Overdue
-                else if (hoursLeft <= 24) bucket = 1; // L1: Next 24h
-                else if (hoursLeft <= 72) bucket = 2; // L2: Next 3 days
-                
-                return { ...t, _bucket: bucket, _hoursLeft: hoursLeft };
-            })
-            .sort((a, b) => {
-                // 1. Urgency Bucket determines primary order
-                if (a._bucket !== b._bucket) return a._bucket - b._bucket;
-
-                // 2. Within same bucket, Priority rules
-                const getPriorityScore = (p: string | undefined): number => {
-                    switch (p) {
-                        case 'ASAP': return 4;
-                        case 'High': return 3;
-                        case 'Medium': return 2;
-                        case 'Low': return 1;
-                        default: return 0;
-                    }
-                };
-                const pA = getPriorityScore(a.priority);
-                const pB = getPriorityScore(b.priority);
-                if (pA !== pB) return pB - pA; // Descending priority
-
-                // 3. If everything is equal, strict chronological order
-                return new Date(a.dueDate!).getTime() - new Date(b.dueDate!).getTime();
-            });
+            .filter(t => t.estado !== 'DONE' && (t.dueDate || t.endDate || t.startDate))
+            .map((t) => ({ ...t, ...getTaskUrgencyMeta(t, now) }))
+            .sort((a, b) => compareTaskUrgency(a, b, now));
     }, [espacios, state.activeSpaceId, state.activeFolderId, state.activeListId]);
 
     // Apply urgency level filter after useMemo so UI doesn't disappear when a bucket is empty
     const filteredUpcomingTasks = useMemo(() => {
         return upcomingTasks
             .filter(t => {
-                if (urgencyLevel === 'CRITICAL') return t._bucket === 0;
-                if (urgencyLevel === 'SOON') return t._bucket === 0 || t._bucket === 1;
-                if (urgencyLevel === 'WEEK') return t._bucket <= 3 && t._hoursLeft <= 168; // Max 7 days
+                if (urgencyLevel === 'CRITICAL') return t.bucket === 0;
+                if (urgencyLevel === 'SOON') return t.bucket === 0 || t.bucket === 1;
+                if (urgencyLevel === 'WEEK') return t.bucket <= 3 && t.hoursLeft <= 168; // Max 7 days
                 // ALL: Also limit to max 10 days to avoid "infinity"
-                return t._hoursLeft <= 240 || t._bucket === 0;
+                return t.hoursLeft <= 240 || t.bucket === 0;
             })
             .slice(0, 8); // Showing up to 8 now
     }, [upcomingTasks, urgencyLevel]);
@@ -179,8 +150,7 @@ const SpacesSidebar: React.FC<SpacesSidebarProps> = ({ onNavigate }) => {
     const handleAddList = (spaceId: string, folderId?: string) => {
         if (!inputValue.trim()) return;
         const newId = Math.random().toString(36).substr(2, 9);
-        dispatch({ type: 'ADD_LIST', payload: { id: newId, spaceId, folderId, nombre: inputValue.trim() } });
-        dispatch({ type: 'SET_ACTIVE', payload: { spaceId, folderId: folderId || null, listId: newId } });
+        dispatch({ type: 'ADD_LIST', payload: { id: newId, spaceId, folderId, nombre: inputValue.trim(), select: true } });
         setInputValue('');
         setAddingListTo(null);
         const parentId = folderId || spaceId;
@@ -526,7 +496,7 @@ const SpacesSidebar: React.FC<SpacesSidebarProps> = ({ onNavigate }) => {
                                                             {folder.listas.map((list) => (
                                                                 <div
                                                                     key={list.id}
-                                                                    onClick={() => handleListClick(space.id, list.id, folder.id)}
+                                                                    onClick={(e) => { e.stopPropagation(); handleListClick(space.id, list.id, folder.id); }}
                                                                     className={`group flex items-center gap-2 px-2 py-1 mx-2 rounded cursor-pointer transition-colors ${state.activeListId === list.id ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-[#1A1C23] text-slate-400'
                                                                         }`}
                                                                 >
@@ -565,7 +535,7 @@ const SpacesSidebar: React.FC<SpacesSidebarProps> = ({ onNavigate }) => {
                                                                             <i className="fa-solid fa-trash text-[10px]"></i>
                                                                         </button>
                                                                     </div>
-                                                                    <span className="text-[9px] text-slate-500 group-hover:hidden">{list.tareas.length}</span>
+                                                                    <span className="text-[9px] text-slate-500 group-hover:hidden">{getPendingTaskCount(list.tareas)}</span>
                                                                 </div>
                                                             ))}
                                                         </div>
@@ -594,7 +564,7 @@ const SpacesSidebar: React.FC<SpacesSidebarProps> = ({ onNavigate }) => {
                                         {space.listas.map((list) => (
                                             <div
                                                 key={list.id}
-                                                onClick={() => handleListClick(space.id, list.id)}
+                                                onClick={(e) => { e.stopPropagation(); handleListClick(space.id, list.id); }}
                                                 className={`group flex items-center gap-2 px-2 py-1 mx-2 rounded cursor-pointer transition-colors ${state.activeListId === list.id ? 'bg-blue-600/20 text-blue-400' : 'hover:bg-[#1A1C23] text-slate-400'
                                                     }`}
                                             >
@@ -633,7 +603,7 @@ const SpacesSidebar: React.FC<SpacesSidebarProps> = ({ onNavigate }) => {
                                                          <i className="fa-solid fa-trash text-[10px]"></i>
                                                      </button>
                                                  </div>
-                                                <span className="text-[9px] text-slate-500 group-hover:hidden">{list.tareas.length}</span>
+                                                <span className="text-[9px] text-slate-500 group-hover:hidden">{getPendingTaskCount(list.tareas)}</span>
                                             </div>
                                         ))}
                                     </div>
@@ -695,19 +665,11 @@ const SpacesSidebar: React.FC<SpacesSidebarProps> = ({ onNavigate }) => {
                                 </div>
                             ) : (
                                 filteredUpcomingTasks.map((t) => {
-                                    const due = new Date(t.dueDate!);
                                     const now = new Date();
-                                    const diffMs = due.getTime() - now.getTime();
-                                    const isOverdue = diffMs < 0;
-                                    const absDiff = Math.abs(diffMs);
-                                    const daysLeft = Math.floor(absDiff / (1000 * 3600 * 24));
-                                    const hoursLeft = Math.floor((absDiff % (1000 * 3600 * 24)) / (1000 * 3600));
-                                    const minsLeft = Math.floor((absDiff % (1000 * 3600)) / (1000 * 60));
-
-                                    let timeLabel = '';
-                                    if (daysLeft > 0) timeLabel = `${daysLeft}d ${hoursLeft}h`;
-                                    else if (hoursLeft > 0) timeLabel = `${hoursLeft}h ${minsLeft}m`;
-                                    else timeLabel = `${minsLeft}m`;
+                                    const taskDate = t.dueDate || t.endDate || t.startDate || null;
+                                    const timeLabel = formatTaskCountdown(taskDate, now);
+                                    const dueLabel = formatTaskDueDateTime(taskDate);
+                                    const isOverdue = timeLabel.startsWith('-');
 
                                     const priorityColor = t.priority === 'ASAP' ? 'bg-purple-500' : t.priority === 'High' ? 'bg-red-500' : t.priority === 'Medium' ? 'bg-orange-400' : 'bg-emerald-500';
 
@@ -715,14 +677,20 @@ const SpacesSidebar: React.FC<SpacesSidebarProps> = ({ onNavigate }) => {
                                         <div
                                             key={t.id}
                                             className="flex items-center gap-2 p-1.5 rounded-lg hover:bg-[#1A1C23] transition-colors group cursor-default"
+                                            title={`Vence: ${dueLabel}`}
                                         >
                                             <div className={`w-1.5 h-1.5 rounded-full shrink-0 ${priorityColor}`}></div>
                                             <span className="text-[10px] text-slate-300 truncate flex-1 font-medium" title={t.nombre}>
                                                 {t.nombre}
                                             </span>
-                                            <span className={`text-[9px] font-bold shrink-0 ${isOverdue ? 'text-red-400' : t._bucket! === 1 ? 'text-amber-400' : 'text-slate-500'}`}>
-                                                {isOverdue ? `-${timeLabel}` : timeLabel}
-                                            </span>
+                                            <div className="flex flex-col items-end shrink-0 leading-tight">
+                                                <span className={`text-[9px] font-bold ${isOverdue ? 'text-red-400' : (t as any).bucket === 1 ? 'text-amber-400' : 'text-slate-500'}`}>
+                                                    {timeLabel}
+                                                </span>
+                                                <span className="text-[8px] text-slate-600">
+                                                    {dueLabel}
+                                                </span>
+                                            </div>
                                         </div>
                                     );
                                 })

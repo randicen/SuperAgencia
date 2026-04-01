@@ -2,6 +2,7 @@ import OpenAI from "openai";
 import { BusinessRules, Project, Message, Client, SeasonalityData, Note, Transaction } from "./types";
 import { getAllTasks } from "./contexts/SpacesContext";
 import { SpacesState } from "./spacesTypes";
+import { formatLocalDateOnly, parseLocalDate } from "./utils/dateTime";
 
 let currentGroqKeyIndex = 0;
 
@@ -539,8 +540,8 @@ export const calculateQuote = async (
       .trim();
     const formatDateTime = (value?: string) => {
       if (!value) return 'Sin fecha';
-      const date = new Date(value);
-      if (Number.isNaN(date.getTime())) return value;
+      const date = parseLocalDate(value);
+      if (!date) return value;
       return date.toLocaleString('es-ES', { day: '2-digit', month: '2-digit', year: 'numeric', hour: 'numeric', minute: '2-digit', hour12: true }).toLowerCase();
     };
     const formatSchedule = (task: any) => {
@@ -568,8 +569,8 @@ export const calculateQuote = async (
     };
     const parseDateValue = (value?: string) => {
       if (!value) return Number.MAX_SAFE_INTEGER;
-      const parsed = new Date(value).getTime();
-      return Number.isNaN(parsed) ? Number.MAX_SAFE_INTEGER : parsed;
+      const parsed = parseLocalDate(value, true)?.getTime();
+      return parsed ?? Number.MAX_SAFE_INTEGER;
     };
     const matchesText = (value: string | undefined, queryValue: string) => {
       const normalizedValue = normalizeText(value);
@@ -595,7 +596,9 @@ export const calculateQuote = async (
         if (dueDiff !== 0) return dueDiff;
         const startDiff = parseDateValue(left.task.startDate) - parseDateValue(right.task.startDate);
         if (startDiff !== 0) return startDiff;
-        return left.task.nombre.localeCompare(right.task.nombre, 'es');
+        const leftName = typeof left.task.nombre === 'string' ? left.task.nombre : '';
+        const rightName = typeof right.task.nombre === 'string' ? right.task.nombre : '';
+        return leftName.localeCompare(rightName, 'es');
       });
     const limitedTasks = filteredTasks.slice(0, limit);
 

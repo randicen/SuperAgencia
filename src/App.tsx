@@ -26,6 +26,7 @@ import { useAgencyStore } from './stores/useAgencyStore';
 import { SpacesState } from './spacesTypes';
 import {
   SpacesSyncDiagnostics,
+  SPACES_SYNC_CACHE_KEY,
   getLocalPendingSpacesCount,
   getOrCreateSpacesSyncDeviceId,
   getSpacesCloudLastModified,
@@ -35,6 +36,18 @@ import {
   runSpacesPushCycle,
 } from './utils/spacesSyncService';
 import { resolveSpacesSyncExecutionMode, shouldLockSpacesWrites } from './utils/spacesSyncMode';
+import {
+  claimSyncLeaderLease,
+  createSyncLeaderTabId,
+  getSyncLeaderStorageKey,
+  isSyncLeaderLeaseActive,
+  releaseSyncLeaderLease,
+} from './utils/syncLeader';
+
+const CLOUD_FALLBACK_POLL_MS = 120000;
+const SPACES_FALLBACK_POLL_MS = 120000;
+const SYNC_LEADER_HEARTBEAT_MS = 10000;
+const SYNC_LEADER_TTL_MS = 30000;
 
 const ACTIVE_TASK_STRIP_VISIBLE_KEY = 'coo_active_task_strip_visible_v1';
 const ACTIVE_TASK_FOCUS_KEY = 'coo_active_task_focus_v1';
@@ -133,12 +146,18 @@ const App: React.FC = () => {
   const [hasHydratedSpacesThisSession, setHasHydratedSpacesThisSession] = useState(false);
   const [hasPendingPwaRefresh, setHasPendingPwaRefresh] = useState(false);
   const [spacesWritesLocked, setSpacesWritesLocked] = useState(true);
+  const [isSyncLeader, setIsSyncLeader] = useState(false);
   const lastUploadedState = React.useRef('');
   const isInternalUpdate = React.useRef(false); // Ref para evitar bucles de subida tras descarga core
   const isRunningSpacesSync = React.useRef(false);
   const rerunSpacesSync = React.useRef(false);
   const spacesRefreshTimer = React.useRef<number | null>(null);
-  
+  const syncLeaderTabId = React.useRef(createSyncLeaderTabId());
+  const handleCloudSyncRef = React.useRef<(() => Promise<void>) | null>(null);
+  const handleInitialDownloadRef = React.useRef<((isSilent?: boolean) => Promise<void>) | null>(null);
+  const getCloudLastModifiedRef = React.useRef<((userId: string) => Promise<number>) | null>(null);
+  const handleSpacesSyncRef = React.useRef<((reason?: 'manual' | 'local-change' | 'remote-change' | 'online' | 'bootstrap') => Promise<void>) | null>(null);
+  const spacesDiagnosticsRef = React.useRef(spacesSyncDiagnostics);
   const preHydrationBackupSaved = React.useRef(false);
 
 
@@ -215,6 +234,53 @@ const App: React.FC = () => {
     setFocusedActiveTaskId(activeTaskStripItems[nextIndex].id);
     setShowActiveTaskStrip(true);
   }, [activeTaskStripItems, focusedActiveTaskId]);
+
+  useEffect(() => {
+    const leaderKey = getSyncLeaderStorageKey();
+
+    const updateLeadership = () => {
+      const now = Date.now();
+      const visible = document.visibilityState === 'visible';
+
+      if (!visible) {
+        releaseSyncLeaderLease(syncLeaderTabId.current);
+        setIsSyncLeader(false);
+        return;
+      }
+
+      const lease = claimSyncLeaderLease(syncLeaderTabId.current, SYNC_LEADER_TTL_MS, now);
+      setIsSyncLeader(lease.tabId === syncLeaderTabId.current && isSyncLeaderLeaseActive(lease, now));
+    };
+
+    updateLeadership();
+
+    const heartbeat = window.setInterval(updateLeadership, SYNC_LEADER_HEARTBEAT_MS);
+
+    const handleVisibilityChange = () => {
+      updateLeadership();
+    };
+
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== leaderKey) return;
+      updateLeadership();
+    };
+
+    const handleUnload = () => {
+      releaseSyncLeaderLease(syncLeaderTabId.current);
+    };
+
+    window.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('storage', handleStorage);
+    window.addEventListener('beforeunload', handleUnload);
+
+    return () => {
+      window.clearInterval(heartbeat);
+      window.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('storage', handleStorage);
+      window.removeEventListener('beforeunload', handleUnload);
+      releaseSyncLeaderLease(syncLeaderTabId.current);
+    };
+  }, []);
 
   useEffect(() => {
     setSpacesWritesLocked(shouldLockSpacesWrites({
@@ -648,6 +714,26 @@ const App: React.FC = () => {
   }, [session, getCloudLastModified, projects, clients, transactions, rules, notes, chatSessions, handleCloudSync]); // CRITICAL: session MUST be here or the function will always see null
 
   useEffect(() => {
+    handleCloudSyncRef.current = handleCloudSync;
+  }, [handleCloudSync]);
+
+  useEffect(() => {
+    handleInitialDownloadRef.current = handleInitialDownload;
+  }, [handleInitialDownload]);
+
+  useEffect(() => {
+    getCloudLastModifiedRef.current = getCloudLastModified;
+  }, [getCloudLastModified]);
+
+  useEffect(() => {
+    handleSpacesSyncRef.current = handleSpacesSync;
+  }, [handleSpacesSync]);
+
+  useEffect(() => {
+    spacesDiagnosticsRef.current = spacesSyncDiagnostics;
+  }, [spacesSyncDiagnostics]);
+
+  useEffect(() => {
     handleInitialDownload();
   }, [handleInitialDownload]); // Re-run when session changes (which recreates handleInitialDownload)
 
@@ -658,12 +744,16 @@ const App: React.FC = () => {
 
   // Monitorear conexiÃƒÆ’Ã‚Â³n y suscripciÃƒÆ’Ã‚Â³n Real-time
   useEffect(() => {
+    const userId = session?.user?.id;
+
     const handleOnline = () => {
       setIsOnline(true);
       setSyncStatus('syncing');
       setSpacesSyncStatus('syncing');
-      handleCloudSync();
-      handleSpacesSync('online');
+      const syncCloud = handleCloudSyncRef.current;
+      const syncSpaces = handleSpacesSyncRef.current;
+      if (syncCloud) void syncCloud();
+      if (syncSpaces) void syncSpaces('online');
     };
     const handleOffline = () => {
       setIsOnline(false);
@@ -681,14 +771,17 @@ const App: React.FC = () => {
 
     const scheduleCloudRefresh = () => {
       if (refreshTimer) window.clearTimeout(refreshTimer);
-      refreshTimer = window.setTimeout(() => handleInitialDownload(true), 350);
+      refreshTimer = window.setTimeout(() => {
+        const download = handleInitialDownloadRef.current;
+        if (download) void download(true);
+      }, 350);
     };
-    if (session?.user?.id) {
+    if (userId && isSyncLeader) {
       // Escuchar cambios en tablas relacionales (cualquier cambio del usuario en otro dispositivo)
       channel = supabase
-        .channel(`relational-db-changes-${session.user.id}`)
+        .channel(`relational-db-changes-${userId}`)
         .on('postgres_changes',
-          { event: '*', schema: 'public', table: 'projects', filter: `user_id=eq.${session.user.id}` },
+          { event: '*', schema: 'public', table: 'projects', filter: `user_id=eq.${userId}` },
           () => {
             console.log("ÃƒÂ¢Ã‹Å“Ã‚ÂÃƒÂ¯Ã‚Â¸Ã‚Â Cambio en projects detectado en otro dispositivo, descargando...");
             scheduleCloudRefresh();
@@ -697,11 +790,11 @@ const App: React.FC = () => {
         .subscribe();
 
       const extraTables = ['clients', 'transactions', 'notes', 'chat_sessions', 'business_rules'];
-      secondaryChannel = supabase.channel(`relational-db-changes-extra-${session.user.id}`);
+      secondaryChannel = supabase.channel(`relational-db-changes-extra-${userId}`);
       extraTables.forEach((tableName) => {
         secondaryChannel = secondaryChannel.on(
           'postgres_changes',
-          { event: '*', schema: 'public', table: tableName, filter: `user_id=eq.${session.user.id}` },
+          { event: '*', schema: 'public', table: tableName, filter: `user_id=eq.${userId}` },
           () => {
             console.log(`Cambio en ${tableName} detectado, descargando...`);
             scheduleCloudRefresh();
@@ -713,16 +806,19 @@ const App: React.FC = () => {
       fallbackPollTimer = window.setInterval(async () => {
         if (document.visibilityState !== 'visible' || !navigator.onLine || isInternalUpdate.current) return;
         try {
-          const cloudLastModified = await getCloudLastModified(session.user.id);
+          const getCloudLastModified = getCloudLastModifiedRef.current;
+          if (!getCloudLastModified) return;
+          const cloudLastModified = await getCloudLastModified(userId);
           const lastSeenCloud = parseInt(localStorage.getItem('coo_last_cloud_mod') || '0');
           if (cloudLastModified > lastSeenCloud) {
             console.log('Fallback polling detectÃƒÆ’Ã‚Â³ cambios remotos, refrescando...');
-            handleInitialDownload(true);
+            const download = handleInitialDownloadRef.current;
+            if (download) void download(true);
           }
         } catch (error) {
           console.warn('Polling de fallback fallÃƒÆ’Ã‚Â³:', error);
         }
-      }, 15000);
+      }, CLOUD_FALLBACK_POLL_MS);
     }
 
     const handleFingerprintSync = (e: StorageEvent) => {
@@ -733,19 +829,63 @@ const App: React.FC = () => {
     };
     window.addEventListener('storage', handleFingerprintSync);
 
+    const handleSharedSyncState = (e: StorageEvent) => {
+      if (e.key === 'coo_last_cloud_state_snapshot' && e.newValue && session?.user?.id) {
+        try {
+          const nextCloudState = normalizeCloudSyncState(JSON.parse(e.newValue));
+          const { currentLocalState } = buildCurrentLocalCloudState();
+          const currentBaseSnapshotRaw = localStorage.getItem('coo_last_cloud_state_snapshot');
+          const currentBaseSnapshot = normalizeCloudSyncState(currentBaseSnapshotRaw ? JSON.parse(currentBaseSnapshotRaw) : null);
+          const localHasMeaningfulChanges =
+            buildComparableStateString(currentLocalState) !== buildComparableStateString(currentBaseSnapshot);
+
+          if (!localHasMeaningfulChanges) {
+            isInternalUpdate.current = true;
+            applyDownloadedCloudState(nextCloudState);
+            lastUploadedState.current = buildComparableStateString(nextCloudState);
+            window.setTimeout(() => {
+              isInternalUpdate.current = false;
+            }, 1200);
+          }
+        } catch (error) {
+          console.warn('No se pudo aplicar snapshot compartido entre pestañas:', error);
+        }
+        return;
+      }
+
+      if ((e.key === 'coo_spaces' || e.key === SPACES_SYNC_CACHE_KEY) && session?.user?.id) {
+        const currentLocalSpaces = readLocalSpacesState();
+        const pending = getLocalPendingSpacesCount(session.user.id, currentLocalSpaces);
+
+        setSpacesSyncDiagnostics({
+          ...getSpacesSyncDiagnostics(),
+          deviceId: getOrCreateSpacesSyncDeviceId(),
+          pending,
+        });
+        setCachedBuildId(getSpacesSyncCacheMetadata().buildId);
+
+        if (e.key === 'coo_spaces' && e.newValue && pending === 0) {
+          window.dispatchEvent(new Event('coo_cloud_data_received'));
+        }
+      }
+    };
+    window.addEventListener('storage', handleSharedSyncState);
+
     return () => {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
       window.removeEventListener('storage', handleFingerprintSync);
+      window.removeEventListener('storage', handleSharedSyncState);
       if (refreshTimer) window.clearTimeout(refreshTimer);
       if (fallbackPollTimer) window.clearInterval(fallbackPollTimer);
       if (channel) channel.unsubscribe();
       if (secondaryChannel) secondaryChannel.unsubscribe();
     };
-  }, [handleCloudSync, handleInitialDownload, getCloudLastModified, session]);
+  }, [isSyncLeader, session?.user?.id]);
 
   useEffect(() => {
-    if (!session?.user?.id) return;
+    const userId = session?.user?.id;
+    if (!userId || !isSyncLeader) return;
 
     let spacesChannel: any;
     let spacesPollTimer: number | null = null;
@@ -753,14 +893,17 @@ const App: React.FC = () => {
 
     const scheduleSpacesRefresh = () => {
       if (spacesRealtimeTimer) window.clearTimeout(spacesRealtimeTimer);
-      spacesRealtimeTimer = window.setTimeout(() => handleSpacesSync('remote-change'), 350);
+      spacesRealtimeTimer = window.setTimeout(() => {
+        const syncSpaces = handleSpacesSyncRef.current;
+        if (syncSpaces) void syncSpaces('remote-change');
+      }, 350);
     };
 
     spacesChannel = supabase
-      .channel(`spaces-sync-meta-${session.user.id}`)
+      .channel(`spaces-sync-meta-${userId}`)
       .on(
         'postgres_changes',
-        { event: '*', schema: 'public', table: 'spaces_sync_meta', filter: `user_id=eq.${session.user.id}` },
+        { event: '*', schema: 'public', table: 'spaces_sync_meta', filter: `user_id=eq.${userId}` },
         () => {
           scheduleSpacesRefresh();
         }
@@ -768,24 +911,25 @@ const App: React.FC = () => {
       .subscribe();
 
     spacesPollTimer = window.setInterval(async () => {
-      if (document.visibilityState !== 'visible' || !navigator.onLine || !session?.user?.id) return;
+      if (document.visibilityState !== 'visible' || !navigator.onLine) return;
       try {
-        const remoteStamp = await getSpacesCloudLastModified(session.user.id);
-        const knownStamp = spacesSyncDiagnostics.lastRemote ? new Date(spacesSyncDiagnostics.lastRemote).getTime() : 0;
+        const remoteStamp = await getSpacesCloudLastModified(userId);
+        const knownStamp = spacesDiagnosticsRef.current.lastRemote ? new Date(spacesDiagnosticsRef.current.lastRemote).getTime() : 0;
         if (remoteStamp > knownStamp) {
-          handleSpacesSync('remote-change');
+          const syncSpaces = handleSpacesSyncRef.current;
+          if (syncSpaces) void syncSpaces('remote-change');
         }
       } catch (error) {
         console.warn('Polling de Espacios fallÃƒÆ’Ã‚Â³:', error);
       }
-    }, 15000);
+    }, SPACES_FALLBACK_POLL_MS);
 
     return () => {
       if (spacesRealtimeTimer) window.clearTimeout(spacesRealtimeTimer);
       if (spacesPollTimer) window.clearInterval(spacesPollTimer);
       if (spacesChannel) spacesChannel.unsubscribe();
     };
-  }, [handleSpacesSync, session, spacesSyncDiagnostics.lastRemote]);
+  }, [isSyncLeader, session?.user?.id]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -795,7 +939,8 @@ const App: React.FC = () => {
     }, 1500);
 
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden' && isOnline) {
+      const hasPendingCloudUpload = localStorage.getItem('coo_has_unsynced_local_v3') === '1';
+      if (document.visibilityState === 'hidden' && isOnline && hasPendingCloudUpload) {
         handleCloudSync();
       }
     };
@@ -837,7 +982,10 @@ const App: React.FC = () => {
 
     // Seguro: Sincronizar si el usuario cambia de pestaÃƒÆ’Ã‚Â±a o cierra la app
     const handleVisibilityChange = () => {
-      if (document.visibilityState === 'hidden' && isOnline) {
+      const hasPendingSpacesSync = session?.user?.id
+        ? getLocalPendingSpacesCount(session.user.id, readLocalSpacesState()) > 0
+        : false;
+      if (document.visibilityState === 'hidden' && isOnline && hasPendingSpacesSync) {
         handleSpacesSync('manual');
       }
     };

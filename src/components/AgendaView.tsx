@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { getAllTasks, useSpaces } from '../contexts/SpacesContext';
 import { SpaceEvent, SpaceTask } from '../spacesTypes';
+import { parseLocalTimestamp } from '../utils/dateTime';
 
 interface AgendaViewProps {
     onGoToSpaces: () => void;
@@ -101,24 +102,24 @@ const CalendarViewComponent: React.FC<{
         const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
         const dayEnd = new Date(date); dayEnd.setHours(23, 59, 59, 999);
 
-        const parseLocal = (dateStr: string) => dateStr ? new Date(dateStr).getTime() : 0;
-
         if (task.startDate && task.endDate) {
-            const start = parseLocal(task.startDate);
-            let end = parseLocal(task.endDate);
-            if (task.endDate.length <= 10) end += (24 * 60 * 60 * 1000) - 1;
+            const start = parseLocalTimestamp(task.startDate);
+            const end = parseLocalTimestamp(task.endDate, true);
+            if (start === null || end === null) return false;
             return start <= dayEnd.getTime() && end >= dayStart.getTime();
         }
 
-        const due = parseLocal(task.dueDate);
+        const due = parseLocalTimestamp(task.dueDate, true);
+        if (due === null) return false;
         return due >= dayStart.getTime() && due <= dayEnd.getTime();
     };
 
     const isEventActiveOnDay = (event: SpaceEvent, date: Date) => {
         const dayStart = new Date(date); dayStart.setHours(0, 0, 0, 0);
         const dayEnd = new Date(date); dayEnd.setHours(23, 59, 59, 999);
-        const start = event.startDate ? new Date(event.startDate).getTime() : 0;
-        const end = event.endDate ? new Date(event.endDate).getTime() : 0;
+        const start = parseLocalTimestamp(event.startDate);
+        const end = parseLocalTimestamp(event.endDate || event.startDate, true);
+        if (start === null || end === null) return false;
         return start <= dayEnd.getTime() && end >= dayStart.getTime();
     };
 
