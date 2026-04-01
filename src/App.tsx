@@ -11,6 +11,7 @@ import Onboarding from './components/Onboarding';
 import NotebookView from './components/NotebookView';
 import SpacesSidebar from './components/SpacesSidebar';
 import SpacesView from './components/SpacesView';
+import SpacesErrorBoundary from './components/SpacesErrorBoundary';
 import AgendaView from './components/AgendaView';
 import ActiveTaskStrip, { ActiveTaskStripItem } from './components/ActiveTaskStrip';
 import PwaUpdateBanner from './components/PwaUpdateBanner';
@@ -1206,26 +1207,28 @@ const App: React.FC = () => {
 
           {/* ÃƒÆ’Ã‚Ârea de Contenido Principal */}
           {activeTab === 'spaces' ? (
-            <div className="flex-1 flex overflow-hidden relative">
-              <div className="hidden md:block h-full">
-                <SpacesSidebar />
+            <SpacesErrorBoundary>
+              <div className="flex-1 flex overflow-hidden relative">
+                <div className="hidden md:block h-full">
+                  <SpacesSidebar />
+                </div>
+                {isSpacesSidebarOpen && (
+                  <div
+                    className="md:hidden fixed inset-0 bg-black/50 z-30"
+                    onClick={() => setIsSpacesSidebarOpen(false)}
+                  ></div>
+                )}
+                <div className={`md:hidden fixed inset-y-0 left-0 z-40 transition-transform duration-300 ${isSpacesSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
+                  <SpacesSidebar onNavigate={() => setIsSpacesSidebarOpen(false)} />
+                </div>
+                <SpacesView
+                  onOpenTree={() => setIsSpacesSidebarOpen(true)}
+                  writesLocked={spacesWritesLocked}
+                  writeLockReason={spacesWriteLockReason}
+                  isHydrating={!hasHydratedSpacesThisSession}
+                />
               </div>
-              {isSpacesSidebarOpen && (
-                <div
-                  className="md:hidden fixed inset-0 bg-black/50 z-30"
-                  onClick={() => setIsSpacesSidebarOpen(false)}
-                ></div>
-              )}
-              <div className={`md:hidden fixed inset-y-0 left-0 z-40 transition-transform duration-300 ${isSpacesSidebarOpen ? 'translate-x-0' : '-translate-x-full'}`}>
-                <SpacesSidebar onNavigate={() => setIsSpacesSidebarOpen(false)} />
-              </div>
-              <SpacesView
-                onOpenTree={() => setIsSpacesSidebarOpen(true)}
-                writesLocked={spacesWritesLocked}
-                writeLockReason={spacesWriteLockReason}
-                isHydrating={!hasHydratedSpacesThisSession}
-              />
-            </div>
+            </SpacesErrorBoundary>
           ) : activeTab === 'agenda' ? (
             <div className="flex-1 overflow-hidden p-4 md:p-6 relative">
               <AgendaView onGoToSpaces={() => setActiveTab('spaces')} />

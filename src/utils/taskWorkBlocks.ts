@@ -1,9 +1,20 @@
-import type { Space, SpaceFolder, SpaceList, SpacesState, SpaceTask, ScheduledSlot, WorkBlock } from '../spacesTypes.ts';
+import type { Space, SpaceEvent, SpaceFolder, SpaceList, SpacesState, SpaceTask, ScheduledSlot, WorkBlock } from '../spacesTypes.ts';
 
 export type TaskPlanningMode = 'none' | 'ai' | 'manual';
 
 const DEFAULT_ESTIMATED_EFFORT_MINUTES = 60;
 const DEFAULT_PREFERRED_BLOCK_MINUTES = 90;
+
+const VALID_TASK_STATUSES = new Set(['TODO', 'ACTIVE', 'DONE']);
+const VALID_TASK_PRIORITIES = new Set(['ASAP', 'High', 'Medium', 'Low']);
+const VALID_DEADLINE_TYPES = new Set(['Hard Deadline', 'Soft Deadline']);
+
+const asString = (value: unknown) => (typeof value === 'string' ? value : '');
+const asOptionalString = (value: unknown) => (typeof value === 'string' && value.trim() ? value : undefined);
+const asNumber = (value: unknown, fallback: number) => {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
 
 const getSortableTimestamp = (value: string) => {
   if (!value) return Number.MAX_SAFE_INTEGER;
@@ -49,16 +60,67 @@ const buildWorkBlocksFromScheduledSlots = (task: SpaceTask): WorkBlock[] =>
 
 const sanitizeExistingWorkBlocks = (task: SpaceTask): WorkBlock[] =>
   sortWorkBlocks(
-    (task.workBlocks || []).map((block, index) => ({
+    (Array.isArray(task.workBlocks) ? task.workBlocks : []).map((block, index) => ({
       id: block.id || `${task.id}-block-${index + 1}`,
       taskId: block.taskId || task.id,
-      startAt: block.startAt,
-      endAt: block.endAt,
+      startAt: asString(block.startAt),
+      endAt: asString(block.endAt),
       source: block.source || 'legacy',
       status: block.status || 'planned',
       locked: block.locked ?? (block.source === 'manual' || !task.autoSchedule),
     }))
   );
+
+const sanitizeScheduledSlots = (task: SpaceTask): ScheduledSlot[] =>
+  (Array.isArray(task.scheduledSlots) ? task.scheduledSlots : [])
+    .map((slot, index) => ({
+      id: asString(slot.id) || `${task.id}-slot-${index + 1}`,
+      start: asString(slot.start),
+      end: asString(slot.end),
+      isFragment: !!slot.isFragment,
+    }))
+    .filter((slot) => slot.start && slot.end);
+
+const sanitizeTaskShape = (task: SpaceTask): SpaceTask => ({
+  ...task,
+  id: asString(task.id),
+  nombre: asString(task.nombre),
+  estado: VALID_TASK_STATUSES.has(task.estado) ? task.estado : 'TODO',
+  orden: asNumber(task.orden, Date.now()),
+  progress: Math.max(0, Math.min(100, asNumber(task.progress, 0))),
+  startedAt: asOptionalString(task.startedAt),
+  earliestStartAt: task.earliestStartAt == null ? null : asString(task.earliestStartAt),
+  dueDate: asString(task.dueDate),
+  deadlineType: VALID_DEADLINE_TYPES.has(task.deadlineType) ? task.deadlineType : 'Soft Deadline',
+  estimatedEffortMinutes: task.estimatedEffortMinutes == null ? null : asNumber(task.estimatedEffortMinutes, DEFAULT_ESTIMATED_EFFORT_MINUTES),
+  preferredBlockMinutes: task.preferredBlockMinutes == null ? null : asNumber(task.preferredBlockMinutes, DEFAULT_PREFERRED_BLOCK_MINUTES),
+  workStyle: task.workStyle === 'deep-work' || task.workStyle === 'flexible' ? task.workStyle : undefined,
+  autoSchedule: !!task.autoSchedule,
+  startDate: asString(task.startDate),
+  endDate: asString(task.endDate),
+  duration: Math.max(0, asNumber(task.duration, DEFAULT_ESTIMATED_EFFORT_MINUTES)),
+  elasticity: asNumber(task.elasticity, 1) === 0 ? 0 : 1,
+  priority: VALID_TASK_PRIORITIES.has(task.priority) ? task.priority : 'Medium',
+  totalValue: Math.max(0, asNumber(task.totalValue, 0)),
+  clientName: asOptionalString(task.clientName),
+  clientId: asOptionalString(task.clientId),
+  installments: Array.isArray(task.installments) ? task.installments : undefined,
+  hasConflict: !!task.hasConflict,
+  conflictDescription: asOptionalString(task.conflictDescription),
+  description: asOptionalString(task.description),
+  subtasks: Array.isArray(task.subtasks) ? task.subtasks : undefined,
+  scheduledSlots: sanitizeScheduledSlots(task),
+  workBlocks: sanitizeExistingWorkBlocks(task),
+});
+
+const sanitizeEvent = (event: SpaceEvent): SpaceEvent => ({
+  ...event,
+  id: asString(event.id),
+  nombre: asString(event.nombre),
+  startDate: asString(event.startDate),
+  endDate: asString(event.endDate),
+  description: asOptionalString(event.description),
+});
 
 const buildScheduledSlotsFromWorkBlocks = (task: SpaceTask, workBlocks: WorkBlock[]): ScheduledSlot[] =>
   getSchedulableWorkBlocks(workBlocks)
@@ -257,29 +319,30 @@ export const syncTaskPlanningFields = (task: SpaceTask): SpaceTask => {
 };
 
 export const normalizeTaskWorkModel = (task: SpaceTask): SpaceTask => {
-  const workStyle = getWorkStyle(task);
+  const sanitizedTask = sanitizeTaskShape(task);
+  const workStyle = getWorkStyle(sanitizedTask);
   const workBlocks =
-    task.scheduledSlots && task.scheduledSlots.length > 0
-      ? buildWorkBlocksFromScheduledSlots(task)
-      : sanitizeExistingWorkBlocks(task);
+    sanitizedTask.scheduledSlots && sanitizedTask.scheduledSlots.length > 0
+      ? buildWorkBlocksFromScheduledSlots(sanitizedTask)
+      : sanitizeExistingWorkBlocks(sanitizedTask);
 
   const scheduledSlots =
-    task.scheduledSlots && task.scheduledSlots.length > 0
-      ? task.scheduledSlots
-      : buildScheduledSlotsFromWorkBlocks({ ...task, workStyle }, workBlocks);
+    sanitizedTask.scheduledSlots && sanitizedTask.scheduledSlots.length > 0
+      ? sanitizedTask.scheduledSlots
+      : buildScheduledSlotsFromWorkBlocks({ ...sanitizedTask, workStyle }, workBlocks);
 
-  const estimatedEffortMinutes = task.estimatedEffortMinutes ?? task.duration ?? null;
+  const estimatedEffortMinutes = sanitizedTask.estimatedEffortMinutes ?? sanitizedTask.duration ?? null;
   const preferredBlockMinutes = getPreferredBlockMinutes(
-    task,
+    sanitizedTask,
     estimatedEffortMinutes ?? DEFAULT_ESTIMATED_EFFORT_MINUTES,
     workStyle
   );
 
-  const mirroredDates = normalizeTaskDatesFromWorkBlocks(task, workBlocks);
+  const mirroredDates = normalizeTaskDatesFromWorkBlocks(sanitizedTask, workBlocks);
 
   return {
-    ...task,
-    earliestStartAt: task.earliestStartAt ?? (task.autoSchedule ? (task.startDate || workBlocks[0]?.startAt || null) : null),
+    ...sanitizedTask,
+    earliestStartAt: sanitizedTask.earliestStartAt ?? (sanitizedTask.autoSchedule ? (sanitizedTask.startDate || workBlocks[0]?.startAt || null) : null),
     estimatedEffortMinutes,
     preferredBlockMinutes,
     workStyle,
@@ -287,30 +350,41 @@ export const normalizeTaskWorkModel = (task: SpaceTask): SpaceTask => {
     scheduledSlots: scheduledSlots.length > 0 ? scheduledSlots : undefined,
     startDate: mirroredDates.startDate,
     endDate: mirroredDates.endDate,
-    subtasks: task.subtasks?.map(normalizeTaskWorkModel),
+    subtasks: sanitizedTask.subtasks?.map(normalizeTaskWorkModel),
   };
 };
 
 const normalizeSpaceList = (list: SpaceList): SpaceList => ({
   ...list,
-  tareas: (list.tareas || []).map(normalizeTaskWorkModel),
+  id: asString(list.id),
+  nombre: asString(list.nombre),
+  tareas: (Array.isArray(list.tareas) ? list.tareas : []).map(normalizeTaskWorkModel),
+  eventos: (Array.isArray(list.eventos) ? list.eventos : []).map(sanitizeEvent),
 });
 
 const normalizeSpaceFolder = (folder: SpaceFolder): SpaceFolder => ({
   ...folder,
-  listas: (folder.listas || []).map(normalizeSpaceList),
+  id: asString(folder.id),
+  nombre: asString(folder.nombre),
+  listas: (Array.isArray(folder.listas) ? folder.listas : []).map(normalizeSpaceList),
 });
 
 const normalizeSpace = (space: Space): Space => ({
   ...space,
-  listas: (space.listas || []).map(normalizeSpaceList),
-  carpetas: (space.carpetas || []).map(normalizeSpaceFolder),
+  id: asString(space.id),
+  nombre: asString(space.nombre),
+  color: asString(space.color),
+  listas: (Array.isArray(space.listas) ? space.listas : []).map(normalizeSpaceList),
+  carpetas: (Array.isArray(space.carpetas) ? space.carpetas : []).map(normalizeSpaceFolder),
 });
 
 export const normalizeSpacesStateWorkModel = (state: SpacesState): SpacesState => ({
   ...state,
-  workspaces: (state.workspaces || []).map((workspace) => ({
+  workspaces: (Array.isArray(state.workspaces) ? state.workspaces : []).map((workspace) => ({
     ...workspace,
-    espacios: (workspace.espacios || []).map(normalizeSpace),
+    id: asString(workspace.id),
+    nombre: asString(workspace.nombre),
+    agendaEvents: (Array.isArray(workspace.agendaEvents) ? workspace.agendaEvents : []).map(sanitizeEvent),
+    espacios: (Array.isArray(workspace.espacios) ? workspace.espacios : []).map(normalizeSpace),
   })),
 });

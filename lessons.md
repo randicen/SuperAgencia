@@ -9,3 +9,4 @@
 - Do not run aggressive fallback polling when Realtime already exists. Use slower intervals and reserve polling for recovery paths, not as a second primary sync channel.
 - Do not trigger cloud sync on `visibilitychange` unless there are actual unsynced local changes pending. Hidden-tab syncs can multiply background traffic without improving consistency.
 - For sync architecture changes, add focused tests for coordination primitives such as leader election or lease ownership, not only data-merge tests.
+- When `Espacios` only crashes for one user/session, assume malformed persisted `coo_spaces` data before assuming JSX syntax. Harden state normalization and keep a route-level error boundary so one bad record never becomes a full white screen.

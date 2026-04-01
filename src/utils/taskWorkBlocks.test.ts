@@ -250,3 +250,28 @@ test('validateTaskPlanning rejects incomplete or inverted manual blocks', () => 
   assert.match(validateTaskPlanning(incomplete) || '', /inicio y fin/);
   assert.match(validateTaskPlanning(inverted) || '', /terminar después/);
 });
+
+test('normalizeTaskWorkModel sanitizes malformed persisted task data', () => {
+  const malformed = normalizeTaskWorkModel({
+    ...(baseTask() as any),
+    nombre: null,
+    estado: 'BROKEN',
+    priority: 'Critical',
+    dueDate: null,
+    startDate: 12345,
+    endDate: undefined,
+    progress: 'not-a-number',
+    duration: '90',
+    elasticity: 'weird',
+    scheduledSlots: [{ id: null, start: 42, end: '2026-04-04T10:00', isFragment: 'nope' }],
+  });
+
+  assert.equal(malformed.nombre, '');
+  assert.equal(malformed.estado, 'TODO');
+  assert.equal(malformed.priority, 'Medium');
+  assert.equal(malformed.dueDate, '');
+  assert.equal(malformed.startDate, '');
+  assert.equal(malformed.duration, 90);
+  assert.equal(malformed.elasticity, 1);
+  assert.equal(malformed.scheduledSlots, undefined);
+});
