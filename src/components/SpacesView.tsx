@@ -13,8 +13,10 @@ import {
     normalizeStoredColumnOrder,
     normalizeStoredVisibleColumns,
 } from '../utils/spacesViewPreferences';
+import { getTaskPlanningMode, syncTaskPlanningFields, validateTaskPlanning } from '../utils/taskWorkBlocks';
 import GanttChartView from './GanttChartView';
 import SettingsView from './SettingsView';
+import TaskPlanningSection from './TaskPlanningSection';
 
 // Helper: Calculate financial progress from installments
 const getFinancialProgress = (task: SpaceTask): number => {
@@ -104,14 +106,20 @@ const filterCompletedTasks = (sourceTasks: SpaceTask[], showCompleted: boolean):
 };
 
 // Default task template
-const getDefaultTask = (): Omit<SpaceTask, 'id' | 'orden'> => ({
+const getDefaultTask = (): SpaceTask => ({
+    id: '',
     nombre: '',
     estado: 'TODO',
+    orden: 0,
     progress: 0,
-    autoSchedule: true,
+    earliestStartAt: '',
+    estimatedEffortMinutes: 60,
+    preferredBlockMinutes: 90,
+    workStyle: 'flexible',
+    autoSchedule: false,
     startDate: '',
-    endDate: '', // Empty by default
-    dueDate: '', // Empty by default (Optional)
+    endDate: '',
+    dueDate: '',
     deadlineType: 'Soft Deadline',
     duration: 60,
     elasticity: 1,
@@ -1352,9 +1360,9 @@ const SpacesView: React.FC<SpacesViewProps> = ({
         return true;
     }, [writeLockReason, writesLocked]);
 
-    // LIVE PREVIEW: Recalculate scheduledSlots when user changes scheduling fields
+    // LIVE PREVIEW: Recalculate suggested work blocks when AI planning is active
     useEffect(() => {
-        if (!editingTask || !editingTask.autoSchedule) return;
+        if (!editingTask || getTaskPlanningMode(editingTask) !== 'ai') return;
 
         const timer = setTimeout(() => {
             try {
@@ -1364,13 +1372,14 @@ const SpacesView: React.FC<SpacesViewProps> = ({
 
                 const ws = state.workspaces.find(w => w.id === state.activeWorkspaceId);
                 if (!ws) return;
+                const previewTask = syncTaskPlanningFields(editingTask);
 
                 const extractTasks = (tasks: SpaceTask[]) => {
                     const now = new Date();
                     const localToday = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
                     tasks.forEach(t => {
                         // Use the editingTask's live values if this is the task being edited
-                        const src = t.id === editingTask.id ? editingTask : t;
+                        const src = t.id === editingTask.id ? previewTask : syncTaskPlanningFields(t);
                         allProjects.push({
                             id: src.id,
                             clientId: '',
@@ -1409,14 +1418,18 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                 });
 
                 const scheduled = runAutoScheduling(allProjects, state.rules, allEvents);
-                const updated = scheduled.find(p => p.id === editingTask.id);
+                const updated = scheduled.find(p => p.id === previewTask.id);
 
                 if (updated) {
                     setEditingTask(prev => prev ? {
-                        ...prev,
-                        scheduledSlots: updated.scheduledSlots,
-                        hasConflict: updated.hasConflict,
-                        conflictDescription: updated.conflictDescription,
+                        ...syncTaskPlanningFields({
+                            ...prev,
+                            scheduledSlots: updated.scheduledSlots,
+                            startDate: updated.startDate,
+                            endDate: updated.endDate,
+                            hasConflict: updated.hasConflict,
+                            conflictDescription: updated.conflictDescription,
+                        }),
                     } : prev);
                 }
             } catch (e) {
@@ -1426,10 +1439,11 @@ const SpacesView: React.FC<SpacesViewProps> = ({
 
         return () => clearTimeout(timer);
     }, [
-        editingTask?.startDate,
+        editingTask?.earliestStartAt,
         editingTask?.dueDate,
-        editingTask?.duration,
-        editingTask?.elasticity,
+        editingTask?.estimatedEffortMinutes,
+        editingTask?.preferredBlockMinutes,
+        editingTask?.workStyle,
         editingTask?.priority,
         editingTask?.progress,
         editingTask?.autoSchedule,
@@ -1482,26 +1496,14 @@ const SpacesView: React.FC<SpacesViewProps> = ({
     const handleAddTask = () => {
         if (blockWritesIfNeeded()) return;
         if (!newTask.nombre.trim() || !state.activeSpaceId || !state.activeListId) return;
-
-        let finalTask = { ...newTask, nombre: newTask.nombre.trim() };
-
-        // AUTO-SYNC for Manual Mode
-        if (!finalTask.autoSchedule) {
-            finalTask.dueDate = finalTask.endDate;
-            // No longer auto-calculating duration from dates to respect user input
+        const planningError = validateTaskPlanning(newTask);
+        if (planningError) {
+            setNotification({ message: planningError, type: 'error' });
+            return;
         }
 
-        const finalStartDate = finalTask.startDate || formatLocalDateOnly();
-
-        // Ensure manual tasks have a scheduled slot for overlap detection
-        if (!finalTask.autoSchedule && finalTask.startDate && finalTask.endDate) {
-            finalTask.scheduledSlots = [{
-                id: Math.random().toString(36).substr(2, 9),
-                start: finalTask.startDate,
-                end: finalTask.endDate,
-                isFragment: false
-            }];
-        }
+        const finalTask = syncTaskPlanningFields({ ...newTask, nombre: newTask.nombre.trim() });
+        const { id: _draftId, orden: _draftOrder, ...taskPayload } = finalTask;
 
         dispatch({
             type: 'ADD_TASK',
@@ -1509,7 +1511,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                 spaceId: state.activeSpaceId,
                 folderId: state.activeFolderId || undefined,
                 listId: state.activeListId,
-                task: { ...finalTask, startDate: finalStartDate },
+                task: taskPayload,
             },
         });
         setNewTask(getDefaultTask());
@@ -1537,7 +1539,8 @@ const SpacesView: React.FC<SpacesViewProps> = ({
         };
 
         // Use the CAPTURED parent for validation (avoids race condition)
-        const parent = editingTaskParent;
+        const preparedEditingTask = syncTaskPlanningFields(editingTask);
+        const parent = editingTaskParent ? syncTaskPlanningFields(editingTaskParent) : null;
         if (parent) {
             // Parse dates robustly
             const parseDate = (d: string) => {
@@ -1549,24 +1552,23 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                 return new Date(d).getTime();
             };
 
-            const childStart = parseDate(editingTask.startDate);
-            const childEnd = parseDate(editingTask.endDate || editingTask.dueDate); // Child's effective end
-            const parentStart = parseDate(parent.startDate);
-            // FIX: Use dueDate (user's deadline) as the constraint, NOT endDate (auto-calculated)
+            const childStart = parseDate(preparedEditingTask.earliestStartAt || preparedEditingTask.startDate);
+            const childEnd = parseDate(preparedEditingTask.endDate || preparedEditingTask.dueDate);
+            const parentStart = parseDate(parent.earliestStartAt || parent.startDate);
             const parentDeadline = parseDate(parent.dueDate || parent.endDate);
 
             // Validation 1: Child starts before Parent
             if (childStart && parentStart && childStart < parentStart) {
                 setNotification({
-                    message: `La subtarea no puede empezar el ${editingTask.startDate} porque la tarea padre comienza el ${parent.startDate}.`,
+                    message: `La subtarea no puede empezar el ${preparedEditingTask.earliestStartAt || preparedEditingTask.startDate} porque la tarea padre comienza el ${parent.earliestStartAt || parent.startDate}.`,
                     type: 'error'
                 });
                 return false; // BLOCK SAVE
             }
 
             // Validation 2: Child DEADLINE > Parent DEADLINE (Logical Inconsistency)
-            if (editingTask.dueDate && parentDeadline) {
-                const childDeadline = parseDate(editingTask.dueDate);
+            if (preparedEditingTask.dueDate && parentDeadline) {
+                const childDeadline = parseDate(preparedEditingTask.dueDate);
                 if (childDeadline && childDeadline > parentDeadline) {
                     setNotification({
                         message: `La fecha límite de la subtarea (${editingTask.dueDate}) no puede ser posterior a la de la tarea padre (${parent.dueDate || parent.endDate}).`,
@@ -1586,23 +1588,13 @@ const SpacesView: React.FC<SpacesViewProps> = ({
             }
         }
 
-        let finalTask = { ...editingTask };
-
-        // AUTO-SYNC for Manual Mode
-        if (!finalTask.autoSchedule) {
-            finalTask.dueDate = finalTask.endDate;
-            // No longer auto-calculating duration from dates to respect user input
-
-            // Ensure manual tasks have a scheduled slot for overlap detection
-            if (finalTask.startDate && finalTask.endDate) {
-                finalTask.scheduledSlots = [{
-                    id: Math.random().toString(36).substr(2, 9),
-                    start: finalTask.startDate,
-                    end: finalTask.endDate,
-                    isFragment: false
-                }];
-            }
+        const planningError = validateTaskPlanning(preparedEditingTask);
+        if (planningError) {
+            setNotification({ message: planningError, type: 'error' });
+            return false;
         }
+
+        const finalTask = preparedEditingTask;
 
         dispatch({
             type: 'UPDATE_TASK',
@@ -1879,7 +1871,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({
         const taskContainer = findTaskContainer(task.id);
         const parent = taskContainer ? findParentTask(taskContainer.list.tareas, task.id) : null;
         setEditingTaskParent(parent);
-        setEditingTask({ ...task });
+        setEditingTask(syncTaskPlanningFields({ ...task }));
     };
 
     // Empty states
@@ -2199,8 +2191,14 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                                 onCreateClient={handleCreateClientInline}
                             />
 
-                            {/* Auto-schedule section */}
-                            <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
+                            <TaskPlanningSection
+                                task={newTask}
+                                onChange={setNewTask}
+                                formatSlotDateTime={formatSuggestedSlotDateTime}
+                            />
+
+                            {/* Task planning section */}
+                            {false && (<div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
                                 <div className="flex items-center justify-between mb-2">
                                     <div className="flex items-center gap-2">
                                         <i className={`fa-solid ${newTask.autoSchedule ? 'fa-brain text-blue-500' : 'fa-anchor text-orange-500'}`}></i>
@@ -2251,7 +2249,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                                         <EffortInput duration={newTask.duration} onChange={d => setNewTask({ ...newTask, duration: d })} />
                                     </div>
                                 )}
-                            </div>
+                            </div>)}
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1.5 flex-1">
@@ -2331,8 +2329,8 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                                                     }} className="px-3 py-1.5 bg-white/60 rounded-lg text-[9px] font-black uppercase text-red-700 border border-red-200 hover:bg-white hover:border-red-400 transition-all shadow-sm">
                                                         <i className="fa-regular fa-calendar-plus mr-1"></i> +1 Día Límite
                                                     </button>
-                                                    {editingTask.elasticity === 0 && (
-                                                        <button type="button" onClick={() => setEditingTask({ ...editingTask, elasticity: 1 })} className="px-3 py-1.5 bg-white/60 rounded-lg text-[9px] font-black uppercase text-red-700 border border-red-200 hover:bg-white hover:border-red-400 transition-all shadow-sm">
+                                                    {(editingTask.workStyle || (editingTask.elasticity === 0 ? 'deep-work' : 'flexible')) === 'deep-work' && (
+                                                        <button type="button" onClick={() => setEditingTask({ ...editingTask, workStyle: 'flexible', elasticity: 1 })} className="px-3 py-1.5 bg-white/60 rounded-lg text-[9px] font-black uppercase text-red-700 border border-red-200 hover:bg-white hover:border-red-400 transition-all shadow-sm">
                                                             <i className="fa-solid fa-puzzle-piece mr-1"></i> Hacer Flexible
                                                         </button>
                                                     )}
@@ -2341,7 +2339,10 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                                                             <i className="fa-solid fa-bolt mr-1"></i> Subir a ASAP
                                                         </button>
                                                     )}
-                                                    <button type="button" onClick={() => setEditingTask({ ...editingTask, duration: Math.max(30, Math.round(editingTask.duration * 0.75)) })} className="px-3 py-1.5 bg-white/60 rounded-lg text-[9px] font-black uppercase text-red-700 border border-red-200 hover:bg-white hover:border-red-400 transition-all shadow-sm">
+                                                    <button type="button" onClick={() => {
+                                                        const nextEffort = Math.max(30, Math.round((editingTask.estimatedEffortMinutes ?? editingTask.duration) * 0.75));
+                                                        setEditingTask({ ...editingTask, estimatedEffortMinutes: nextEffort, duration: nextEffort });
+                                                    }} className="px-3 py-1.5 bg-white/60 rounded-lg text-[9px] font-black uppercase text-red-700 border border-red-200 hover:bg-white hover:border-red-400 transition-all shadow-sm">
                                                         <i className="fa-solid fa-compress mr-1"></i> -25% Esfuerzo
                                                     </button>
                                                     <button type="button" onClick={() => {
@@ -2430,8 +2431,15 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                                 </div>
                             )}
 
+                            <TaskPlanningSection
+                                task={editingTask}
+                                onChange={setEditingTask}
+                                parentTask={editingTaskParent}
+                                formatSlotDateTime={formatSuggestedSlotDateTime}
+                            />
+
                             {/* Auto-schedule section */}
-                            <div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
+                            {false && (<div className="bg-slate-50 p-6 rounded-3xl border border-slate-100 space-y-4">
                                 <div className="flex items-center justify-between mb-2">
                                     <div className="flex items-center gap-2">
                                         <i className={`fa-solid ${editingTask.autoSchedule ? 'fa-brain text-blue-500' : 'fa-anchor text-orange-500'}`}></i>
@@ -2529,7 +2537,7 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                                         <EffortInput duration={editingTask.duration} onChange={d => setEditingTask({ ...editingTask, duration: d })} />
                                     </div>
                                 )}
-                            </div>
+                            </div>)}
 
                             <div className="grid grid-cols-2 gap-4">
                                 <div className="space-y-1.5 flex-1">

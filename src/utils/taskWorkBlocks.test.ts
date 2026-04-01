@@ -1,7 +1,13 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import type { SpacesState, SpaceTask } from '../spacesTypes.ts';
-import { normalizeSpacesStateWorkModel, normalizeTaskWorkModel } from './taskWorkBlocks.ts';
+import {
+  getTaskPlanningMode,
+  normalizeSpacesStateWorkModel,
+  normalizeTaskWorkModel,
+  syncTaskPlanningFields,
+  validateTaskPlanning,
+} from './taskWorkBlocks.ts';
 
 const TEST_RULES = {
   baseHourlyRate: 0,
@@ -127,4 +133,120 @@ test('normalizeSpacesStateWorkModel normalizes nested task trees', () => {
 
   assert.equal(nestedSubtask?.workBlocks?.length, 1);
   assert.equal(nestedSubtask?.estimatedEffortMinutes, 120);
+});
+
+test('getTaskPlanningMode distinguishes ai, manual and none', () => {
+  assert.equal(getTaskPlanningMode(baseTask()), 'ai');
+  assert.equal(
+    getTaskPlanningMode(
+      baseTask({
+        autoSchedule: false,
+        scheduledSlots: undefined,
+        workBlocks: [
+          {
+            id: 'block-1',
+            taskId: 'task-1',
+            startAt: '2026-04-08T09:00',
+            endAt: '2026-04-08T10:00',
+            source: 'manual',
+            status: 'planned',
+            locked: true,
+          },
+        ],
+      })
+    ),
+    'manual'
+  );
+  assert.equal(
+    getTaskPlanningMode(
+      baseTask({
+        autoSchedule: false,
+        startDate: '',
+        endDate: '',
+        scheduledSlots: undefined,
+        workBlocks: undefined,
+      })
+    ),
+    'none'
+  );
+});
+
+test('syncTaskPlanningFields keeps due date independent from manual work blocks', () => {
+  const synchronized = syncTaskPlanningFields(
+    baseTask({
+      autoSchedule: false,
+      startDate: '',
+      endDate: '',
+      dueDate: '2026-04-20T18:00',
+      scheduledSlots: undefined,
+      estimatedEffortMinutes: 240,
+      workBlocks: [
+        {
+          id: 'block-1',
+          taskId: 'task-1',
+          startAt: '2026-04-07T09:00',
+          endAt: '2026-04-07T11:00',
+          source: 'manual',
+          status: 'planned',
+          locked: true,
+        },
+        {
+          id: 'block-2',
+          taskId: 'task-1',
+          startAt: '2026-04-09T14:00',
+          endAt: '2026-04-09T15:00',
+          source: 'manual',
+          status: 'planned',
+          locked: true,
+        },
+      ],
+    })
+  );
+
+  assert.equal(synchronized.dueDate, '2026-04-20T18:00');
+  assert.equal(synchronized.startDate, '2026-04-07T09:00');
+  assert.equal(synchronized.endDate, '2026-04-09T15:00');
+  assert.equal(synchronized.scheduledSlots?.length, 2);
+  assert.equal(synchronized.duration, 240);
+});
+
+test('validateTaskPlanning rejects incomplete or inverted manual blocks', () => {
+  const incomplete = baseTask({
+    autoSchedule: false,
+    startDate: '',
+    endDate: '',
+    scheduledSlots: undefined,
+    workBlocks: [
+      {
+        id: 'block-1',
+        taskId: 'task-1',
+        startAt: '2026-04-07T09:00',
+        endAt: '',
+        source: 'manual',
+        status: 'planned',
+        locked: true,
+      },
+    ],
+  });
+
+  const inverted = baseTask({
+    autoSchedule: false,
+    startDate: '',
+    endDate: '',
+    scheduledSlots: undefined,
+    workBlocks: [
+      {
+        id: 'block-2',
+        taskId: 'task-1',
+        startAt: '2026-04-07T12:00',
+        endAt: '2026-04-07T10:00',
+        source: 'manual',
+        status: 'planned',
+        locked: true,
+      },
+    ],
+  });
+
+  assert.match(validateTaskPlanning(incomplete) || '', /inicio y fin/);
+  assert.match(validateTaskPlanning(inverted) || '', /terminar después/);
 });
