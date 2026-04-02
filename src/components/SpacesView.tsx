@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import React, { startTransition, useState, useMemo, useEffect, useCallback } from 'react';
 import { useSpaces, getAllTasks } from '../contexts/SpacesContext';
 import { Space, SpaceFolder, SpaceList, SpaceTask, SpaceEvent, TaskPriority, TaskStatus, DeadlineType } from '../spacesTypes';
 import { Client } from '../types';
@@ -1870,8 +1870,10 @@ const SpacesView: React.FC<SpacesViewProps> = ({
         };
         const taskContainer = findTaskContainer(task.id);
         const parent = taskContainer ? findParentTask(taskContainer.list.tareas, task.id) : null;
-        setEditingTaskParent(parent);
-        setEditingTask(syncTaskPlanningFields({ ...task }));
+        startTransition(() => {
+            setEditingTaskParent(parent);
+            setEditingTask(syncTaskPlanningFields({ ...task }));
+        });
     };
 
     // Empty states
@@ -2076,7 +2078,10 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                             onClick={() => {
                                 if (blockWritesIfNeeded()) return;
                                 if (!activeList) { alert('Debes seleccionar una lista específica en el panel izquierdo para crear un evento.'); return; }
-                                setNewEvent({ nombre: '', startDate: '', endDate: '', description: '' }); setShowEventModal(true);
+                                startTransition(() => {
+                                    setNewEvent({ nombre: '', startDate: '', endDate: '', description: '' });
+                                    setShowEventModal(true);
+                                });
                             }}
                             disabled={writesLocked}
                             className={`px-4 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg transition-colors ${writesLocked ? 'bg-orange-300 text-white cursor-not-allowed shadow-none' : 'bg-orange-500 text-white shadow-orange-200 hover:bg-orange-600'}`}
@@ -2087,7 +2092,10 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                             onClick={() => {
                                 if (blockWritesIfNeeded()) return;
                                 if (!activeList) { alert('Debes seleccionar una lista específica en el panel izquierdo para crear una tarea.'); return; }
-                                setNewTask(getDefaultTask()); setShowModal(true);
+                                startTransition(() => {
+                                    setNewTask(getDefaultTask());
+                                    setShowModal(true);
+                                });
                             }}
                             disabled={writesLocked}
                             className={`px-6 py-2 rounded-xl text-[10px] font-black uppercase shadow-lg transition-colors ${writesLocked ? 'bg-blue-300 text-white cursor-not-allowed shadow-none' : 'bg-blue-600 text-white shadow-blue-200 hover:bg-blue-700'}`}
@@ -2117,8 +2125,10 @@ const SpacesView: React.FC<SpacesViewProps> = ({
                         setTaskToDelete(t);
                     }} deletingTaskId={deletingTaskId} onAddTask={(defaults) => {
                         if (blockWritesIfNeeded()) return;
-                        setNewTask({ ...getDefaultTask(), ...defaults });
-                        setShowModal(true);
+                        startTransition(() => {
+                            setNewTask({ ...getDefaultTask(), ...defaults });
+                            setShowModal(true);
+                        });
                     }} onAddSubtask={(p) => {
                         if (blockWritesIfNeeded()) return;
                         const taskContainer = findTaskContainer(p.id);
