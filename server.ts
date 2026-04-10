@@ -603,16 +603,21 @@ const startServer = async () => {
         metadata: entry.metadata,
       }));
 
+      const requestParseMs = Math.round(performance.now() - requestStartedAt);
+
       const classifyStartedAt = performance.now();
       const intentRoute = classifyIntentRoute(effectiveMessage, authoritativeHistory);
       selectedIntent = intentRoute;
+      const governanceStartedAt = performance.now();
       const governance = await assertChannelAccess(authedReq.authUser, 'text', intentRoute);
+      const governanceMs = Math.round(performance.now() - governanceStartedAt);
       selectedRoute = governance.route;
       if ((intentRoute === 'external_lookup' || intentRoute === 'hybrid') && !governance.effectivePlan.web_search_enabled) {
         throw new Error('La búsqueda web no está habilitada para tu plan actual.');
       }
       const classifyDurationMs = Math.round(performance.now() - classifyStartedAt);
 
+      const docsStartedAt = performance.now();
       const documentRetrieval =
         shouldRetrieveDocumentsForMessage(effectiveMessage, parsedSelectedDocumentIds)
           ? await buildDocumentRetrievalContext(
@@ -621,6 +626,7 @@ const startServer = async () => {
               parsedSelectedDocumentIds.length > 0 ? parsedSelectedDocumentIds : undefined,
             )
           : { hits: [], sources: [], contextText: '' };
+      const docsMs = Math.round(performance.now() - docsStartedAt);
 
       const aiStartedAt = performance.now();
       const aiResult = await chatWithSolverBackend(
@@ -763,6 +769,7 @@ const startServer = async () => {
         persistDurationMs = Math.round(performance.now() - persistStartedAt);
       }
 
+      const replayStartedAt = performance.now();
       await completeChatReplay({
         userId: authedReq.authUser.id,
         requestId: replayRequestId,
@@ -770,7 +777,9 @@ const startServer = async () => {
         reply: aiResult.text,
       });
       replayCompleted = true;
+      const replayMs = Math.round(performance.now() - replayStartedAt);
 
+      const usageEventStartedAt = performance.now();
       await recordUsageEvent({
         userId: authedReq.authUser.id,
         channel: 'text',
@@ -783,6 +792,8 @@ const startServer = async () => {
         outputTokens: aiResult.usage.outputTokens,
       });
 
+      const fallbackUsed = (aiResult.usage.llmAttempts?.length ?? 0) > 1 && !(aiResult.usage.llmAttempts?.[0]?.success ?? true);
+
       console.info(
         '[agena.chat.metrics]',
         JSON.stringify({
@@ -792,11 +803,28 @@ const startServer = async () => {
           modelTier: selectedRoute?.modelTier ?? 'fast',
           provider: aiResult.usage.provider,
           model: aiResult.usage.model,
+          primaryProvider: selectedRoute?.provider ?? 'unknown',
+          primaryModel: selectedRoute?.model ?? 'unknown',
+          fallbackUsed,
+          fallbackProvider: selectedRoute?.fallbackProvider ?? null,
+          fallbackModel: selectedRoute?.fallbackModel ?? null,
           plannerMutation: shouldReschedule,
+          requestParseMs,
           classifyMs: classifyDurationMs,
+          governanceMs,
+          docsMs,
+          llmTotalMs: aiResult.usage.llmTotalMs ?? modelDurationMs,
+          llmAttemptMs: aiResult.usage.llmAttempts?.map((a) => ({
+            provider: a.provider,
+            model: a.model,
+            durationMs: a.durationMs,
+            success: a.success,
+          })) ?? [],
           modelMs: modelDurationMs,
           solverMs: solveDurationMs,
           persistMs: persistDurationMs,
+          replayMs,
+          usageEventMs: Math.round(performance.now() - usageEventStartedAt),
           totalMs: Math.round(performance.now() - requestStartedAt),
           taskCount: nextTasks.length,
           eventCount: nextCalendarEvents.length,

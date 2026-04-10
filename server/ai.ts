@@ -78,6 +78,20 @@ type GooglePart =
   | { text: string }
   | { inlineData: { mimeType: string; data: string } };
 
+type LlmAttemptTiming = {
+  provider: string;
+  model: string;
+  durationMs: number;
+  success: boolean;
+};
+
+type BaseUsage = {
+  provider: ProviderName;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+};
+
 type ProviderName = 'google' | 'openrouter' | 'tavily';
 
 type ChatResponse = {
@@ -94,11 +108,9 @@ type ChatResponse = {
     tone: 'warm';
     strategy: string;
   };
-  usage: {
-    provider: ProviderName;
-    model: string;
-    inputTokens: number;
-    outputTokens: number;
+  usage: BaseUsage & {
+    llmAttempts?: LlmAttemptTiming[];
+    llmTotalMs?: number;
   };
 };
 
@@ -811,7 +823,7 @@ const extractJsonObject = (content: string): OpenRouterStructuredPayload => {
 const callGoogleTextModel = async (
   model: string,
   prompt: string,
-): Promise<{ text: string; usage: ChatResponse['usage'] }> => {
+): Promise<{ text: string; usage: BaseUsage }> => {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     throw new Error('GEMINI_API_KEY environment variable is missing.');
@@ -841,7 +853,7 @@ const callGoogleTextModel = async (
 const callOpenRouterTextModel = async (
   model: string,
   prompt: string,
-): Promise<{ text: string; usage: ChatResponse['usage'] }> => {
+): Promise<{ text: string; usage: BaseUsage }> => {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) {
     throw new Error('OPENROUTER_API_KEY environment variable is missing.');
@@ -882,7 +894,7 @@ const callPlainTextModel = async (
   provider: string,
   model: string,
   prompt: string,
-): Promise<{ text: string; usage: ChatResponse['usage'] }> => {
+): Promise<{ text: string; usage: BaseUsage }> => {
   if (provider === 'google') {
     return callGoogleTextModel(model, prompt);
   }
@@ -1960,6 +1972,25 @@ export async function chatWithSolverBackend(
       : null,
   ].filter(Boolean) as Array<{ provider: string; model: string }>;
 
+  const llmStartedAt = performance.now();
+  const llmAttempts: LlmAttemptTiming[] = [];
+
+  const trackLlmCall = async <T>(
+    attemptFn: () => Promise<T>,
+    provider: string,
+    model: string,
+  ): Promise<T> => {
+    const attemptStartedAt = performance.now();
+    try {
+      const result = await attemptFn();
+      llmAttempts.push({ provider, model, durationMs: Math.round(performance.now() - attemptStartedAt), success: true });
+      return result;
+    } catch (error) {
+      llmAttempts.push({ provider, model, durationMs: Math.round(performance.now() - attemptStartedAt), success: false });
+      throw error;
+    }
+  };
+
   const resolvePlainTextRoute = async (
     prompt: string,
     responseKind: ChatMessageType,
@@ -1967,7 +1998,11 @@ export async function chatWithSolverBackend(
     let lastError: unknown = null;
     for (const candidate of candidates) {
       try {
-        const response = await callPlainTextModel(candidate.provider, candidate.model, prompt);
+        const response = await trackLlmCall(
+          () => callPlainTextModel(candidate.provider, candidate.model, prompt),
+          candidate.provider,
+          candidate.model,
+        );
         return {
           text: response.text.trim(),
           voiceText: response.text.trim(),
@@ -1978,7 +2013,11 @@ export async function chatWithSolverBackend(
             tone: 'warm',
             strategy: responseKind === 'conversation' ? 'inform_with_context' : 'inform_with_context',
           },
-          usage: response.usage,
+          usage: {
+            ...response.usage,
+            llmAttempts,
+            llmTotalMs: Math.round(performance.now() - llmStartedAt),
+          },
         };
       } catch (error) {
         lastError = error;
@@ -2045,7 +2084,11 @@ export async function chatWithSolverBackend(
       let lastError: unknown = null;
       for (const candidate of candidates) {
         try {
-          const response = await callPlainTextModel(candidate.provider, candidate.model, prompt);
+          const response = await trackLlmCall(
+            () => callPlainTextModel(candidate.provider, candidate.model, prompt),
+            candidate.provider,
+            candidate.model,
+          );
           return {
             text: response.text.trim(),
             voiceText: response.text.trim(),
@@ -2057,7 +2100,11 @@ export async function chatWithSolverBackend(
               tone: 'warm',
               strategy: 'inform_with_context',
             },
-            usage: response.usage,
+            usage: {
+              ...response.usage,
+              llmAttempts,
+              llmTotalMs: Math.round(performance.now() - llmStartedAt),
+            },
           };
         } catch (error) {
           lastError = error;
@@ -2086,16 +2133,20 @@ ${documentRetrieval.contextText ? `\n[CONTEXTO DOCUMENTAL SELECCIONADO]\n${docum
     let lastError: unknown = null;
     for (const candidate of candidates) {
       try {
-        const response = await callModelByProvider(
+        const response = await trackLlmCall(
+          () => callModelByProvider(
+            candidate.provider,
+            candidate.model,
+            effectiveUserMessage,
+            history,
+            systemInstruction,
+            currentTasks,
+            currentCalendarEvents,
+            currentDependencies,
+            attachments,
+          ),
           candidate.provider,
           candidate.model,
-          effectiveUserMessage,
-          history,
-          systemInstruction,
-          currentTasks,
-          currentCalendarEvents,
-          currentDependencies,
-          attachments,
         );
 
         return {
@@ -2109,6 +2160,11 @@ ${documentRetrieval.contextText ? `\n[CONTEXTO DOCUMENTAL SELECCIONADO]\n${docum
           uiHints: {
             tone: 'warm',
             strategy: 'confirm_action',
+          },
+          usage: {
+            ...response.usage,
+            llmAttempts,
+            llmTotalMs: Math.round(performance.now() - llmStartedAt),
           },
         };
       } catch (error) {
@@ -2134,16 +2190,20 @@ ${documentRetrieval.contextText ? `\n[CONTEXTO DOCUMENTAL SELECCIONADO]\n${docum
   let lastError: unknown = null;
   for (const candidate of candidates) {
     try {
-      const response = await callModelByProvider(
+      const response = await trackLlmCall(
+        () => callModelByProvider(
+          candidate.provider,
+          candidate.model,
+          userMessage,
+          history,
+          systemInstruction,
+          currentTasks,
+          currentCalendarEvents,
+          currentDependencies,
+          attachments,
+        ),
         candidate.provider,
         candidate.model,
-        userMessage,
-        history,
-        systemInstruction,
-        currentTasks,
-        currentCalendarEvents,
-        currentDependencies,
-        attachments,
       );
 
       return {
@@ -2156,6 +2216,11 @@ ${documentRetrieval.contextText ? `\n[CONTEXTO DOCUMENTAL SELECCIONADO]\n${docum
         uiHints: {
           tone: 'warm',
           strategy: 'confirm_action',
+        },
+        usage: {
+          ...response.usage,
+          llmAttempts,
+          llmTotalMs: Math.round(performance.now() - llmStartedAt),
         },
       };
     } catch (error) {
