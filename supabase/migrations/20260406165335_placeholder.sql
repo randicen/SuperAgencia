@@ -1,0 +1,2 @@
+-- Placeholder local migration to preserve remote Supabase migration history.
+-- The corresponding SQL was already applied remotely before this repository snapshot.

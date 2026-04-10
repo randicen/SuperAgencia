@@ -1,0 +1,7 @@
+{
+  "name": "Remix: OptiSchedule AI 2",
+  "description": "A genuine constraint solver engine with an AI chatbot interface for schedule optimization.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}
