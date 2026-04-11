@@ -66,13 +66,22 @@ const startServer = async () => {
         strategy: currentState.strategy
       });
 
-      // 4. Detect if changes occurred (Agent returned new lists?)
+      // 4. Detect if changes occurred
       const hasChanges = JSON.stringify(currentState.tasks) !== JSON.stringify(agentResponse.tasks) ||
                          JSON.stringify(currentState.calendarEvents) !== JSON.stringify(agentResponse.calendarEvents);
 
       let savedState;
 
       if (hasChanges) {
+        // CRITICAL SAFETY GUARD: Prevent wiping the agenda
+        if (agentResponse.tasks.length === 0 && currentState.tasks.length > 0) {
+          console.warn('[safety] LLM attempted to wipe agenda. Reverting to safe state.');
+          agentResponse.tasks = currentState.tasks;
+          agentResponse.calendarEvents = currentState.calendarEvents;
+          agentResponse.dependencies = currentState.dependencies;
+          agentResponse.text = "⚠️ Hubo un error interno al procesar tu solicitud. Para proteger tu agenda, no se ha aplicado ningún cambio.";
+        }
+
         // 4a. If changes: Run Solver
         const now = new Date();
         const result = solveSchedule(
