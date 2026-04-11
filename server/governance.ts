@@ -1,7 +1,6 @@
 import {
   DEFAULT_PLANNER_STATE,
   type AccountStatus,
-  type ChatIntentRoute,
   type UsageAccessSummary,
   type UserTier,
   type ViewerProfile,
@@ -59,18 +58,6 @@ type ModelRouteRow = {
   enabled: boolean;
 };
 
-type IntentModelRouteRow = {
-  plan_code: UserTier;
-  channel: AiChannel;
-  intent_route: ChatIntentRoute;
-  primary_provider: string;
-  primary_model: string;
-  fallback_provider: string | null;
-  fallback_model: string | null;
-  model_tier: 'fast' | 'heavy';
-  enabled: boolean;
-};
-
 type UsageCountersRow = {
   user_id: string;
   period_start: string | null;
@@ -95,7 +82,7 @@ export type GovernanceContext = {
   viewer: ViewerProfile;
   access: UsageAccessSummary;
   effectivePlan: PlanDefinitionRow;
-  route?: ModelRoute;
+  route: ModelRoute;
 };
 
 const DEFAULT_TIMEZONE = 'America/Bogota';
@@ -329,35 +316,6 @@ const loadRoute = async (planCode: UserTier, channel: AiChannel): Promise<ModelR
   };
 };
 
-const loadIntentRoute = async (
-  planCode: UserTier,
-  channel: AiChannel,
-  intentRoute: ChatIntentRoute,
-): Promise<ModelRoute | null> => {
-  const supabase = getSupabaseAdmin();
-  const result = await supabase
-    .from('intent_model_routes')
-    .select('*')
-    .eq('plan_code', planCode)
-    .eq('channel', channel)
-    .eq('intent_route', intentRoute)
-    .maybeSingle();
-
-  if (result.error) throw result.error;
-  if (!result.data) return null;
-
-  const route = result.data as IntentModelRouteRow;
-  if (!route.enabled) return null;
-
-  return {
-    provider: route.primary_provider,
-    model: route.primary_model,
-    fallbackProvider: route.fallback_provider ?? undefined,
-    fallbackModel: route.fallback_model ?? undefined,
-    modelTier: route.model_tier,
-  };
-};
-
 export const resolveEffectivePlanCode = (
   entitlement: Pick<UserEntitlementRow, 'plan_code' | 'status' | 'current_period_end'>,
   now: Date,
@@ -437,7 +395,6 @@ export const ensureUserProvisioned = async (user: AuthenticatedUser): Promise<vo
 export const getGovernanceContext = async (
   user: AuthenticatedUser,
   channel?: AiChannel,
-  intentRoute?: ChatIntentRoute,
 ): Promise<GovernanceContext> => {
   await ensureUserProvisioned(user);
   const now = new Date();
@@ -457,12 +414,19 @@ export const getGovernanceContext = async (
     accountStatus: profile.account_status,
   };
 
-  let route: ModelRoute | undefined;
+  let route: ModelRoute;
   if (channel) {
-    route =
-      (intentRoute ? await loadIntentRoute(effectivePlanCode, channel, intentRoute) : null) ??
-      (await loadRoute(effectivePlanCode, channel)) ??
-      undefined;
+    route = await loadRoute(effectivePlanCode, channel);
+    if (!route) {
+      throw new Error(`No se encontró una ruta de modelo para plan '${effectivePlanCode}' y canal '${channel}'.`);
+    }
+  } else {
+    // Default route for text channel
+    const defaultRoute = await loadRoute(effectivePlanCode, 'text');
+    if (!defaultRoute) {
+      throw new Error(`No se encontró una ruta de modelo por defecto para plan '${effectivePlanCode}'.`);
+    }
+    route = defaultRoute;
   }
 
   return {
@@ -476,9 +440,8 @@ export const getGovernanceContext = async (
 export const assertChannelAccess = async (
   user: AuthenticatedUser,
   channel: AiChannel,
-  intentRoute?: ChatIntentRoute,
 ): Promise<GovernanceContext & { route: ModelRoute }> => {
-  const context = await getGovernanceContext(user, channel, intentRoute);
+  const context = await getGovernanceContext(user, channel);
 
   if (context.viewer.accountStatus !== 'active') {
     throw new HttpError(403, 'account_suspended', 'Tu cuenta no esta habilitada para usar Tandeba.');
@@ -490,10 +453,6 @@ export const assertChannelAccess = async (
 
   if (channel === 'voice' && !context.access.voiceAllowed) {
     throw new HttpError(402, 'voice_not_available', 'La llamada de voz está disponible solo para cuentas premium con saldo vigente.');
-  }
-
-  if (!context.route) {
-    throw new HttpError(503, 'missing_model_route', 'La IA no está disponible temporalmente para este canal.');
   }
 
   return { ...context, route: context.route };

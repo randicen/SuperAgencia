@@ -2,11 +2,6 @@ import { describe, expect, it } from 'vitest';
 import { __plannerReadModel } from './ai.js';
 
 describe('planner read model routing', () => {
-  it('treats shorthand planner queries as read-only questions', () => {
-    expect(__plannerReadModel.isReadOnlyPlannerQuestion('q tareas tengo esta semana')).toBe(true);
-    expect(__plannerReadModel.isReadOnlyPlannerQuestion('q tengo para hoy')).toBe(true);
-  });
-
   it('summarizes today using the client day anchor instead of server now', () => {
     const summary = __plannerReadModel.summarizeScheduleForRelativeDay(
       'que tengo para hoy',

@@ -1,8 +1,7 @@
 import { GoogleGenAI, Type } from '@google/genai';
 import { differenceInMinutes, parseISO, startOfDay } from 'date-fns';
 import { CalendarEvent, Task, Dependency, WorkWindow, ScheduledTask } from '../src/lib/solver.js';
-import type { ChatIntentRoute, ChatMessageType, SearchSource } from '../src/lib/plannerState.js';
-import { classifyIntentRoute } from './intentRouter.js';
+import type { ChatMessageType, SearchSource } from '../src/lib/plannerState.js';
 import { mergeCalendarEvents, mergeDependencies, mergeTasks } from './scheduleMutationPolicy.js';
 import type { ChatAttachmentContext } from '../src/lib/chatAttachments.js';
 import { buildSourcesContext, searchExternalInfo } from './webSearchService.js';
@@ -286,9 +285,6 @@ const READ_ONLY_PLANNER_PATTERNS = [
   /\bagenda\s+de\s+esta\s+semana\b/i,
 ];
 
-const isReadOnlyPlannerQuestion = (message: string): boolean =>
-  classifyIntentRoute(message) === 'planner_read';
-
 const EXPLICIT_REMOVAL_PATTERNS = [
   /\b(quita|quitame|quita\s+lo|elimina|eliminar|borra|borrar|remueve|remover)\b/i,
   /\b(saca|sacame|saca\s+lo)\b/i,
@@ -397,7 +393,6 @@ const summarizeScheduleForRelativeDay = (
 
 export const __plannerReadModel = {
   normalizeLooseText,
-  isReadOnlyPlannerQuestion,
   summarizeScheduleForRelativeDay,
 };
 
@@ -1957,7 +1952,6 @@ export async function chatWithSolverBackend(
   attachments: ChatAttachmentContext[] = [],
   documentRetrieval: DocumentRetrievalContextPayload = { hits: [], sources: [], contextText: '' },
   progress?: ChatProgressCallbacks,
-  intentRoute: ChatIntentRoute = classifyIntentRoute(userMessage, history as any),
 ): Promise<ChatResponse> {
   const candidates = [
     {
@@ -1991,193 +1985,11 @@ export async function chatWithSolverBackend(
     }
   };
 
-  const resolvePlainTextRoute = async (
-    prompt: string,
-    responseKind: ChatMessageType,
-  ): Promise<ChatResponse> => {
-    let lastError: unknown = null;
-    for (const candidate of candidates) {
-      try {
-        const response = await trackLlmCall(
-          () => callPlainTextModel(candidate.provider, candidate.model, prompt),
-          candidate.provider,
-          candidate.model,
-        );
-        return {
-          text: response.text.trim(),
-          voiceText: response.text.trim(),
-          messageType: responseKind,
-          performedWebSearch: false,
-          plannerMutation: false,
-          uiHints: {
-            tone: 'warm',
-            strategy: responseKind === 'conversation' ? 'inform_with_context' : 'inform_with_context',
-          },
-          usage: {
-            ...response.usage,
-            llmAttempts,
-            llmTotalMs: Math.round(performance.now() - llmStartedAt),
-          },
-        };
-      } catch (error) {
-        lastError = error;
-      }
-    }
-
-    throw lastError ?? new Error('No se pudo generar respuesta del modelo.');
-  };
-
-  progress?.onRoutingStart?.({
-    message: 'Clasificando tu solicitud...',
+  // Single unified pipeline: always use tool calling, let the LLM decide
+  progress?.onThinkingStart?.({
+    message: 'Procesando tu solicitud...',
   });
 
-  if (intentRoute === 'conversation') {
-    progress?.onThinkingStart?.({
-      message: 'Redactando una respuesta breve...',
-    });
-    const prompt = [
-      buildConversationPrompt(userMessage, attachments),
-      `Historial reciente:\n${formatRecentHistory(history)}`,
-    ].join('\n\n');
-    return resolvePlainTextRoute(prompt, 'conversation');
-  }
-
-  if (intentRoute === 'planner_read') {
-    progress?.onThinkingStart?.({
-      message: 'Resumiendo tu agenda...',
-    });
-    const summary =
-      summarizeScheduleForRelativeDay(
-        userMessage,
-        currentSchedule,
-        temporalContext?.scheduleBaseDate,
-        temporalContext?.clientDayStartIso,
-      ) ?? buildContextSummary({
-        currentTasks,
-        currentCalendarEvents,
-        currentDependencies,
-        workWindow,
-        strategy,
-        currentSchedule,
-        temporalContext,
-      });
-    const prompt = buildPlannerReadPrompt(userMessage, summary, documentRetrieval);
-    return resolvePlainTextRoute(prompt, 'planner');
-  }
-
-  if (intentRoute === 'external_lookup' || intentRoute === 'hybrid') {
-    progress?.onSearchingStart?.({
-      message: 'Buscando información relevante...',
-    });
-    const searchMode = intentRoute === 'hybrid' ? 'hybrid' : 'external_lookup';
-    const searchResult = await searchExternalInfo(userMessage, searchMode as any, (payload) => {
-      progress?.onSearchingResults?.(payload);
-    });
-
-    const contextSources = [...searchResult.sources, ...documentRetrieval.sources];
-
-    if (intentRoute === 'external_lookup') {
-      progress?.onThinkingStart?.({
-        message: 'Sintetizando la evidencia encontrada...',
-      });
-      const prompt = buildExternalLookupPrompt(userMessage, contextSources, documentRetrieval);
-      let lastError: unknown = null;
-      for (const candidate of candidates) {
-        try {
-          const response = await trackLlmCall(
-            () => callPlainTextModel(candidate.provider, candidate.model, prompt),
-            candidate.provider,
-            candidate.model,
-          );
-          return {
-            text: response.text.trim(),
-            voiceText: response.text.trim(),
-            messageType: 'external_info',
-            sources: contextSources,
-            performedWebSearch: true,
-            plannerMutation: false,
-            uiHints: {
-              tone: 'warm',
-              strategy: 'inform_with_context',
-            },
-            usage: {
-              ...response.usage,
-              llmAttempts,
-              llmTotalMs: Math.round(performance.now() - llmStartedAt),
-            },
-          };
-        } catch (error) {
-          lastError = error;
-        }
-      }
-
-      throw lastError ?? new Error('No se pudo generar respuesta del modelo.');
-    }
-
-    progress?.onPlanningStart?.({
-      message: 'Aplicando la información encontrada a tu agenda...',
-    });
-    const systemInstruction = buildSystemInstruction(
-      currentTasks,
-      currentCalendarEvents,
-      currentDependencies,
-      workWindow,
-      strategy,
-      currentSchedule,
-    );
-    const effectiveUserMessage = `${userMessage}
-
-${buildSourcesContext(contextSources, searchResult.shouldAskGeography)}
-${documentRetrieval.contextText ? `\n[CONTEXTO DOCUMENTAL SELECCIONADO]\n${documentRetrieval.contextText}` : ''}`;
-
-    let lastError: unknown = null;
-    for (const candidate of candidates) {
-      try {
-        const response = await trackLlmCall(
-          () => callModelByProvider(
-            candidate.provider,
-            candidate.model,
-            effectiveUserMessage,
-            history,
-            systemInstruction,
-            currentTasks,
-            currentCalendarEvents,
-            currentDependencies,
-            attachments,
-          ),
-          candidate.provider,
-          candidate.model,
-        );
-
-        return {
-          ...response,
-          text: response.text.trim(),
-          voiceText: response.voiceText?.trim() ?? response.text.trim(),
-          messageType: 'hybrid',
-          sources: contextSources,
-          performedWebSearch: true,
-          plannerMutation: response.plannerMutation ?? true,
-          uiHints: {
-            tone: 'warm',
-            strategy: 'confirm_action',
-          },
-          usage: {
-            ...response.usage,
-            llmAttempts,
-            llmTotalMs: Math.round(performance.now() - llmStartedAt),
-          },
-        };
-      } catch (error) {
-        lastError = error;
-      }
-    }
-
-    throw lastError ?? new Error('No se pudo generar respuesta del modelo.');
-  }
-
-  progress?.onPlanningStart?.({
-    message: 'Preparando el cambio de agenda...',
-  });
   const systemInstruction = buildSystemInstruction(
     currentTasks,
     currentCalendarEvents,
@@ -2187,6 +1999,13 @@ ${documentRetrieval.contextText ? `\n[CONTEXTO DOCUMENTAL SELECCIONADO]\n${docum
     currentSchedule,
   );
 
+  const attachmentContext = buildAttachmentTextContext(attachments);
+  const documentContext = documentRetrieval.contextText
+    ? `\n\n[CONTEXTO DOCUMENTAL]\n${documentRetrieval.contextText}`
+    : '';
+
+  const effectiveUserMessage = `${userMessage}${attachmentContext}${documentContext}`;
+
   let lastError: unknown = null;
   for (const candidate of candidates) {
     try {
@@ -2194,7 +2013,7 @@ ${documentRetrieval.contextText ? `\n[CONTEXTO DOCUMENTAL SELECCIONADO]\n${docum
         () => callModelByProvider(
           candidate.provider,
           candidate.model,
-          userMessage,
+          effectiveUserMessage,
           history,
           systemInstruction,
           currentTasks,
@@ -2210,9 +2029,9 @@ ${documentRetrieval.contextText ? `\n[CONTEXTO DOCUMENTAL SELECCIONADO]\n${docum
         ...response,
         text: response.text.trim(),
         voiceText: response.voiceText?.trim() ?? response.text.trim(),
-        messageType: 'planner',
+        messageType: response.newTasks || response.newCalendarEvents ? 'planner' : 'conversation',
         performedWebSearch: response.performedWebSearch ?? false,
-        plannerMutation: response.plannerMutation ?? true,
+        plannerMutation: response.plannerMutation ?? (response.newTasks !== undefined && response.newTasks.length !== currentTasks.length),
         uiHints: {
           tone: 'warm',
           strategy: 'confirm_action',
@@ -2230,3 +2049,4 @@ ${documentRetrieval.contextText ? `\n[CONTEXTO DOCUMENTAL SELECCIONADO]\n${docum
 
   throw lastError ?? new Error('No se pudo generar respuesta del modelo.');
 }
+

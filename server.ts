@@ -26,7 +26,6 @@ import {
 } from './server/documents.js';
 import { assertChannelAccess, recordUsageEvent } from './server/governance.js';
 import { HttpError, isHttpError } from './server/httpErrors.js';
-import { classifyIntentRoute } from './server/intentRouter.js';
 import { registerLiveVoiceProxy } from './server/live.js';
 import { sendTestEmail } from './server/notifications/email.js';
 import { buildCalendarConnectUrl, finalizeCalendarOAuth, verifyOAuthState } from './server/replanning/calendarConnectors.js';
@@ -43,7 +42,7 @@ import {
   updateReplanningSettingsForUser,
 } from './server/replanning/store.js';
 import { MAX_DOCUMENT_FILE_SIZE_BYTES, type DocumentStatus } from './src/lib/documents.js';
-import { DEFAULT_PLANNER_STATE, type ChatIntentRoute, type PlannerStateSyncPayload } from './src/lib/plannerState.js';
+import { DEFAULT_PLANNER_STATE, type PlannerStateSyncPayload } from './src/lib/plannerState.js';
 import { DEFAULT_INTELLIGENT_CONFIG, solveSchedule } from './src/lib/solver.js';
 import {
   appendChatMessages,
@@ -458,7 +457,6 @@ const startServer = async () => {
             modelTier: 'fast' | 'heavy';
           }
         | null = null;
-      let selectedIntent: ChatIntentRoute = 'conversation';
 
     try {
       const {
@@ -605,18 +603,10 @@ const startServer = async () => {
 
       const requestParseMs = Math.round(performance.now() - requestStartedAt);
 
-      const classifyStartedAt = performance.now();
-      const intentRoute = classifyIntentRoute(effectiveMessage, authoritativeHistory);
-      const classifyMs = Math.round(performance.now() - classifyStartedAt);
-      selectedIntent = intentRoute;
-
       const governanceStartedAt = performance.now();
-      const governance = await assertChannelAccess(authedReq.authUser, 'text', intentRoute);
+      const governance = await assertChannelAccess(authedReq.authUser, 'text');
       const governanceMs = Math.round(performance.now() - governanceStartedAt);
       selectedRoute = governance.route;
-      if ((intentRoute === 'external_lookup' || intentRoute === 'hybrid') && !governance.effectivePlan.web_search_enabled) {
-        throw new Error('La búsqueda web no está habilitada para tu plan actual.');
-      }
 
       const docsStartedAt = performance.now();
       const documentRetrieval =
@@ -799,8 +789,6 @@ const startServer = async () => {
         '[agena.chat.metrics]',
         JSON.stringify({
           userId: authedReq.authUser.id,
-          intent: selectedIntent,
-          routeClass: selectedIntent,
           modelTier: selectedRoute?.modelTier ?? 'fast',
           provider: aiResult.usage.provider,
           model: aiResult.usage.model,
@@ -811,7 +799,6 @@ const startServer = async () => {
           fallbackModel: selectedRoute?.fallbackModel ?? null,
           plannerMutation: shouldReschedule,
           requestParseMs,
-          classifyMs,
           governanceMs,
           docsMs,
           llmTotalMs: aiResult.usage.llmTotalMs ?? modelDurationMs,
