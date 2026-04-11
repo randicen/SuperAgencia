@@ -1,5 +1,5 @@
-import { GoogleGenAI, Type } from '@google/genai';
-import type { Task, CalendarEvent, Dependency } from '../src/lib/solver.js';
+import { GoogleGenAI } from '@google/genai';
+import type { Task, CalendarEvent, Dependency, WorkWindow, ScheduledTask } from '../src/lib/solver.js';
 
 // Types for the AI response (Structured JSON)
 type AgentResponse = {
@@ -19,6 +19,13 @@ type AgentInput = {
   workWindow: WorkWindow;
   strategy: string;
 };
+
+type StreamCallback = (event: StreamEvent) => void;
+
+type StreamEvent =
+  | { type: 'status'; phase: string; message?: string; sources?: any[] }
+  | { type: 'result'; state: any }
+  | { type: 'error'; error: string };
 
 const buildSystemPrompt = (tasks: Task[], events: CalendarEvent[], workWindow: WorkWindow, strategy: string) => `
 You are Tandeba, an elite scheduling assistant.
@@ -47,13 +54,13 @@ Return ONLY valid JSON with this shape:
 }
 `;
 
-export async function runAgent(input: AgentInput): Promise<AgentResponse> {
+export async function runAgent(input: AgentInput, onStream?: StreamCallback): Promise<AgentResponse> {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) throw new Error('GEMINI_API_KEY missing');
 
   const ai = new GoogleGenAI({ apiKey });
   const systemPrompt = buildSystemPrompt(input.tasks, input.calendarEvents, input.workWindow, input.strategy);
-  
+
   // Map history to Google Content format
   const contents = input.history.map(m => ({
     role: m.role,
@@ -63,10 +70,14 @@ export async function runAgent(input: AgentInput): Promise<AgentResponse> {
   contents.push({ role: 'user', parts: [{ text: input.userMessage }] });
 
   try {
+    onStream?.({ type: 'status', phase: 'thinking', message: 'Procesando tu solicitud...' });
+
     const response = await ai.models.generateContent({
       model: 'gemini-3.1-flash-lite-preview',
-      systemInstruction: systemPrompt,
-      contents,
+      contents: [
+        { role: 'system', parts: [{ text: systemPrompt }] },
+        ...contents,
+      ],
       config: {
         responseMimeType: 'application/json',
         temperature: 0.1

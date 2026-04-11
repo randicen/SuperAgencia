@@ -39,22 +39,33 @@ const startServer = async () => {
     } catch (error) { next(error); }
   });
 
-  // Chat / Action Endpoint
+  // Chat / Action Endpoint (Streaming NDJSON)
   app.post('/api/chat', requireAuth, upload.any(), async (req, res, next) => {
     const authedReq = req as AuthenticatedRequest;
     const { message } = req.body ?? {};
 
+    // Enable streaming headers
+    res.setHeader('Content-Type', 'application/x-ndjson');
+    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
+
+    const sendEvent = (event: { type: string; [key: string]: any }) => {
+      res.write(JSON.stringify(event) + '\n');
+    };
+
     try {
       // 1. Load current state
+      sendEvent({ type: 'status', phase: 'routing', message: 'Cargando estado actual...' });
       const currentState = await loadPlannerState(authedReq.authUser);
-      
+
       // 2. Prepare history for AI
       const history = (currentState.messages || []).slice(-6).map(m => ({
         role: (m.role === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
         content: m.text
       }));
 
-      // 3. Run AI Agent
+      // 3. Run AI Agent with streaming callbacks
       const agentResponse = await runAgent({
         userMessage: message,
         history,
@@ -64,6 +75,11 @@ const startServer = async () => {
         schedule: currentState.schedule,
         workWindow: currentState.workWindow,
         strategy: currentState.strategy
+      }, (streamEvent) => {
+        // Forward status events to client in real-time
+        if (streamEvent.type === 'status') {
+          sendEvent(streamEvent);
+        }
       });
 
       // 4. Detect if changes occurred
@@ -73,6 +89,8 @@ const startServer = async () => {
       let savedState;
 
       if (hasChanges) {
+        sendEvent({ type: 'status', phase: 'planning', message: 'Validando y optimizando agenda...' });
+        
         // 4a. If changes: Run Solver
         const now = new Date();
         const result = solveSchedule(
@@ -88,6 +106,8 @@ const startServer = async () => {
           now.getDay()
         );
 
+        sendEvent({ type: 'status', phase: 'saving', message: 'Guardando cambios...' });
+
         savedState = await savePlannerState(authedReq.authUser, {
           ...currentState,
           tasks: agentResponse.tasks,
@@ -101,9 +121,13 @@ const startServer = async () => {
         savedState = await appendChatMessage(authedReq.authUser, message, agentResponse.text);
       }
 
-      res.json({ state: savedState });
+      // Send final result
+      sendEvent({ type: 'result', state: savedState });
+      res.end();
     } catch (error) {
-      next(error);
+      console.error('Chat error:', error);
+      sendEvent({ type: 'error', error: error instanceof Error ? error.message : String(error) });
+      res.end();
     }
   });
 
