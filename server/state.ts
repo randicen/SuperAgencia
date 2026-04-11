@@ -7,7 +7,6 @@ import {
 import type { ChatMessage } from '../src/lib/plannerState.js';
 import type { CalendarEvent, Dependency, ScheduledTask, Task, WorkWindow } from '../src/lib/solver.js';
 import type { AuthenticatedUser } from './auth.js';
-import { ensureUserProvisioned, getGovernanceContext } from './governance.js';
 import { loadReplanningBundleForUser } from './replanning/store.js';
 import { getSupabaseAdmin } from './supabase.js';
 
@@ -327,9 +326,8 @@ const normalizePlannerState = async (
   user: AuthenticatedUser,
   state: PlannerState,
 ): Promise<PlannerState> => {
-  const [settings, governance, replanning] = await Promise.all([
+  const [settings, replanning] = await Promise.all([
     loadProfileSettings(user.id),
-    getGovernanceContext(user),
     loadReplanningBundleForUser(user.id),
   ]);
 
@@ -340,8 +338,6 @@ const normalizePlannerState = async (
     profileId: user.id,
     timezone: settings.timezone,
     locale: settings.locale,
-    viewer: governance.viewer,
-    access: governance.access,
     replanning,
   };
 };
@@ -475,7 +471,6 @@ const saveRevisionSnapshot = async (
 
 export const loadPlannerState = async (user: AuthenticatedUser): Promise<PlannerState> => {
   const supabase = getSupabaseAdmin();
-  await ensureUserProvisioned(user);
   const [plannerState, revisions] = await Promise.all([
     getPlannerStateRow(user.id),
     getRevisionRows(user.id),
@@ -550,7 +545,6 @@ export const savePlannerState = async (
   payload: PlannerStateSyncPayload | PlannerState,
 ): Promise<PlannerState> => {
   return runPlannerWriteExclusive(user.id, async () => {
-    await ensureUserProvisioned(user);
     const plannerState = await getPlannerStateRow(user.id);
     const existingRevisions = await getRevisionRows(user.id);
     const currentLiveState = await loadPlannerState(user);
@@ -586,62 +580,37 @@ export const savePlannerState = async (
   });
 };
 
-export const appendChatMessages = async (
+export const appendChatMessage = async (
   user: AuthenticatedUser,
-  currentState: PlannerState,
-  nextMessages: ChatMessage[],
+  userText: string,
+  modelText: string,
 ): Promise<PlannerState> => {
   return runPlannerWriteExclusive(user.id, async () => {
-    await ensureUserProvisioned(user);
-
-    if (nextMessages.length <= currentState.messages.length) {
-      return currentState;
-    }
-
-    const existingPrefix = currentState.messages.every((message, index) => {
-      const candidate = nextMessages[index];
-      if (!candidate) return false;
-      return (
-        candidate.role === message.role &&
-        candidate.text === message.text &&
-        JSON.stringify(candidate.metadata ?? null) === JSON.stringify(message.metadata ?? null)
-      );
-    });
-
+    const currentState = await loadPlannerState(user);
     const supabase = getSupabaseAdmin();
-    const appendedMessages = nextMessages.slice(currentState.messages.length);
-    if (appendedMessages.length === 0 && existingPrefix) {
-      return currentState;
-    }
+    
+    // Simple append: add two messages to the end
+    const nextPosition = currentState.messages.length;
+    const messagesToWrite = [
+      { user_id: user.id, role: 'user', text: userText, position: nextPosition },
+      { user_id: user.id, role: 'model', text: modelText, position: nextPosition + 1 }
+    ];
 
-    if (!existingPrefix) {
-      const clearMessages = await supabase.from('chat_messages').delete().eq('user_id', user.id);
-      if (clearMessages.error) throw clearMessages.error;
-    }
-
-    const basePosition = existingPrefix ? currentState.messages.length : 0;
-    const messagesToWrite = existingPrefix ? appendedMessages : nextMessages;
-    const messageRows = messagesToWrite.map((message, offset) => ({
-      user_id: user.id,
-      role: message.role,
-      text: message.text,
-      position: basePosition + offset,
-      metadata: message.metadata ?? null,
-    }));
-
-    const messageInsert = await supabase.from('chat_messages').insert(messageRows);
+    const messageInsert = await supabase.from('chat_messages').insert(messagesToWrite);
     if (messageInsert.error) throw messageInsert.error;
 
     return {
       ...currentState,
-      messages: nextMessages,
+      messages: [...currentState.messages, 
+        { role: 'user', text: userText } as any, 
+        { role: 'model', text: modelText } as any
+      ]
     };
   });
 };
 
 export const undoPlannerState = async (user: AuthenticatedUser): Promise<PlannerState> => {
   return runPlannerWriteExclusive(user.id, async () => {
-    await ensureUserProvisioned(user);
     const plannerState = await getPlannerStateRow(user.id);
     const revisions = await getRevisionRows(user.id);
     const currentIndex = revisions.findIndex((revision) => revision.id === plannerState.current_revision_id);
@@ -659,7 +628,6 @@ export const undoPlannerState = async (user: AuthenticatedUser): Promise<Planner
 
 export const redoPlannerState = async (user: AuthenticatedUser): Promise<PlannerState> => {
   return runPlannerWriteExclusive(user.id, async () => {
-    await ensureUserProvisioned(user);
     const plannerState = await getPlannerStateRow(user.id);
     const revisions = await getRevisionRows(user.id);
     const currentIndex = revisions.findIndex((revision) => revision.id === plannerState.current_revision_id);
