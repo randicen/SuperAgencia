@@ -898,6 +898,9 @@ export default function App() {
   }
 
   const usageCaption = buildUsageCaption(access);
+  // In Tandeba 2.0, text and voice are always enabled (single model, no quotas)
+  const canUseText = true;
+  const canUseVoice = true;
 
   return (
     <div className="relative h-screen bg-[#F8FAFC] flex flex-col font-sans text-gray-900 overflow-hidden">
@@ -1171,8 +1174,8 @@ export default function App() {
             pendingAssistantMessage={pendingAssistantMessage}
             liveStatus={liveStatus}
             onToggleLive={handleToggleLive}
-            canUseText={access?.textAllowed ?? false}
-            canUseVoice={access?.voiceAllowed ?? false}
+            canUseText={canUseText}
+            canUseVoice={canUseVoice}
             usageCaption={usageCaption}
             voiceError={voiceError}
             selectedDocuments={selectedDocuments}
