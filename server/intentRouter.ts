@@ -84,17 +84,25 @@ const EXTERNAL_INFO_PATTERNS = [
 ];
 
 const PLANNER_ACTION_PATTERNS = [
-  /\brecuerd(a|ame|amelo)\b/i,
-  /\bagend(a|alo|ame|amelo)\b/i,
+  // Agendar / agenda / agendado / agendando
+  /\bagend(a|ar|ado|ando|alo|ame|amelo|emos|an)\b/i,
+  // Crear tarea/evento/recordatorio
   /\bcrea(r)?\s+(una\s+)?(tarea|evento|recordatorio)\b/i,
-  /\banade\b/i,
-  /\bprograma\b/i,
+  // Añadir / agregar / agrega
+  /\banade|agrega(r)?\b/i,
+  // Programar / programa / programado
+  /\bprograma(r|do|ndo|mos|n)?\b/i,
+  // Poner / pon / pongo / pondré
+  /\bpon(er|go|dr[eé]|iendo|e|lo|la)?\s/i,
   /\bpon(lo|la)?\s+en\s+mi\s+agenda\b/i,
+  // Quitar / eliminar / borrar / remover
   /\b(quita|quitame|quita\s+lo|elimina|eliminar|borra|borrar|remueve|remover)\b/i,
+  // Sacar
   /\b(saca|sacame|saca\s+lo)\b/i,
-  /\bmueve\b/i,
-  /\breagenda\b/i,
-  /\bcambia\b/i,
+  // Mover / reagendar / cambiar
+  /\bmueve|reagenda|cambia(r)?\b/i,
+  // Añadir directamente por verbo
+  /\b(agrega(r)?|anade|incluye|incorpora)\b/i,
 ];
 
 const FOLLOW_UP_PATTERNS = [

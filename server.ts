@@ -607,7 +607,9 @@ const startServer = async () => {
 
       const classifyStartedAt = performance.now();
       const intentRoute = classifyIntentRoute(effectiveMessage, authoritativeHistory);
+      const classifyMs = Math.round(performance.now() - classifyStartedAt);
       selectedIntent = intentRoute;
+
       const governanceStartedAt = performance.now();
       const governance = await assertChannelAccess(authedReq.authUser, 'text', intentRoute);
       const governanceMs = Math.round(performance.now() - governanceStartedAt);
@@ -615,7 +617,6 @@ const startServer = async () => {
       if ((intentRoute === 'external_lookup' || intentRoute === 'hybrid') && !governance.effectivePlan.web_search_enabled) {
         throw new Error('La búsqueda web no está habilitada para tu plan actual.');
       }
-      const classifyDurationMs = Math.round(performance.now() - classifyStartedAt);
 
       const docsStartedAt = performance.now();
       const documentRetrieval =
@@ -810,7 +811,7 @@ const startServer = async () => {
           fallbackModel: selectedRoute?.fallbackModel ?? null,
           plannerMutation: shouldReschedule,
           requestParseMs,
-          classifyMs: classifyDurationMs,
+          classifyMs,
           governanceMs,
           docsMs,
           llmTotalMs: aiResult.usage.llmTotalMs ?? modelDurationMs,
