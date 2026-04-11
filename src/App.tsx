@@ -117,6 +117,19 @@ export default function App() {
   const { isLoaded: authLoaded, isSignedIn, userId, getToken } = useAuth();
   const { signOut } = useClerk();
 
+  // Timeout guard: if Clerk doesn't load within 10s, show error UI
+  const [clerkLoadTimedOut, setClerkLoadTimedOut] = useState(false);
+  useEffect(() => {
+    if (authLoaded) return;
+    const timer = window.setTimeout(() => {
+      if (!authLoaded) {
+        console.error('[tandeba] Clerk SDK failed to initialize within 10 seconds. Possible causes: wrong publishable key, domain not configured in Clerk dashboard, or network block.');
+        setClerkLoadTimedOut(true);
+      }
+    }, 10000);
+    return () => window.clearTimeout(timer);
+  }, [authLoaded]);
+
   const [viewer, setViewer] = useState<ViewerProfile | null>(null);
   const [access, setAccess] = useState<UsageAccessSummary | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -860,6 +873,23 @@ export default function App() {
   };
 
   if (authLoading) {
+    if (clerkLoadTimedOut) {
+      return (
+        <div className="min-h-screen bg-[#F8FAFC] flex items-center justify-center p-6">
+          <div className="w-full max-w-md bg-white rounded-3xl border border-red-200 shadow-sm p-8 text-center">
+            <h1 className="text-xl font-bold text-red-600 mb-4">Clerk no disponible</h1>
+            <p className="text-sm text-gray-600 mb-4">No se pudo conectar con el servicio de autenticación de Clerk después de 10 segundos.</p>
+            <p className="text-xs text-gray-400 mb-2">Posibles causas:</p>
+            <ul className="text-xs text-gray-400 text-left space-y-1 mb-4">
+              <li>• El dominio de esta app no está configurado en el dashboard de Clerk</li>
+              <li>• La VITE_CLERK_PUBLISHABLE_KEY es incorrecta o ha expirado</li>
+              <li>• Bloqueo de red o firewall impidiendo la conexión</li>
+            </ul>
+            <p className="text-xs text-gray-500">Dominio actual: {window.location.hostname}</p>
+          </div>
+        </div>
+      );
+    }
     return <AuthScreen isLoading={true} />;
   }
 
