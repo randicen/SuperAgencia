@@ -1,5 +1,5 @@
-import { differenceInMinutes, parseISO, startOfDay } from 'date-fns';
-import type { CalendarEvent, Task, Dependency, ScheduledTask, WorkWindow } from '../src/lib/solver.js';
+import { GoogleGenAI, Type } from '@google/genai';
+import type { Task, CalendarEvent, Dependency } from '../src/lib/solver.js';
 
 // Types for the AI response (Structured JSON)
 type AgentResponse = {
@@ -48,50 +48,36 @@ Return ONLY valid JSON with this shape:
 `;
 
 export async function runAgent(input: AgentInput): Promise<AgentResponse> {
-  const apiKey = process.env.OPENROUTER_API_KEY;
-  if (!apiKey) throw new Error('OPENROUTER_API_KEY missing');
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) throw new Error('GEMINI_API_KEY missing');
 
+  const ai = new GoogleGenAI({ apiKey });
   const systemPrompt = buildSystemPrompt(input.tasks, input.calendarEvents, input.workWindow, input.strategy);
   
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    ...input.history.map((m) => ({
-      role: m.role === 'user' ? 'user' : 'assistant',
-      content: m.content
-    })),
-    { role: 'user', content: input.userMessage }
-  ];
+  // Map history to Google Content format
+  const contents = input.history.map(m => ({
+    role: m.role,
+    parts: [{ text: m.content }]
+  }));
+  // Add current message
+  contents.push({ role: 'user', parts: [{ text: input.userMessage }] });
 
   try {
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        'Content-Type': 'application/json',
-        'HTTP-Referer': process.env.PUBLIC_APP_URL || 'https://tandeba.com',
-        'X-Title': 'Tandeba'
-      },
-      body: JSON.stringify({
-        model: 'google/gemma-3-12b-it', // DeepInfra via OpenRouter
-        messages,
-        response_format: { type: 'json_object' } // Force JSON
-      })
+    const response = await ai.models.generateContent({
+      model: 'gemini-3.1-flash-lite-preview',
+      systemInstruction: systemPrompt,
+      contents,
+      config: {
+        responseMimeType: 'application/json',
+        temperature: 0.1
+      }
     });
 
-    if (!response.ok) {
-      const err = await response.text();
-      throw new Error(`OpenRouter error: ${response.status} - ${err}`);
-    }
+    const text = response.text;
+    if (!text) throw new Error('Empty response from model');
 
-    const data = await response.json();
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) throw new Error('Empty response from model');
-
-    // Parse JSON safely
-    const jsonStr = content.replace(/```json/g, '').replace(/```/g, '').trim();
-    const parsed = JSON.parse(jsonStr);
-
-    return parsed as AgentResponse;
+    const jsonStr = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    return JSON.parse(jsonStr) as AgentResponse;
   } catch (error) {
     console.error('AI Error:', error);
     throw error;
