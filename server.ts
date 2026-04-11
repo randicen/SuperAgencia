@@ -4,6 +4,7 @@ import multer from 'multer';
 import { createServer } from 'http';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { existsSync } from 'fs';
 import { createServer as createViteServer } from 'vite';
 
 import { runAgent } from './server/ai.js';
@@ -19,6 +20,19 @@ import { DEFAULT_PLANNER_STATE } from './src/lib/plannerState.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const distIndexPath = path.join(__dirname, 'dist', 'index.html');
+
+const shouldUseViteDevServer = () => {
+  const explicitDev =
+    process.env.USE_VITE_DEV_SERVER === 'true' ||
+    process.env.NODE_ENV === 'development';
+
+  if (explicitDev) {
+    return true;
+  }
+
+  return !existsSync(distIndexPath);
+};
 
 const startServer = async () => {
   const app = express();
@@ -132,12 +146,12 @@ const startServer = async () => {
   });
 
   // Vite / Static Assets
-  if (process.env.NODE_ENV !== 'production') {
+  if (shouldUseViteDevServer()) {
     const vite = await createViteServer({ server: { middlewareMode: true }, appType: 'spa' });
     app.use(vite.middlewares);
   } else {
     app.use(express.static(path.join(__dirname, 'dist')));
-    app.get('*', (_req, res) => res.sendFile(path.join(__dirname, 'dist', 'index.html')));
+    app.get('*', (_req, res) => res.sendFile(distIndexPath));
   }
 
   server.listen(port, '0.0.0.0', () => console.log(`Tandeba 2.0 running on port ${port}`));
