@@ -73,6 +73,10 @@ export class LiveAgent {
   private nextPlayTime = 0;
   private activeSources: AudioBufferSourceNode[] = [];
   private isDisconnecting = false;
+  private shouldStayConnected = false;
+  private reconnectAttempts = 0;
+  private reconnectTimer: number | null = null;
+  private hasOpenedSocket = false;
 
   constructor(
     private onStateSync: (state: PlannerState) => void,
@@ -110,22 +114,35 @@ export class LiveAgent {
   }
 
   async connect() {
+    this.shouldStayConnected = true;
     this.isDisconnecting = false;
     this.onStatusChange('connecting');
     try {
-      this.mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: true,
-          noiseSuppression: true,
-          autoGainControl: true,
-        },
-      });
-      this.audioContext = new AudioContext({ sampleRate: 16000 });
-      this.playbackContext = new AudioContext({ sampleRate: 24000 });
-      this.nextPlayTime = this.playbackContext.currentTime;
+      if (!this.mediaStream) {
+        this.mediaStream = await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+        });
+      }
+      if (!this.audioContext) {
+        this.audioContext = new AudioContext({ sampleRate: 16000 });
+      }
+      if (!this.playbackContext) {
+        this.playbackContext = new AudioContext({ sampleRate: 24000 });
+        this.nextPlayTime = this.playbackContext.currentTime;
+      }
 
       this.socket = new WebSocket(resolveLiveSocketUrl());
       this.socket.onopen = async () => {
+        this.hasOpenedSocket = true;
+        this.reconnectAttempts = 0;
+        if (this.reconnectTimer !== null) {
+          window.clearTimeout(this.reconnectTimer);
+          this.reconnectTimer = null;
+        }
         const accessToken = await this.getAccessToken();
         if (!accessToken) {
           this.onError('Tu sesión ya no es válida. Vuelve a iniciar sesión.');
@@ -179,7 +196,7 @@ export class LiveAgent {
         if (this.isDisconnecting) {
           return;
         }
-        this.disconnect(false);
+        this.handleUnexpectedClose();
       };
 
       this.socket.onerror = () => {
@@ -189,6 +206,45 @@ export class LiveAgent {
       console.error('Failed to connect live agent:', error);
       this.onError('No pude acceder al micrófono o abrir la llamada.');
       this.disconnect(false);
+    }
+  }
+
+  private handleUnexpectedClose() {
+    this.cleanupSocketOnly();
+    this.onStatusChange('disconnected');
+
+    if (!this.shouldStayConnected) {
+      return;
+    }
+
+    if (this.reconnectAttempts >= 2) {
+      this.onSearchProgress(null);
+      this.onError('La llamada se interrumpió durante una actualización de Tandeba. Recarga la página para continuar.');
+      return;
+    }
+
+    const retryDelayMs = 1000 * (this.reconnectAttempts + 1);
+    this.reconnectAttempts += 1;
+    this.onError('Reconectando la llamada tras una actualización de Tandeba...');
+    this.onStatusChange('connecting');
+    this.reconnectTimer = window.setTimeout(() => {
+      this.connect().catch((error) => {
+        console.error('Failed to reconnect live agent:', error);
+      });
+    }, retryDelayMs);
+  }
+
+  private cleanupSocketOnly() {
+    if (this.processor) {
+      this.processor.disconnect();
+      this.processor = null;
+    }
+    if (this.socket) {
+      this.socket.onopen = null;
+      this.socket.onmessage = null;
+      this.socket.onclose = null;
+      this.socket.onerror = null;
+      this.socket = null;
     }
   }
 
@@ -252,7 +308,12 @@ export class LiveAgent {
 
   disconnect(sendSignal = true) {
     this.isDisconnecting = true;
+    this.shouldStayConnected = false;
     this.onStatusChange('disconnected');
+    if (this.reconnectTimer !== null) {
+      window.clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
 
     if (sendSignal && this.socket?.readyState === WebSocket.OPEN) {
       this.send({ type: 'disconnect' });
@@ -289,6 +350,8 @@ export class LiveAgent {
       this.socket = null;
     }
 
+    this.reconnectAttempts = 0;
+    this.hasOpenedSocket = false;
     this.isDisconnecting = false;
   }
 }

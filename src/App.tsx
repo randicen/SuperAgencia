@@ -934,6 +934,7 @@ export default function App() {
           lastError = null;
           break;
         } catch (error) {
+          await checkForNewDeployment();
           lastError = error;
           if (attempt === 1 || !isRetryableChatError(error)) {
             throw error;
@@ -946,7 +947,10 @@ export default function App() {
       }
     } catch (error) {
       console.error('Error calling backend:', error);
-      setMessages([...newMessages, { role: 'model', text: getFriendlyServerErrorMessage(error) }]);
+      const fallbackMessage = availableBuildId
+        ? 'Tandeba se actualizó mientras procesaba tu solicitud. Recargaré la app para continuar con una sesión estable.'
+        : getFriendlyServerErrorMessage(error);
+      setMessages([...newMessages, { role: 'model', text: fallbackMessage }]);
     } finally {
       setPendingSearch(null);
       setPendingAssistantMessage(null);
