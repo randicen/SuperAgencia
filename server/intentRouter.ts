@@ -86,9 +86,11 @@ const EXTERNAL_INFO_PATTERNS = [
 const PLANNER_ACTION_PATTERNS = [
   /\brecuerd(a|ame|amelo)\b/i,
   /\bagend(a|alo|ame|amelo)\b/i,
+  /\banot(a|ame|alo|alo)\b/i,
   /\bcrea(r)?\s+(una\s+)?(tarea|evento|recordatorio)\b/i,
   /\banade\b/i,
   /\bprograma\b/i,
+  /\bpon\b/i,
   /\bpon(lo|la)?\s+en\s+mi\s+agenda\b/i,
   /\b(quita|quitame|quita\s+lo|elimina|eliminar|borra|borrar|remueve|remover)\b/i,
   /\b(saca|sacame|saca\s+lo)\b/i,
@@ -211,6 +213,21 @@ const hasPlannerAction = (message: string): boolean => {
   return hasPattern(PLANNER_ACTION_PATTERNS, normalized);
 };
 
+const hasImperativePlannerIntent = (message: string): boolean => {
+  const normalized = stripLeadingFillers(normalizeLooseText(message));
+  if (!normalized) return false;
+
+  if (
+    /^(?:pon|programa|agenda|agendame|recuerdame|anota|anotame|crea|creame|mueve|reagenda|cambia)\b/i.test(
+      normalized,
+    )
+  ) {
+    return true;
+  }
+
+  return false;
+};
+
 const isConversationOnly = (message: string): boolean => {
   const normalized = stripLeadingFillers(normalizeLooseText(message));
   const simplified = simplifyConversationalText(normalized);
@@ -244,13 +261,14 @@ export const classifyIntentRoute = (
   }
 
   const plannerAction = hasPlannerAction(normalized);
+  const imperativePlannerIntent = hasImperativePlannerIntent(normalized);
   const externalIntent = hasExternalIntent(normalized);
 
   if (externalIntent) {
-    return plannerAction ? 'hybrid' : 'external_lookup';
+    return plannerAction || imperativePlannerIntent ? 'hybrid' : 'external_lookup';
   }
 
-  if (plannerAction) {
+  if (plannerAction || imperativePlannerIntent) {
     return 'planner_mutation';
   }
 

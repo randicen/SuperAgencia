@@ -1879,6 +1879,8 @@ const buildPlannerReadPrompt = (
     'Responde en espanol neutro y claro.',
     'Debes resumir la agenda o explicar el estado actual sin proponer cambios.',
     'No digas que estas guardando cambios ni que estas reorganizando nada.',
+    'Nunca afirmes que registraste, anotaste, creaste, moviste o actualizaste tareas o eventos.',
+    'Si la solicitud del usuario suena a cambio de agenda pero no hubo mutacion real, dilo con claridad y pide que la reformule o confirma que no se aplicaron cambios.',
     'Si faltan datos, dilo con precision.',
     '',
     `Consulta del usuario: ${userMessage}`,
