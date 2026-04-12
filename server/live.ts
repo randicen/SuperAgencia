@@ -177,7 +177,7 @@ class LiveVoiceBridge {
       },
       callbacks: {
         onopen: () => {
-          sendEnvelope(this.socket, { type: 'status', payload: { status: 'connecting' } });
+          sendEnvelope(this.socket, { type: 'status', payload: { status: 'connected' } });
         },
         onmessage: (message) => {
           void this.handleLiveMessage(message);
