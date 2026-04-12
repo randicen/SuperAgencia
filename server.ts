@@ -6,7 +6,7 @@ import { existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
-import { chatWithSolverBackend, classifyIntentRouteWithModel } from './server/ai.js';
+import { chatWithSolverBackend } from './server/ai.js';
 import { requireAuth, type AuthenticatedRequest } from './server/auth.js';
 import { parseChatAttachments } from './server/chatAttachments.js';
 import {
@@ -634,13 +634,8 @@ const startServer = async () => {
       }));
 
       const classifyStartedAt = performance.now();
-      const intentRoute = await classifyIntentRouteWithModel(effectiveMessage, authoritativeHistory);
-      selectedIntent = intentRoute;
-      const governance = await assertChannelAccess(authedReq.authUser, 'text', intentRoute);
+      const governance = await assertChannelAccess(authedReq.authUser, 'text');
       selectedRoute = governance.route;
-      if ((intentRoute === 'external_lookup' || intentRoute === 'hybrid') && !governance.effectivePlan.web_search_enabled) {
-        throw new Error('La búsqueda web no está habilitada para tu plan actual.');
-      }
       const classifyDurationMs = Math.round(performance.now() - classifyStartedAt);
 
       const documentRetrieval =
@@ -673,7 +668,7 @@ const startServer = async () => {
           fallbackModel: governance.route.fallbackModel,
           modelTier: governance.route.modelTier,
         },
-        intentRoute,
+        selectedIntent,
         attachments,
         documentRetrieval,
         streamRequested
@@ -694,6 +689,14 @@ const startServer = async () => {
           : undefined,
       );
       const modelDurationMs = Math.round(performance.now() - aiStartedAt);
+      selectedIntent = aiResult.intentRoute ?? selectedIntent;
+
+      if (
+        (selectedIntent === 'external_lookup' || selectedIntent === 'hybrid') &&
+        !governance.effectivePlan.web_search_enabled
+      ) {
+        throw new Error('La b??squeda web no est?? habilitada para tu plan actual.');
+      }
 
       const nextMessages = [
         ...currentState.messages,

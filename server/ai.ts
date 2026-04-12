@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { addMinutes, differenceInMinutes, parseISO, startOfDay } from 'date-fns';
+import { addMinutes, differenceInMinutes, format, parseISO, startOfDay } from 'date-fns';
 import { CalendarEvent, Task, Dependency, WorkWindow, ScheduledTask } from '../src/lib/solver.js';
 import type { ChatIntentRoute, ChatMessageType, SearchSource } from '../src/lib/plannerState.js';
 import { classifyIntentRoute } from './intentRouter.js';
@@ -89,6 +89,7 @@ type ProviderName = 'google' | 'openrouter' | 'tavily';
 type ChatResponse = {
   text: string;
   voiceText?: string;
+  intentRoute?: ChatIntentRoute;
   newTasks?: Task[];
   newCalendarEvents?: CalendarEvent[];
   newDependencies?: Dependency[];
@@ -231,6 +232,7 @@ type OpenRouterResponse = {
 };
 
 type OpenRouterStructuredPayload = {
+  intentRoute?: ChatIntentRoute;
   assistantMessage: string;
   tasks: any[];
   dependencies: Dependency[];
@@ -508,7 +510,10 @@ const normalizeOpenRouterEvent = (event: any, now: Date, fallbackDate?: Date | n
   if (typeof event?.endDateTime === 'string') {
     normalizedEvent.endDateTime = event.endDateTime;
   } else if (normalizedEvent.startDateTime && durationMinutes) {
-    normalizedEvent.endDateTime = addMinutes(parseISO(normalizedEvent.startDateTime), durationMinutes).toISOString().slice(0, 19);
+    normalizedEvent.endDateTime = format(
+      addMinutes(parseISO(normalizedEvent.startDateTime), durationMinutes),
+      "yyyy-MM-dd'T'HH:mm:ss",
+    );
   } else if (eventDate && endTime) {
     normalizedEvent.endDateTime = buildLocalIso(eventDate, endTime.hours, endTime.minutes);
   }
@@ -558,6 +563,33 @@ const normalizeOpenRouterTask = (task: any, normalizedEvents: any[], now: Date, 
     if (relativeDate && clockTime && !normalizedTask.fixedStartDateTime) {
       normalizedTask.deadlineDateTime = buildLocalIso(relativeDate, clockTime.hours, clockTime.minutes);
     }
+  }
+
+  if (
+    typeof normalizedTask.minStartDateTime === 'string' &&
+    typeof normalizedTask.deadlineDateTime === 'string' &&
+    normalizedTask.minStartDateTime === normalizedTask.deadlineDateTime &&
+    typeof normalizedTask.fixedStartDateTime !== 'string'
+  ) {
+    normalizedTask.fixedStartDateTime = normalizedTask.minStartDateTime;
+    delete normalizedTask.minStartDateTime;
+    delete normalizedTask.deadlineDateTime;
+  }
+
+  if (
+    typeof normalizedTask.fixedStartDateTime === 'string' &&
+    typeof normalizedTask.minStartDateTime === 'string' &&
+    normalizedTask.minStartDateTime === normalizedTask.fixedStartDateTime
+  ) {
+    delete normalizedTask.minStartDateTime;
+  }
+
+  if (
+    typeof normalizedTask.fixedStartDateTime === 'string' &&
+    typeof normalizedTask.deadlineDateTime === 'string' &&
+    normalizedTask.deadlineDateTime === normalizedTask.fixedStartDateTime
+  ) {
+    delete normalizedTask.deadlineDateTime;
   }
 
   if (typeof task?.duration === 'number' && task.duration > 0) {
@@ -760,6 +792,15 @@ const parseModelMutations = (
     if (task.minStartDateTime) minStart = differenceInMinutes(parseISO(task.minStartDateTime), baseDate);
     if (task.deadlineDateTime) deadline = differenceInMinutes(parseISO(task.deadlineDateTime), baseDate);
 
+    if (fixedStart !== undefined) {
+      if (minStart !== undefined && minStart === fixedStart) {
+        minStart = undefined;
+      }
+      if (deadline !== undefined && deadline === fixedStart) {
+        deadline = undefined;
+      }
+    }
+
     return {
       id: task.id,
       name: task.name,
@@ -872,12 +913,19 @@ const buildOpenRouterAttachmentParts = (attachments: ChatAttachmentContext[]): O
     return parts;
   }, []);
 
-const extractJsonObject = (content: string): OpenRouterStructuredPayload => {
+const extractJsonObject = <T = OpenRouterStructuredPayload>(content: string): T => {
   const trimmed = content.trim();
   const fencedMatch = trimmed.match(/```json\s*([\s\S]*?)```/i);
   const candidate = fencedMatch ? fencedMatch[1].trim() : trimmed;
-  return JSON.parse(candidate) as OpenRouterStructuredPayload;
+  return JSON.parse(candidate) as T;
 };
+
+const isValidIntentRoute = (value: unknown): value is ChatIntentRoute =>
+  value === 'conversation' ||
+  value === 'planner_read' ||
+  value === 'planner_mutation' ||
+  value === 'external_lookup' ||
+  value === 'hybrid';
 
 const callGoogleTextModel = async (
   model: string,
@@ -2080,6 +2128,215 @@ const buildPlannerMutationPrompt = (
   ].join('\n');
 };
 
+const buildUnifiedTextPrompt = (params: {
+  userMessage: string;
+  history: { role: 'user' | 'model'; text: string }[];
+  systemInstruction: string;
+  currentTasks: Task[];
+  currentCalendarEvents: CalendarEvent[];
+  currentDependencies: Dependency[];
+  workWindow: WorkWindow;
+  strategy: 'balanced' | 'survival' | 'intelligent';
+  currentSchedule: ScheduledTask[] | undefined;
+  temporalContext: { scheduleBaseDate?: string; clientDayStartIso?: string } | undefined;
+  attachments: ChatAttachmentContext[];
+  documentRetrieval: DocumentRetrievalContextPayload;
+}): string => {
+  const scheduleSummary =
+    summarizeScheduleForRelativeDay(
+      params.userMessage,
+      params.currentSchedule,
+      params.temporalContext?.scheduleBaseDate,
+      params.temporalContext?.clientDayStartIso,
+    ) ??
+    buildContextSummary({
+      currentTasks: params.currentTasks,
+      currentCalendarEvents: params.currentCalendarEvents,
+      currentDependencies: params.currentDependencies,
+      workWindow: params.workWindow,
+      strategy: params.strategy,
+      currentSchedule: params.currentSchedule,
+      temporalContext: params.temporalContext,
+    });
+
+  const attachmentContext = buildAttachmentTextContext(params.attachments);
+  const documentContext = params.documentRetrieval.contextText
+    ? `\n\nContexto documental:\n${params.documentRetrieval.contextText}`
+    : '';
+
+  return [
+    params.systemInstruction,
+    '',
+    'Eres la unica inteligencia de texto de Tandeba.',
+    'Debes decidir la intencion real del usuario y responder con una sola salida JSON.',
+    'No hay clasificador separado. No asumas una segunda pasada editorial.',
+    'Devuelve exactamente este JSON:',
+    '{',
+    '  "intentRoute": "conversation | planner_read | planner_mutation | external_lookup | hybrid",',
+    '  "assistantMessage": "respuesta final en espanol para el usuario",',
+    '  "tasks": [],',
+    '  "dependencies": [],',
+    '  "calendarEvents": [],',
+    '  "removedTaskIds": [],',
+    '  "removedCalendarEventIds": []',
+    '}',
+    '',
+    'Reglas de negocio:',
+    '- conversation: saludo, small talk o explicacion. Responde breve y deja tasks/dependencies/calendarEvents sin cambios.',
+    '- planner_read: consulta o resumen de agenda. Responde con el estado real y deja tasks/dependencies/calendarEvents sin cambios.',
+    '- planner_mutation: crear, mover, editar, eliminar o reprogramar algo en agenda. Debes aplicar el cambio y devolver las listas completas actualizadas.',
+    '- Si el ultimo mensaje confirma una propuesta inmediatamente anterior del mismo hilo, interpretalo como confirmacion de esa accion y ejecutala.',
+    '- Nunca digas que registraste o agregaste algo si no devolviste una mutacion real.',
+    '- Si no aplicaste cambios, deja las listas iguales al estado actual.',
+    '- Si el usuario pide informacion del mundo externo, usa external_lookup o hybrid. No inventes hechos externos.',
+    '- No uses markdown ni prosa fuera del JSON.',
+    '',
+    `Historial reciente:\n${formatRecentHistory(params.history)}`,
+    '',
+    `Resumen visible de agenda:\n${scheduleSummary}`,
+    '',
+    `Tareas actuales: ${JSON.stringify(serializePromptTasks(params.currentTasks))}`,
+    `Eventos actuales: ${JSON.stringify(serializePromptEvents(params.currentCalendarEvents))}`,
+    `Dependencias actuales: ${JSON.stringify(serializePromptDependencies(params.currentDependencies))}`,
+    '',
+    `Solicitud del usuario: ${params.userMessage}${attachmentContext}${documentContext}`,
+  ].join('\n');
+};
+
+const callUnifiedOpenRouterTextModel = async (
+  model: string,
+  userMessage: string,
+  history: { role: 'user' | 'model'; text: string }[],
+  systemInstruction: string,
+  currentTasks: Task[],
+  currentCalendarEvents: CalendarEvent[],
+  currentDependencies: Dependency[],
+  workWindow: WorkWindow,
+  strategy: 'balanced' | 'survival' | 'intelligent',
+  currentSchedule: ScheduledTask[] | undefined,
+  temporalContext: {
+    scheduleBaseDate?: string;
+    clientDayStartIso?: string;
+  } | undefined,
+  attachments: ChatAttachmentContext[],
+  documentRetrieval: DocumentRetrievalContextPayload,
+): Promise<ChatResponse & { intentRoute: ChatIntentRoute }> => {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) {
+    throw new Error('OPENROUTER_API_KEY environment variable is missing.');
+  }
+
+  const prompt = buildUnifiedTextPrompt({
+    userMessage,
+    history,
+    systemInstruction,
+    currentTasks,
+    currentCalendarEvents,
+    currentDependencies,
+    workWindow,
+    strategy,
+    currentSchedule,
+    temporalContext,
+    attachments,
+    documentRetrieval,
+  });
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': process.env.PUBLIC_APP_URL || 'https://tandeba.com',
+      'X-OpenRouter-Title': 'Tandeba',
+    },
+    body: JSON.stringify({
+      model,
+      messages: [{ role: 'user', content: prompt }],
+      temperature: 0.15,
+      response_format: { type: 'json_object' },
+    }),
+  });
+
+  const payload = (await response.json()) as OpenRouterResponse & {
+    error?: { message?: string; code?: number | string };
+  };
+  if (!response.ok) {
+    throw new Error(payload?.error?.message || `OpenRouter request failed with status ${response.status}`);
+  }
+
+  const content = payload.choices?.[0]?.message?.content || '';
+  const now = new Date();
+  const contextDateAnchor = inferConversationDateAnchor(userMessage, history, now);
+  const structured = normalizeOpenRouterPayload(
+    extractJsonObject<OpenRouterStructuredPayload>(content),
+    now,
+    contextDateAnchor,
+  );
+
+  const intentRoute = isValidIntentRoute(structured.intentRoute)
+    ? structured.intentRoute
+    : structured.calendarEvents.length > 0 || structured.tasks.length > 0 || structured.removedTaskIds?.length || structured.removedCalendarEventIds?.length
+      ? 'planner_mutation'
+      : 'conversation';
+
+  const usage = {
+    provider: 'openrouter' as const,
+    model,
+    inputTokens: payload.usage?.prompt_tokens ?? 0,
+    outputTokens: payload.usage?.completion_tokens ?? 0,
+  };
+
+  if (intentRoute === 'conversation') {
+    return {
+      intentRoute,
+      text: structured.assistantMessage.trim(),
+      voiceText: structured.assistantMessage.trim(),
+      messageType: 'conversation',
+      plannerMutation: false,
+      performedWebSearch: false,
+      usage,
+    };
+  }
+
+  if (intentRoute === 'planner_read') {
+    return {
+      intentRoute,
+      text: structured.assistantMessage.trim(),
+      voiceText: structured.assistantMessage.trim(),
+      messageType: 'planner',
+      plannerMutation: false,
+      performedWebSearch: false,
+      usage,
+    };
+  }
+
+  const parsed = parseModelMutations(
+    userMessage,
+    structured.tasks || [],
+    structured.calendarEvents || [],
+    (structured.dependencies || []) as Dependency[],
+    structured.removedTaskIds || [],
+    structured.removedCalendarEventIds || [],
+    currentTasks,
+    currentCalendarEvents,
+    currentDependencies,
+    now,
+  );
+
+  return {
+    intentRoute,
+    text: structured.assistantMessage.trim(),
+    voiceText: structured.assistantMessage.trim(),
+    newTasks: parsed.newTasks,
+    newCalendarEvents: parsed.newCalendarEvents,
+    newDependencies: parsed.newDependencies,
+    messageType: intentRoute === 'hybrid' ? 'hybrid' : intentRoute === 'external_lookup' ? 'external_info' : 'planner',
+    plannerMutation: intentRoute === 'planner_mutation' || intentRoute === 'hybrid',
+    performedWebSearch: false,
+    usage,
+  };
+};
+
 export async function chatWithSolverBackend(
   userMessage: string,
   history: { role: 'user' | 'model'; text: string }[],
@@ -2099,6 +2356,120 @@ export async function chatWithSolverBackend(
   documentRetrieval: DocumentRetrievalContextPayload = { hits: [], sources: [], contextText: '' },
   progress?: ChatProgressCallbacks,
 ): Promise<ChatResponse> {
+  if (modelConfig.primaryProvider === 'openrouter' && !modelConfig.fallbackModel) {
+    const systemInstruction = buildSystemInstruction(
+      currentTasks,
+      currentCalendarEvents,
+      currentDependencies,
+      workWindow,
+      strategy,
+      currentSchedule,
+    );
+
+    progress?.onThinkingStart?.({
+      message: 'Analizando tu solicitud...',
+    });
+
+    const unified = await callUnifiedOpenRouterTextModel(
+      modelConfig.primaryModel,
+      userMessage,
+      history,
+      systemInstruction,
+      currentTasks,
+      currentCalendarEvents,
+      currentDependencies,
+      workWindow,
+      strategy,
+      currentSchedule,
+      temporalContext,
+      attachments,
+      documentRetrieval,
+    );
+
+    if (unified.intentRoute === 'external_lookup' || unified.intentRoute === 'hybrid') {
+      progress?.onSearchingStart?.({
+        message: 'Buscando información relevante...',
+      });
+      const searchMode = unified.intentRoute === 'hybrid' ? 'hybrid' : 'external_lookup';
+      const searchResult = await searchExternalInfo(userMessage, searchMode as any, (payload) => {
+        progress?.onSearchingResults?.(payload);
+      });
+
+      const contextSources = [...searchResult.sources, ...documentRetrieval.sources];
+
+      if (unified.intentRoute === 'external_lookup') {
+        progress?.onThinkingStart?.({
+          message: 'Sintetizando la evidencia encontrada...',
+        });
+        const prompt = buildExternalLookupPrompt(userMessage, contextSources, documentRetrieval);
+        const response = await callPlainTextModel(modelConfig.primaryProvider, modelConfig.primaryModel, prompt);
+        return {
+          text: response.text.trim(),
+          voiceText: response.text.trim(),
+          messageType: 'external_info',
+          sources: contextSources,
+          performedWebSearch: true,
+          plannerMutation: false,
+          uiHints: {
+            tone: 'warm',
+            strategy: 'inform_with_context',
+          },
+          usage: response.usage,
+        };
+      }
+
+      progress?.onPlanningStart?.({
+        message: 'Aplicando la información encontrada a tu agenda...',
+      });
+      const effectiveUserMessage = `${userMessage}
+
+${buildSourcesContext(contextSources, searchResult.shouldAskGeography)}
+${documentRetrieval.contextText ? `\n[CONTEXTO DOCUMENTAL SELECCIONADO]\n${documentRetrieval.contextText}` : ''}`;
+
+      const response = await callModelByProvider(
+        modelConfig.primaryProvider,
+        modelConfig.primaryModel,
+        effectiveUserMessage,
+        history,
+        systemInstruction,
+        currentTasks,
+        currentCalendarEvents,
+        currentDependencies,
+        attachments,
+      );
+
+      return {
+        ...response,
+        text: response.text.trim(),
+        voiceText: response.voiceText?.trim() ?? response.text.trim(),
+        messageType: 'hybrid',
+        sources: contextSources,
+        performedWebSearch: true,
+        plannerMutation: response.plannerMutation ?? true,
+        uiHints: {
+          tone: 'warm',
+          strategy: 'confirm_action',
+        },
+      };
+    }
+
+    if (unified.plannerMutation) {
+      progress?.onPlanningStart?.({
+        message: 'Preparando el cambio de agenda...',
+      });
+    }
+
+    return {
+      ...unified,
+      text: unified.text.trim(),
+      voiceText: unified.voiceText?.trim() ?? unified.text.trim(),
+      uiHints: {
+        tone: 'warm',
+        strategy: unified.plannerMutation ? 'confirm_action' : 'inform_with_context',
+      },
+    };
+  }
+
   const candidates = [
     {
       provider: modelConfig.primaryProvider,
