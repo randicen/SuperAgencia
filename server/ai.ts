@@ -78,6 +78,12 @@ type GooglePart =
   | { text: string }
   | { inlineData: { mimeType: string; data: string } };
 
+type IntentClassificationDraft = {
+  intentRoute: ChatIntentRoute;
+  confidence: 'high' | 'medium' | 'low';
+  rationale?: string;
+};
+
 type ProviderName = 'google' | 'openrouter' | 'tavily';
 
 type ChatResponse = {
@@ -910,6 +916,87 @@ const extractJsonSlice = (value: string): string | null => {
   const end = candidate.lastIndexOf('}');
   if (start === -1 || end === -1 || end <= start) return null;
   return candidate.slice(start, end + 1);
+};
+
+const buildIntentClassificationPrompt = (
+  userMessage: string,
+  history: { role: 'user' | 'model'; text: string }[],
+): string => {
+  const recentHistory = history
+    .slice(-6)
+    .map((message) => `${message.role === 'model' ? 'asistente' : 'usuario'}: ${message.text}`)
+    .join('\n');
+
+  return [
+    'Clasifica la intencion del ultimo mensaje del usuario para Tandeba.',
+    'Devuelve solo JSON valido.',
+    'Rutas permitidas: conversation, planner_read, planner_mutation, external_lookup, hybrid.',
+    'Usa planner_mutation cuando el usuario quiere crear, mover, editar, eliminar o reprogramar algo en su agenda, aunque no use palabras exactas del sistema.',
+    'Usa planner_read cuando solo quiere consultar, resumir o entender su agenda actual sin cambiarla.',
+    'Usa external_lookup cuando la solicitud depende de informacion del mundo externo y no cambia la agenda.',
+    'Usa hybrid cuando necesita informacion externa y ademas aplicar ese resultado a la agenda.',
+    'Usa conversation para saludos, small talk, explicaciones del producto o mensajes que no implican agenda ni busqueda externa.',
+    'Prioriza la intencion real del usuario, no coincidencias literales.',
+    'Si el mensaje pide programar algo para una fecha u hora, eso es planner_mutation.',
+    '',
+    'Devuelve exactamente este JSON:',
+    '{"intentRoute":"conversation|planner_read|planner_mutation|external_lookup|hybrid","confidence":"high|medium|low","rationale":"frase breve"}',
+    '',
+    `Historial reciente:\n${recentHistory || 'sin historial relevante'}`,
+    '',
+    `Ultimo mensaje del usuario:\n${userMessage}`,
+  ].join('\n');
+};
+
+const parseIntentClassificationDraft = (raw: string): IntentClassificationDraft => {
+  const extracted = extractJsonSlice(raw);
+  if (!extracted) {
+    throw new Error('Intent classifier returned no JSON object.');
+  }
+
+  const parsed = JSON.parse(extracted) as Partial<IntentClassificationDraft>;
+  const intentRoute =
+    parsed.intentRoute === 'conversation' ||
+    parsed.intentRoute === 'planner_read' ||
+    parsed.intentRoute === 'planner_mutation' ||
+    parsed.intentRoute === 'external_lookup' ||
+    parsed.intentRoute === 'hybrid'
+      ? parsed.intentRoute
+      : null;
+
+  if (!intentRoute) {
+    throw new Error('Intent classifier returned an invalid route.');
+  }
+
+  return {
+    intentRoute,
+    confidence:
+      parsed.confidence === 'high' || parsed.confidence === 'medium' || parsed.confidence === 'low'
+        ? parsed.confidence
+        : 'medium',
+    rationale: parsed.rationale?.trim(),
+  };
+};
+
+export const classifyIntentRouteWithModel = async (
+  userMessage: string,
+  history: { role: 'user' | 'model'; text: string }[],
+): Promise<ChatIntentRoute> => {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    return classifyIntentRoute(userMessage, history as any);
+  }
+
+  try {
+    const response = await callGoogleTextModel(
+      'gemini-3.1-flash-lite-preview',
+      buildIntentClassificationPrompt(userMessage, history),
+    );
+    const parsed = parseIntentClassificationDraft(response.text);
+    return parsed.intentRoute;
+  } catch {
+    return classifyIntentRoute(userMessage, history as any);
+  }
 };
 
 const parseExternalAnswerDraft = (

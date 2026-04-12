@@ -6,7 +6,7 @@ import { existsSync } from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
-import { chatWithSolverBackend } from './server/ai.js';
+import { chatWithSolverBackend, classifyIntentRouteWithModel } from './server/ai.js';
 import { requireAuth, type AuthenticatedRequest } from './server/auth.js';
 import { parseChatAttachments } from './server/chatAttachments.js';
 import {
@@ -27,7 +27,6 @@ import {
 } from './server/documents.js';
 import { assertChannelAccess, recordUsageEvent } from './server/governance.js';
 import { HttpError, isHttpError } from './server/httpErrors.js';
-import { classifyIntentRoute } from './server/intentRouter.js';
 import { registerLiveVoiceProxy } from './server/live.js';
 import { sendTestEmail } from './server/notifications/email.js';
 import { buildCalendarConnectUrl, finalizeCalendarOAuth, verifyOAuthState } from './server/replanning/calendarConnectors.js';
@@ -635,7 +634,7 @@ const startServer = async () => {
       }));
 
       const classifyStartedAt = performance.now();
-      const intentRoute = classifyIntentRoute(effectiveMessage, authoritativeHistory);
+      const intentRoute = await classifyIntentRouteWithModel(effectiveMessage, authoritativeHistory);
       selectedIntent = intentRoute;
       const governance = await assertChannelAccess(authedReq.authUser, 'text', intentRoute);
       selectedRoute = governance.route;

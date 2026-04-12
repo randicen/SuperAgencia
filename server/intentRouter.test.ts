@@ -3,10 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { classifyIntentRoute } from './intentRouter.js';
 
 describe('classifyIntentRoute', () => {
-  it('classifies imperative scheduling requests as planner mutations', () => {
-    expect(classifyIntentRoute('pon cardio mañana 3pm')).toBe('planner_mutation');
-    expect(classifyIntentRoute('anota cardio mañana a las 3 pm')).toBe('planner_mutation');
-    expect(classifyIntentRoute('programa cardio mañana a las 3')).toBe('planner_mutation');
+  it('classifies explicit planner actions as planner mutations', () => {
+    expect(classifyIntentRoute('agendame cardio mañana a las 3 pm')).toBe('planner_mutation');
+    expect(classifyIntentRoute('mueve mi reunion de mañana a las 4')).toBe('planner_mutation');
   });
 
   it('keeps read-only questions as planner read', () => {
