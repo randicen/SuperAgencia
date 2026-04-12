@@ -667,7 +667,7 @@ export default function App() {
   };
 
   const handleToggleLive = () => {
-    if (!access?.voiceAllowed && liveStatus === 'disconnected') {
+    if (access && !access.voiceAllowed && liveStatus === 'disconnected') {
       return;
     }
 
