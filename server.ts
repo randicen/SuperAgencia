@@ -673,6 +673,7 @@ const startServer = async () => {
           fallbackModel: governance.route.fallbackModel,
           modelTier: governance.route.modelTier,
         },
+        intentRoute,
         attachments,
         documentRetrieval,
         streamRequested

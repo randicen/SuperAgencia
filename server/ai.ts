@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type } from '@google/genai';
-import { differenceInMinutes, parseISO, startOfDay } from 'date-fns';
+import { addMinutes, differenceInMinutes, parseISO, startOfDay } from 'date-fns';
 import { CalendarEvent, Task, Dependency, WorkWindow, ScheduledTask } from '../src/lib/solver.js';
 import type { ChatIntentRoute, ChatMessageType, SearchSource } from '../src/lib/plannerState.js';
 import { classifyIntentRoute } from './intentRouter.js';
@@ -442,6 +442,30 @@ const parseClockTime = (rawValue: unknown): { hours: number; minutes: number } |
   return { hours, minutes };
 };
 
+const parseDurationMinutes = (rawValue: unknown): number | null => {
+  if (typeof rawValue === 'number' && Number.isFinite(rawValue) && rawValue > 0) {
+    return rawValue;
+  }
+
+  if (typeof rawValue !== 'string' || !rawValue.trim()) return null;
+  const value = rawValue.trim();
+
+  const hhmmss = value.match(/^(\d{1,2}):(\d{2})(?::(\d{2}))?$/);
+  if (hhmmss) {
+    const hours = Number(hhmmss[1]);
+    const minutes = Number(hhmmss[2]);
+    if (Number.isNaN(hours) || Number.isNaN(minutes)) return null;
+    return hours * 60 + minutes;
+  }
+
+  const numeric = Number(value);
+  if (Number.isFinite(numeric) && numeric > 0) {
+    return numeric;
+  }
+
+  return null;
+};
+
 const coercePriority = (rawValue: unknown): Task['priority'] | undefined => {
   if (typeof rawValue !== 'string') return undefined;
   const value = rawValue.trim().toLowerCase();
@@ -452,16 +476,18 @@ const coercePriority = (rawValue: unknown): Task['priority'] | undefined => {
   return undefined;
 };
 
-const normalizeOpenRouterEvent = (event: any, now: Date) => {
+const normalizeOpenRouterEvent = (event: any, now: Date, fallbackDate?: Date | null) => {
   const title =
     event?.title ||
     event?.eventTitle ||
     event?.name ||
     event?.taskName ||
     'Evento';
-  const eventDate = resolveRelativeDate(event?.date || event?.day, now);
+  const eventDate = resolveRelativeDate(event?.date || event?.day, now) || fallbackDate || null;
   const startTime = parseClockTime(event?.startDateTime || event?.startTime);
   const endTime = parseClockTime(event?.endDateTime || event?.endTime);
+  const fixedStartDateTime = typeof event?.fixedStartDateTime === 'string' ? event.fixedStartDateTime : null;
+  const durationMinutes = parseDurationMinutes(event?.duration);
 
   const normalizedEvent: any = {
     id:
@@ -473,12 +499,16 @@ const normalizeOpenRouterEvent = (event: any, now: Date) => {
 
   if (typeof event?.startDateTime === 'string') {
     normalizedEvent.startDateTime = event.startDateTime;
+  } else if (fixedStartDateTime) {
+    normalizedEvent.startDateTime = fixedStartDateTime;
   } else if (eventDate && startTime) {
     normalizedEvent.startDateTime = buildLocalIso(eventDate, startTime.hours, startTime.minutes);
   }
 
   if (typeof event?.endDateTime === 'string') {
     normalizedEvent.endDateTime = event.endDateTime;
+  } else if (normalizedEvent.startDateTime && durationMinutes) {
+    normalizedEvent.endDateTime = addMinutes(parseISO(normalizedEvent.startDateTime), durationMinutes).toISOString().slice(0, 19);
   } else if (eventDate && endTime) {
     normalizedEvent.endDateTime = buildLocalIso(eventDate, endTime.hours, endTime.minutes);
   }
@@ -486,7 +516,7 @@ const normalizeOpenRouterEvent = (event: any, now: Date) => {
   return normalizedEvent;
 };
 
-const normalizeOpenRouterTask = (task: any, normalizedEvents: any[], now: Date) => {
+const normalizeOpenRouterTask = (task: any, normalizedEvents: any[], now: Date, fallbackDate?: Date | null) => {
   const name = task?.name || task?.taskName || task?.title || 'Tarea';
   const matchingEvent = normalizedEvents.find(
     (event) =>
@@ -509,7 +539,7 @@ const normalizeOpenRouterTask = (task: any, normalizedEvents: any[], now: Date) 
   } else if (matchingEvent?.startDateTime) {
     normalizedTask.fixedStartDateTime = matchingEvent.startDateTime;
   } else {
-    const relativeDate = resolveRelativeDate(task?.date || task?.dueDate, now);
+    const relativeDate = resolveRelativeDate(task?.date || task?.dueDate, now) || fallbackDate || null;
     const clockTime = parseClockTime(task?.time || task?.dueTime);
     if (relativeDate && clockTime) {
       normalizedTask.fixedStartDateTime = buildLocalIso(relativeDate, clockTime.hours, clockTime.minutes);
@@ -523,7 +553,7 @@ const normalizeOpenRouterTask = (task: any, normalizedEvents: any[], now: Date) 
   if (typeof task?.deadlineDateTime === 'string') {
     normalizedTask.deadlineDateTime = task.deadlineDateTime;
   } else {
-    const relativeDate = resolveRelativeDate(task?.dueDate, now);
+    const relativeDate = resolveRelativeDate(task?.dueDate, now) || fallbackDate || null;
     const clockTime = parseClockTime(task?.dueTime);
     if (relativeDate && clockTime && !normalizedTask.fixedStartDateTime) {
       normalizedTask.deadlineDateTime = buildLocalIso(relativeDate, clockTime.hours, clockTime.minutes);
@@ -549,10 +579,45 @@ const normalizeOpenRouterTask = (task: any, normalizedEvents: any[], now: Date) 
   return normalizedTask;
 };
 
-const normalizeOpenRouterPayload = (payload: OpenRouterStructuredPayload, now: Date): OpenRouterStructuredPayload => {
-  const normalizedEvents = (payload.calendarEvents || []).map((event) => normalizeOpenRouterEvent(event, now));
+const inferConversationDateAnchor = (
+  userMessage: string,
+  history: { role: 'user' | 'model'; text: string }[],
+  now: Date,
+): Date | null => {
+  const recentMessages = [
+    userMessage,
+    ...history
+      .slice(-6)
+      .reverse()
+      .filter((entry) => entry.role === 'user')
+      .map((entry) => entry.text),
+  ];
+
+  for (const message of recentMessages) {
+    const normalized = normalizeLooseText(message);
+    if (!normalized) continue;
+
+    if (/\bhoy\b/.test(normalized)) {
+      return resolveRelativeDate('hoy', now);
+    }
+    if (/\bmanana\b/.test(normalized)) {
+      return resolveRelativeDate('manana', now);
+    }
+  }
+
+  return null;
+};
+
+const normalizeOpenRouterPayload = (
+  payload: OpenRouterStructuredPayload,
+  now: Date,
+  fallbackDate?: Date | null,
+): OpenRouterStructuredPayload => {
+  const normalizedEvents = (payload.calendarEvents || []).map((event) =>
+    normalizeOpenRouterEvent(event, now, fallbackDate),
+  );
   const normalizedTasks = (payload.tasks || []).map((task) =>
-    normalizeOpenRouterTask(task, normalizedEvents, now),
+    normalizeOpenRouterTask(task, normalizedEvents, now, fallbackDate),
   );
 
   return {
@@ -1624,6 +1689,12 @@ export const __externalAnswerModel = {
   shouldUseDeterministicEditorial,
 };
 
+export const __openRouterMutationModel = {
+  inferConversationDateAnchor,
+  normalizeOpenRouterPayload,
+  parseModelMutations,
+};
+
 const callGoogleModel = async (
   model: string,
   userMessage: string,
@@ -1816,7 +1887,8 @@ OpenRouter structured-output mode:
   let textResponse = 'He actualizado la agenda según tus instrucciones.';
 
   try {
-    const structured = normalizeOpenRouterPayload(extractJsonObject(content), now);
+    const contextDateAnchor = inferConversationDateAnchor(userMessage, history, now);
+    const structured = normalizeOpenRouterPayload(extractJsonObject(content), now, contextDateAnchor);
     const parsed = parseModelMutations(
       userMessage,
       structured.tasks || [],
@@ -2022,10 +2094,10 @@ export async function chatWithSolverBackend(
     clientDayStartIso?: string;
   } | undefined,
   modelConfig: ModelConfig,
+  intentRoute: ChatIntentRoute,
   attachments: ChatAttachmentContext[] = [],
   documentRetrieval: DocumentRetrievalContextPayload = { hits: [], sources: [], contextText: '' },
   progress?: ChatProgressCallbacks,
-  intentRoute: ChatIntentRoute = classifyIntentRoute(userMessage, history as any),
 ): Promise<ChatResponse> {
   const candidates = [
     {

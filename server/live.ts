@@ -469,6 +469,7 @@ export function registerLiveVoiceProxy(server: HttpServer) {
                         fallbackProvider: textGovernance.route.fallbackProvider,
                         fallbackModel: textGovernance.route.fallbackModel,
                       },
+                      'external_lookup',
                       [],
                       { hits: [], sources: [], contextText: '' },
                       {
