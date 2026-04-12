@@ -21,6 +21,12 @@ import { DEFAULT_PLANNER_STATE } from './src/lib/plannerState.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const distIndexPath = path.join(__dirname, 'dist', 'index.html');
+const deploymentBuildId =
+  process.env.RAILWAY_DEPLOYMENT_ID ||
+  process.env.RAILWAY_GIT_COMMIT_SHA ||
+  process.env.SOURCE_VERSION ||
+  `local-${Date.now()}`;
+const deploymentStartedAt = new Date().toISOString();
 
 const shouldUseViteDevServer = () => {
   const explicitDev =
@@ -41,9 +47,19 @@ const startServer = async () => {
   const upload = multer({ storage: multer.memoryStorage() });
 
   app.use(express.json({ limit: '2mb' }));
+  app.use((_req, res, next) => {
+    res.setHeader('X-Tandeba-Build-Id', deploymentBuildId);
+    next();
+  });
 
   // Healthcheck
   app.get('/api/health', (_req, res) => res.json({ status: 'ok', service: 'Tandeba 2.0' }));
+  app.get('/api/version', (_req, res) =>
+    res.json({
+      buildId: deploymentBuildId,
+      deployedAt: deploymentStartedAt,
+    }),
+  );
 
   // Load State
   app.get('/api/state', requireAuth, async (req, res, next) => {

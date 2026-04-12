@@ -170,13 +170,40 @@ export default function App() {
   const [liveStatus, setLiveStatus] = useState<'disconnected' | 'connecting' | 'connected'>(
     'disconnected',
   );
+  const [availableBuildId, setAvailableBuildId] = useState<string | null>(null);
+  const [availableBuildDeployedAt, setAvailableBuildDeployedAt] = useState<string | null>(null);
 
   const liveAgentRef = useRef<LiveAgent | null>(null);
   const hasHydratedRef = useRef(false);
   const hasStateLoadedRef = useRef(false);
   const skipNextPersistRef = useRef(false);
   const loadedUserIdRef = useRef<string | null>(null);
+  const baselineBuildIdRef = useRef<string | null>(null);
+  const reloadTimeoutRef = useRef<number | null>(null);
   const authLoading = !authLoaded;
+
+  const markBuildAsCurrent = (buildId: string, deployedAt?: string | null) => {
+    if (!buildId) return;
+
+    if (!baselineBuildIdRef.current) {
+      baselineBuildIdRef.current = buildId;
+      setAvailableBuildId(null);
+      setAvailableBuildDeployedAt(null);
+      return;
+    }
+
+    if (baselineBuildIdRef.current !== buildId) {
+      setAvailableBuildId(buildId);
+      setAvailableBuildDeployedAt(deployedAt ?? null);
+    }
+  };
+
+  const syncBuildFromResponse = (response: Response) => {
+    const buildId = response.headers.get('X-Tandeba-Build-Id');
+    if (buildId) {
+      markBuildAsCurrent(buildId);
+    }
+  };
 
 
   const resetPlannerState = () => {
@@ -263,12 +290,36 @@ export default function App() {
       ...init,
       headers,
     });
+    syncBuildFromResponse(response);
 
     if (response.status === 401) {
       await signOut();
     }
 
     return response;
+  };
+
+  const checkForNewDeployment = async () => {
+    try {
+      const response = await fetch('/api/version', {
+        cache: 'no-store',
+        headers: {
+          Accept: 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        return;
+      }
+
+      syncBuildFromResponse(response);
+      const payload = (await response.json()) as { buildId?: string; deployedAt?: string | null };
+      if (payload.buildId) {
+        markBuildAsCurrent(payload.buildId, payload.deployedAt ?? null);
+      }
+    } catch (error) {
+      console.error('Failed to check deployment version:', error);
+    }
   };
 
   const loadDocuments = async (query?: string) => {
@@ -368,6 +419,35 @@ export default function App() {
 
     return () => window.clearTimeout(timeoutId);
   }, [isSignedIn, showDocuments, documentQuery]);
+
+  useEffect(() => {
+    if (!isSignedIn) {
+      baselineBuildIdRef.current = null;
+      setAvailableBuildId(null);
+      setAvailableBuildDeployedAt(null);
+      return;
+    }
+
+    checkForNewDeployment();
+
+    const intervalId = window.setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        checkForNewDeployment();
+      }
+    }, 30000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        checkForNewDeployment();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+    };
+  }, [isSignedIn]);
 
   useEffect(() => {
     const agent = new LiveAgent(
@@ -612,6 +692,27 @@ export default function App() {
       setVoiceError(null);
     }
   }, [liveStatus]);
+
+  useEffect(() => {
+    if (!availableBuildId || isLoading || liveStatus !== 'disconnected') {
+      if (reloadTimeoutRef.current !== null) {
+        window.clearTimeout(reloadTimeoutRef.current);
+        reloadTimeoutRef.current = null;
+      }
+      return;
+    }
+
+    reloadTimeoutRef.current = window.setTimeout(() => {
+      window.location.reload();
+    }, 2500);
+
+    return () => {
+      if (reloadTimeoutRef.current !== null) {
+        window.clearTimeout(reloadTimeoutRef.current);
+        reloadTimeoutRef.current = null;
+      }
+    };
+  }, [availableBuildId, isLoading, liveStatus]);
 
   useEffect(() => {
     if (!isSignedIn || !hasHydratedRef.current || !hasStateLoadedRef.current) return;
@@ -901,6 +1002,7 @@ export default function App() {
   // In Tandeba 2.0, text and voice are always enabled (single model, no quotas)
   const canUseText = true;
   const canUseVoice = true;
+  const showUpdateBanner = Boolean(availableBuildId);
 
   return (
     <div className="relative h-screen bg-[#F8FAFC] flex flex-col font-sans text-gray-900 overflow-hidden">
@@ -977,6 +1079,32 @@ export default function App() {
           ) : null}
         </div>
       </header>
+
+      {showUpdateBanner ? (
+        <div className="shrink-0 border-b border-amber-200 bg-amber-50 px-6 py-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-amber-900">
+                Hay una nueva versión de Tandeba lista.
+              </p>
+              <p className="text-xs text-amber-800">
+                {isLoading || liveStatus !== 'disconnected'
+                  ? 'Terminando tu operación actual antes de recargar.'
+                  : 'Recargando automáticamente para mantener la sesión estable.'}
+                {availableBuildDeployedAt
+                  ? ` Despliegue detectado: ${new Date(availableBuildDeployedAt).toLocaleTimeString()}.`
+                  : ''}
+              </p>
+            </div>
+            <button
+              onClick={() => window.location.reload()}
+              className="rounded-full bg-amber-900 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-amber-950"
+            >
+              Recargar ahora
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {showSettings && (
         <div className="bg-white border-b border-gray-200 p-4 px-6 shadow-sm z-20 space-y-5">
@@ -1214,4 +1342,3 @@ export default function App() {
     </div>
   );
 }
-
