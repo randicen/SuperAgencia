@@ -982,21 +982,12 @@ export const classifyIntentRouteWithModel = async (
   userMessage: string,
   history: { role: 'user' | 'model'; text: string }[],
 ): Promise<ChatIntentRoute> => {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) {
-    return classifyIntentRoute(userMessage, history as any);
-  }
-
-  try {
-    const response = await callGoogleTextModel(
-      'gemini-3.1-flash-lite-preview',
-      buildIntentClassificationPrompt(userMessage, history),
-    );
-    const parsed = parseIntentClassificationDraft(response.text);
-    return parsed.intentRoute;
-  } catch {
-    return classifyIntentRoute(userMessage, history as any);
-  }
+  const response = await callOpenRouterTextModel(
+    'google/gemma-3-12b-it',
+    buildIntentClassificationPrompt(userMessage, history),
+  );
+  const parsed = parseIntentClassificationDraft(response.text);
+  return parsed.intentRoute;
 };
 
 const parseExternalAnswerDraft = (

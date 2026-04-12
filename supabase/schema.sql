@@ -523,8 +523,8 @@ insert into public.model_routes (
   enabled
 )
 values
-  ('free', 'text', 'google', 'gemini-3.1-flash-lite-preview', 'openrouter', 'google/gemma-3-12b-it:free', true),
-  ('premium', 'text', 'google', 'gemini-3.1-flash-lite-preview', 'openrouter', 'google/gemma-3-12b-it:free', true),
+  ('free', 'text', 'openrouter', 'google/gemma-3-12b-it', null, null, true),
+  ('premium', 'text', 'openrouter', 'google/gemma-3-12b-it', null, null, true),
   ('premium', 'voice', 'google', 'gemini-2.5-flash-native-audio-preview-12-2025', null, null, true);
 
 insert into public.intent_model_routes (
@@ -539,13 +539,13 @@ insert into public.intent_model_routes (
   enabled
 )
 values
-  ('free', 'text', 'conversation', 'google', 'gemini-3.1-flash-lite-preview', 'openrouter', 'google/gemma-3-12b-it:free', 'fast', true),
-  ('free', 'text', 'planner_read', 'google', 'gemini-3.1-flash-lite-preview', 'openrouter', 'google/gemma-3-12b-it:free', 'fast', true),
-  ('free', 'text', 'planner_mutation', 'google', 'gemini-3.1-flash-lite-preview', 'openrouter', 'google/gemma-3-12b-it:free', 'heavy', true),
-  ('free', 'text', 'external_lookup', 'google', 'gemini-3.1-flash-lite-preview', 'openrouter', 'google/gemma-3-12b-it:free', 'heavy', true),
-  ('free', 'text', 'hybrid', 'google', 'gemini-3.1-flash-lite-preview', 'openrouter', 'google/gemma-3-12b-it:free', 'heavy', true),
-  ('premium', 'text', 'conversation', 'google', 'gemini-3.1-flash-lite-preview', 'openrouter', 'google/gemma-3-12b-it:free', 'fast', true),
-  ('premium', 'text', 'planner_read', 'google', 'gemini-3.1-flash-lite-preview', 'openrouter', 'google/gemma-3-12b-it:free', 'fast', true),
-  ('premium', 'text', 'planner_mutation', 'google', 'gemini-3.1-flash-lite-preview', 'openrouter', 'google/gemma-3-12b-it:free', 'heavy', true),
-  ('premium', 'text', 'external_lookup', 'google', 'gemini-3.1-flash-lite-preview', 'openrouter', 'google/gemma-3-12b-it:free', 'heavy', true),
-  ('premium', 'text', 'hybrid', 'google', 'gemini-3.1-flash-lite-preview', 'openrouter', 'google/gemma-3-12b-it:free', 'heavy', true);
+  ('free', 'text', 'conversation', 'openrouter', 'google/gemma-3-12b-it', null, null, 'fast', true),
+  ('free', 'text', 'planner_read', 'openrouter', 'google/gemma-3-12b-it', null, null, 'fast', true),
+  ('free', 'text', 'planner_mutation', 'openrouter', 'google/gemma-3-12b-it', null, null, 'heavy', true),
+  ('free', 'text', 'external_lookup', 'openrouter', 'google/gemma-3-12b-it', null, null, 'heavy', true),
+  ('free', 'text', 'hybrid', 'openrouter', 'google/gemma-3-12b-it', null, null, 'heavy', true),
+  ('premium', 'text', 'conversation', 'openrouter', 'google/gemma-3-12b-it', null, null, 'fast', true),
+  ('premium', 'text', 'planner_read', 'openrouter', 'google/gemma-3-12b-it', null, null, 'fast', true),
+  ('premium', 'text', 'planner_mutation', 'openrouter', 'google/gemma-3-12b-it', null, null, 'heavy', true),
+  ('premium', 'text', 'external_lookup', 'openrouter', 'google/gemma-3-12b-it', null, null, 'heavy', true),
+  ('premium', 'text', 'hybrid', 'openrouter', 'google/gemma-3-12b-it', null, null, 'heavy', true);
