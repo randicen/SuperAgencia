@@ -51,7 +51,9 @@ type ServerEnvelope =
   | { type: 'search_progress'; payload: { message: string; sources: [] } }
   | { type: 'error'; payload: { message: string } };
 
-const LIVE_MODEL = process.env.GEMINI_LIVE_MODEL || 'gemini-live-2.5-flash-preview';
+const LIVE_MODEL =
+  process.env.GEMINI_LIVE_MODEL || 'gemini-2.5-flash-native-audio-preview-12-2025';
+const LIVE_CONNECT_TIMEOUT_MS = 12_000;
 
 const getEnv = (name: string): string => {
   const value = process.env[name];
@@ -87,6 +89,23 @@ const buildLiveSystemInstruction = (state: PlannerState | null, context: LiveCli
 const sendEnvelope = (socket: WebSocket, envelope: ServerEnvelope) => {
   if (socket.readyState === socket.OPEN) {
     socket.send(JSON.stringify(envelope));
+  }
+};
+
+const withTimeout = async <T>(promise: Promise<T>, timeoutMs: number, message: string): Promise<T> => {
+  let timer: NodeJS.Timeout | null = null;
+
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<T>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), timeoutMs);
+      }),
+    ]);
+  } finally {
+    if (timer) {
+      clearTimeout(timer);
+    }
   }
 };
 
@@ -167,38 +186,42 @@ class LiveVoiceBridge {
       currentState = null;
     }
 
-    this.liveSession = await this.ai.live.connect({
-      model: LIVE_MODEL,
-      config: {
-        responseModalities: [Modality.AUDIO],
-        systemInstruction: buildLiveSystemInstruction(currentState, context),
-        inputAudioTranscription: {},
-        outputAudioTranscription: {},
-      },
-      callbacks: {
-        onopen: () => {
-          sendEnvelope(this.socket, { type: 'status', payload: { status: 'connected' } });
+    this.liveSession = await withTimeout(
+      this.ai.live.connect({
+        model: LIVE_MODEL,
+        config: {
+          responseModalities: [Modality.AUDIO],
+          systemInstruction: buildLiveSystemInstruction(currentState, context),
+          inputAudioTranscription: {},
+          outputAudioTranscription: {},
         },
-        onmessage: (message) => {
-          void this.handleLiveMessage(message);
-        },
-        onerror: (event) => {
-          const message =
-            event.error instanceof Error ? event.error.message : 'Se interrumpió la sesión de voz.';
-          sendEnvelope(this.socket, { type: 'error', payload: { message } });
-        },
-        onclose: () => {
-          if (!this.disconnected) {
-            sendEnvelope(this.socket, { type: 'status', payload: { status: 'disconnected' } });
-            try {
-              this.socket.close(1011, 'gemini_live_closed');
-            } catch {
-              // ignore
+        callbacks: {
+          onopen: () => {
+            sendEnvelope(this.socket, { type: 'status', payload: { status: 'connected' } });
+          },
+          onmessage: (message) => {
+            void this.handleLiveMessage(message);
+          },
+          onerror: (event) => {
+            const message =
+              event.error instanceof Error ? event.error.message : 'Se interrumpió la sesión de voz.';
+            sendEnvelope(this.socket, { type: 'error', payload: { message } });
+          },
+          onclose: () => {
+            if (!this.disconnected) {
+              sendEnvelope(this.socket, { type: 'status', payload: { status: 'disconnected' } });
+              try {
+                this.socket.close(1011, 'gemini_live_closed');
+              } catch {
+                // ignore
+              }
             }
-          }
+          },
         },
-      },
-    });
+      }),
+      LIVE_CONNECT_TIMEOUT_MS,
+      `Gemini Live no respondió al abrir la sesión con el modelo '${LIVE_MODEL}'.`,
+    );
   }
 
   private async handleLiveMessage(message: LiveServerMessage) {
