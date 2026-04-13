@@ -1,6 +1,7 @@
 ﻿import React, { useEffect, useRef, useState } from 'react';
 import { useAuth, useClerk } from '@clerk/react';
 import { Chat } from './components/Chat';
+import { AdminPanel } from './components/AdminPanel';
 import { DocumentLibrary } from './components/DocumentLibrary';
 import { Gantt } from './components/Gantt';
 import { AuthScreen } from './components/AuthScreen';
@@ -1344,6 +1345,8 @@ export default function App() {
         onOpenDocument={handleOpenDocument}
         onDeleteDocument={handleDeleteDocument}
       />
+
+      <AdminPanel />
     </div>
   );
 }
