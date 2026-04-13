@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useAuth, useUser } from '@clerk/clerk-react';
+import { useAuth, useUser } from '@clerk/react';
 
 const ADMIN_EMAILS = ['japabontorres@gmail.com', 'joseorantes@gmail.com'];
 
