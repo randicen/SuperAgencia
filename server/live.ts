@@ -391,19 +391,16 @@ export function registerLiveVoiceProxy(server: HttpServer) {
       }
 
       const ai = new GoogleGenAI({ apiKey });
-      const candidateModels = [voiceRoute.model, voiceRoute.fallbackModel].filter(Boolean) as string[];
-      let lastError: unknown = null;
+      // USAR SOLO EL MODELO PRINCIPAL SIN FALLBACK
+      const model = voiceRoute.model;
 
-      for (const model of candidateModels) {
-        try {
-          liveSession = await ai.live.connect({
-            model,
-            config: {
-              responseModalities: [Modality.AUDIO],
-              speechConfig: {
-                voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
-              },
-              systemInstruction: buildVoiceSystemInstruction(liveContext),
+      try {
+        liveSession = await ai.live.connect({
+          model,
+          config: {
+            responseModalities: [Modality.AUDIO],
+            speechConfig: {
+              voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Zephyr' } },
               tools: [{ functionDeclarations: [updateScheduleTool, searchExternalInfoTool] }],
             },
             callbacks: {

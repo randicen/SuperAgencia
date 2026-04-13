@@ -306,27 +306,22 @@ const loadPlanDefinition = async (planCode: UserTier): Promise<PlanDefinitionRow
 };
 
 const loadRoute = async (planCode: UserTier, channel: AiChannel): Promise<ModelRoute | null> => {
-  const supabase = getSupabaseAdmin();
-  const result = await supabase
-    .from('model_routes')
-    .select('*')
-    .eq('plan_code', planCode)
-    .eq('channel', channel)
-    .maybeSingle();
-
-  if (result.error) throw result.error;
-  if (!result.data) return null;
-
-  const route = result.data as ModelRouteRow;
-  if (!route.enabled) return null;
-
-  return {
-    provider: route.primary_provider,
-    model: route.primary_model,
-    fallbackProvider: route.fallback_provider ?? undefined,
-    fallbackModel: route.fallback_model ?? undefined,
-    modelTier: route.fallback_model ? 'fast' : 'heavy',
-  };
+  // FORZAR MODELOS ESPECÍFICOS SIN FALLBACK
+  if (channel === 'text') {
+    return {
+      provider: 'google',
+      model: 'gemini-3.1-flash-lite-preview',
+      modelTier: 'fast',
+    };
+  }
+  if (channel === 'voice') {
+    return {
+      provider: 'google',
+      model: 'gemini-3.1-flash-live-preview',
+      modelTier: 'fast',
+    };
+  }
+  return null;
 };
 
 const loadIntentRoute = async (
@@ -334,28 +329,15 @@ const loadIntentRoute = async (
   channel: AiChannel,
   intentRoute: ChatIntentRoute,
 ): Promise<ModelRoute | null> => {
-  const supabase = getSupabaseAdmin();
-  const result = await supabase
-    .from('intent_model_routes')
-    .select('*')
-    .eq('plan_code', planCode)
-    .eq('channel', channel)
-    .eq('intent_route', intentRoute)
-    .maybeSingle();
-
-  if (result.error) throw result.error;
-  if (!result.data) return null;
-
-  const route = result.data as IntentModelRouteRow;
-  if (!route.enabled) return null;
-
-  return {
-    provider: route.primary_provider,
-    model: route.primary_model,
-    fallbackProvider: route.fallback_provider ?? undefined,
-    fallbackModel: route.fallback_model ?? undefined,
-    modelTier: route.model_tier,
-  };
+  // USAR EL MISMO MODELO SIN FALLBACK PARA TODOS LOS INTENTS DE TEXTO
+  if (channel === 'text') {
+    return {
+      provider: 'google',
+      model: 'gemini-3.1-flash-lite-preview',
+      modelTier: 'fast',
+    };
+  }
+  return null;
 };
 
 export const resolveEffectivePlanCode = (
