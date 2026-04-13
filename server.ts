@@ -473,19 +473,106 @@ const startServer = async () => {
     }
   });
 
-  app.post('/api/admin/reset-voice', requireAuth, async (req, res, next) => {
+  const ADMIN_EMAILS = ['japabontorres@gmail.com', 'joseorantes@gmail.com'];
+
+  const isAdmin = (email: string | null) => ADMIN_EMAILS.includes(email ?? '');
+
+  app.get('/api/admin/usage', requireAuth, async (req, res, next) => {
     try {
       const authedReq = req as AuthenticatedRequest;
+      if (!isAdmin(authedReq.authUser.email)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
       const supabase = getSupabaseAdmin();
+      const email = typeof req.query.email === 'string' ? req.query.email : null;
+
+      if (email) {
+        const { data: profile } = await supabase
+          .from('profiles')
+          .select('id, email, full_name, tier, account_status')
+          .eq('email', email)
+          .single();
+
+        if (!profile) {
+          return res.status(404).json({ error: 'User not found' });
+        }
+
+        const { data: usage } = await supabase
+          .from('usage_counters')
+          .select('*')
+          .eq('user_id', profile.id)
+          .single();
+
+        const { data: entitlements } = await supabase
+          .from('entitlements')
+          .select('plan_code, period_start, period_end')
+          .eq('user_id', profile.id)
+          .single();
+
+        return res.json({ profile, usage, entitlements });
+      }
+
+      const { data: allUsage } = await supabase
+        .from('usage_counters')
+        .select('*, profiles(email, full_name)')
+        .limit(50);
+
+      res.json({ usage: allUsage });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/admin/usage', requireAuth, async (req, res, next) => {
+    try {
+      const authedReq = req as AuthenticatedRequest;
+      if (!isAdmin(authedReq.authUser.email)) {
+        return res.status(403).json({ error: 'Forbidden' });
+      }
+
+      const supabase = getSupabaseAdmin();
+      const { email, action, field, value } = req.body;
+
+      if (!email || !action || !field) {
+        return res.status(400).json({ error: 'Missing required fields: email, action, field' });
+      }
+
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('email', email)
+        .single();
+
+      if (!profile) {
+        return res.status(404).json({ error: 'User not found' });
+      }
+
+      let updateData: Record<string, number> = {};
+
+      if (action === 'reset') {
+        updateData[field] = 0;
+      } else if (action === 'set' && typeof value === 'number') {
+        updateData[field] = value;
+      } else if (action === 'add' && typeof value === 'number') {
+        const { data: current } = await supabase
+          .from('usage_counters')
+          .select(field)
+          .eq('user_id', profile.id)
+          .single();
+        updateData[field] = (current?.[field] ?? 0) + value;
+      } else {
+        return res.status(400).json({ error: 'Invalid action or value' });
+      }
 
       const { error } = await supabase
         .from('usage_counters')
-        .update({ voice_seconds_used_period: 0 })
-        .eq('user_id', authedReq.authUser.id);
+        .update(updateData)
+        .eq('user_id', profile.id);
 
       if (error) throw error;
 
-      res.json({ success: true, message: 'Saldo de voz recargado exitosamente.' });
+      res.json({ success: true, message: `Field ${field} updated for ${email}`, updateData });
     } catch (error) {
       next(error);
     }
