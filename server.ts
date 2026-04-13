@@ -7,7 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { chatWithSolverBackend } from './server/ai.js';
-import { requireAuth, type AuthenticatedRequest } from './server/auth.js';
+import { getSupabaseUrl, getSupabaseAnonKey, getSupabaseServiceRoleKey, getSupabaseAdmin } from './server/supabase.js';
 import { parseChatAttachments } from './server/chatAttachments.js';
 import {
   assertReplayRequestId,
@@ -467,6 +467,24 @@ const startServer = async () => {
     try {
       const state = await redoPlannerState((req as AuthenticatedRequest).authUser);
       res.json({ state });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post('/api/admin/reset-voice', requireAuth, async (req, res, next) => {
+    try {
+      const authedReq = req as AuthenticatedRequest;
+      const supabase = getSupabaseAdmin();
+
+      const { error } = await supabase
+        .from('usage_counters')
+        .update({ voice_seconds_used_period: 0 })
+        .eq('user_id', authedReq.authUser.id);
+
+      if (error) throw error;
+
+      res.json({ success: true, message: 'Saldo de voz recargado exitosamente.' });
     } catch (error) {
       next(error);
     }
