@@ -8,6 +8,7 @@ import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { chatWithSolverBackend } from './server/ai.js';
 import { getSupabaseUrl, getSupabaseAnonKey, getSupabaseServiceRoleKey, getSupabaseAdmin } from './server/supabase.js';
+import { requireAuth, type AuthenticatedRequest } from './server/auth.js';
 import { parseChatAttachments } from './server/chatAttachments.js';
 import {
   assertReplayRequestId,
