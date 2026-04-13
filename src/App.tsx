@@ -668,6 +668,7 @@ export default function App() {
 
   const handleToggleLive = () => {
     if (access && !access.voiceAllowed && liveStatus === 'disconnected') {
+      setVoiceError('La llamada de voz está disponible solo para cuentas premium con saldo vigente.');
       return;
     }
 
